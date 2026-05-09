@@ -1,0 +1,35 @@
+# Multi-LLM-Nexus — Adapter Configuration
+# Copy to adapters.yaml and fill in your values.
+# Enable the platforms you want to use. Disable by setting enabled: false.
+
+adapters:
+
+  mattermost:
+    enabled: true
+    url: http://localhost:8065          # your Mattermost server URL
+    token: ${MATTERMOST_BOT_TOKEN}      # bot token from Mattermost admin
+    team_name: your-team
+    allowed_users:
+      - your_username
+
+  discord:
+    enabled: false
+    token: ${DISCORD_BOT_TOKEN}
+    allowed_guilds: []                  # empty = all guilds
+    poll_interval: 5                    # seconds between REST polls
+
+  telegram:
+    enabled: false
+    token: ${TELEGRAM_BOT_TOKEN}
+    allowed_users: []                   # Telegram user IDs (integers)
+
+  slack:
+    enabled: false
+    bot_token: ${SLACK_BOT_TOKEN}
+    app_token: ${SLACK_APP_TOKEN}       # required for socket mode
+
+  matrix:
+    enabled: false
+    homeserver: https://matrix.org
+    user_id: "@yourbot:matrix.org"
+    access_token: ${MATRIX_ACCESS_TOKEN}
