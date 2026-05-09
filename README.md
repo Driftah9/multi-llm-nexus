@@ -129,6 +129,69 @@ python -m src.main
 
 ---
 
+## Running a Local LLM
+
+Nexus uses [Ollama](https://ollama.com) to talk to local models — no API key, nothing leaves your network. Local models cover the triage and standard tiers well. For deep tier, most users route to a cloud provider even if everything else is local.
+
+**Why this matters for Nexus specifically:** The triage model runs on *every* message to classify it before routing. On CPU-only hardware, even a 3B model takes 5-10 seconds just to classify — that's dead time before the actual reply starts. An 8GB GPU cuts triage to under a second.
+
+### Recommended Models
+
+| Role | Tier | Model | VRAM | Notes |
+|---|---|---|---|---|
+| Triage | nano | `phi4-mini` | ~2.5 GB | Fast classification, Microsoft, runs cool |
+| Standard | standard | `llama3.1:8b` | ~5 GB | Meta, solid general capability |
+| Privacy/local | standard | `mistral:7b` | ~4.5 GB | Good alt to llama, strong reasoning |
+| Deep (local) | deep | `phi3:14b-medium` | ~9 GB | Only if you have 12GB+ VRAM |
+
+Pull models once Ollama is installed:
+
+```bash
+ollama pull phi4-mini
+ollama pull llama3.1:8b
+```
+
+### Hardware Requirements
+
+| Tier | CPU | RAM | GPU | What runs |
+|---|---|---|---|---|
+| **Minimum** | 8-core modern | 16 GB | None (CPU-only) | phi4-mini triage (~8 tok/s), llama3.1:8b standard (slow, ~3 tok/s) |
+| **Recommended** | 8-core modern | 16–32 GB | **8 GB VRAM** (RTX 3060 / 4060 / RX 7600) | phi4-mini triage (<1s), llama3.1:8b standard (3–8s/response) |
+| **Comfortable** | 8-core modern | 32 GB | **12 GB VRAM** (RTX 3080 / 4070) | Above + phi3:14b for deep locally; mistral:7b as alt standard |
+
+> **CPU-only works but feels slow.** A budget 8GB GPU (RTX 3060, ~$200 used) changes the experience completely — triage drops from 8s to under 1s.
+
+> **Deep tier on local hardware is rarely worth it.** A 70B model needs 40+ GB VRAM to run at usable speed. Most users run triage + standard locally and route deep to Groq (free tier) or Anthropic.
+
+### Hybrid Setup (recommended for most users)
+
+```yaml
+# providers.yaml
+providers:
+  primary:
+    type: ollama
+    model: llama3.1:8b              # local, standard workload
+
+  triage:
+    type: ollama
+    model: phi4-mini                # local, sub-1s on 8GB GPU
+
+  deep:
+    type: openai                    # cloud only for heavy reasoning
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
+    # Or Groq (free tier): llama-3.3-70b-versatile
+
+routing:
+  default: primary
+  triage: triage
+  patterns:
+    - match: "\\bthink\\b|plan|architect|analyze|compare"
+      provider: deep
+```
+
+---
+
 ## Multi-LLM Routing
 
 `config/providers.yaml` controls which model handles which task type:
