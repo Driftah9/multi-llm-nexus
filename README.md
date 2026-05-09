@@ -158,10 +158,29 @@ ollama pull llama3.1:8b
 | **Minimum** | 8-core modern | 16 GB | None (CPU-only) | phi4-mini triage (~8 tok/s), llama3.1:8b standard (slow, ~3 tok/s) |
 | **Recommended** | 8-core modern | 16–32 GB | **8 GB VRAM** (RTX 3060 / 4060 / RX 7600) | phi4-mini triage (<1s), llama3.1:8b standard (3–8s/response) |
 | **Comfortable** | 8-core modern | 32 GB | **12 GB VRAM** (RTX 3080 / 4070) | Above + phi3:14b for deep locally; mistral:7b as alt standard |
+| **Enthusiast** | 8-core modern | 32–64 GB | **V100 SXM2 16 GB or 32 GB** + PCIe riser | See below |
 
 > **CPU-only works but feels slow.** A budget 8GB GPU (RTX 3060, ~$200 used) changes the experience completely — triage drops from 8s to under 1s.
 
-> **Deep tier on local hardware is rarely worth it.** A 70B model needs 40+ GB VRAM to run at usable speed. Most users run triage + standard locally and route deep to Groq (free tier) or Anthropic.
+> **Deep tier on local hardware is rarely worth it** with consumer cards. The V100 SXM2 32GB is the exception — see below.
+
+### Enthusiast Pick: NVIDIA Tesla V100 SXM2
+
+The V100 SXM2 is a data center GPU that ended up cheap on the secondhand market (~$200–400 for 16GB, ~$400–700 for 32GB as of 2025). It is not a consumer card — it has no display output and uses the SXM2 form factor, which requires a **PCIe riser adapter** (~$50–100) to install in a standard desktop or server chassis.
+
+| Model | VRAM | What runs locally |
+|---|---|---|
+| V100 SXM2 16GB | 16 GB HBM2 | phi4-mini, llama3.1:8b, phi3:14b, mistral:7b — full standard tier with headroom |
+| V100 SXM2 32GB | 32 GB HBM2 | All above + **Mixtral 8x7B (~26GB)**, **llama3.1:70B at Q3 (~28GB)** — runs deep tier locally |
+
+The 32GB model is the only consumer-accessible path to running a 70B-class model at usable speed without spending $1,000+ on a modern GPU. HBM2 memory bandwidth (900 GB/s) is significantly faster than GDDR6X, so token generation is faster than the VRAM number alone suggests.
+
+**Requirements for the riser setup:**
+- PCIe x16 riser card compatible with SXM2 (search "V100 SXM2 PCIe adapter" — several vendors sell these)
+- 8-pin or 6+2 PCIe power connectors × 2 (250–300W TDP)
+- Motherboard with a free PCIe x16 slot
+- A separate GPU or integrated graphics for display output (V100 has none)
+- Linux preferred — Ollama's CUDA support is plug-and-play; Windows requires additional driver steps
 
 ### Hybrid Setup (recommended for most users)
 
