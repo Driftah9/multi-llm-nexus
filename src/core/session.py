@@ -1,8 +1,20 @@
 """
-Provider-agnostic session management.
-Each conversation context (channel, thread, DM) gets its own session.
-Sessions persist across daemon restarts via JSON store.
+Provider-agnostic session store.
+
+Stores arbitrary string values (e.g. claude_code session IDs) keyed by a
+platform session key ("mm_channelid", "tg_chatid_threadid", etc.).
+
+API used by bridge.py and all adapters:
+  sessions.get(key)            → Optional[str]   (sync)
+  await sessions.set(key, val) → None
+  await sessions.mark_active(key) → None
+  await sessions.mark_idle(key)   → None
+  await sessions.clear(key)    → None
+  sessions.purge_stale(ttl)    → int (count removed)
+  sessions.stats()             → dict
 """
+from __future__ import annotations
+
 import json
 import time
 from dataclasses import dataclass, field, asdict
@@ -11,74 +23,91 @@ from typing import Optional
 
 
 @dataclass
-class Session:
-    session_id: str
-    platform: str
-    channel_id: str
-    provider_name: str
+class SessionEntry:
+    value: str = ""
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
-    message_count: int = 0
-    context: dict = field(default_factory=dict)
-    metadata: dict = field(default_factory=dict)
-
-    def touch(self):
-        self.last_active = time.time()
-        self.message_count += 1
-
-    def is_stale(self, ttl_seconds: int = 3600) -> bool:
-        return (time.time() - self.last_active) > ttl_seconds
+    active: bool = False
 
 
 class SessionStore:
     def __init__(self, store_path: str = "config/sessions.json"):
         self.path = Path(store_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._sessions: dict[str, Session] = {}
+        self._data: dict[str, SessionEntry] = {}
         self._load()
 
-    def get(self, session_id: str) -> Optional[Session]:
-        return self._sessions.get(session_id)
+    # ── Sync read ──────────────────────────────────────────────────────────
 
-    def get_or_create(self, session_id: str, platform: str, channel_id: str, provider_name: str) -> Session:
-        if session_id not in self._sessions:
-            self._sessions[session_id] = Session(
-                session_id=session_id,
-                platform=platform,
-                channel_id=channel_id,
-                provider_name=provider_name,
-            )
-            self._save()
-        return self._sessions[session_id]
+    def get(self, key: str) -> Optional[str]:
+        entry = self._data.get(key)
+        return entry.value if entry else None
 
-    def update(self, session: Session):
-        session.touch()
-        self._sessions[session.session_id] = session
+    # ── Async writes ───────────────────────────────────────────────────────
+
+    async def set(self, key: str, value: str) -> None:
+        entry = self._data.get(key)
+        if entry:
+            entry.value = value
+            entry.last_active = time.time()
+        else:
+            self._data[key] = SessionEntry(value=value)
         self._save()
 
-    def remove(self, session_id: str):
-        self._sessions.pop(session_id, None)
+    async def mark_active(self, key: str) -> None:
+        entry = self._data.get(key)
+        if entry:
+            entry.active = True
+            entry.last_active = time.time()
+        else:
+            self._data[key] = SessionEntry(active=True)
         self._save()
 
-    def purge_stale(self, ttl_seconds: int = 3600):
-        stale = [sid for sid, s in self._sessions.items() if s.is_stale(ttl_seconds)]
-        for sid in stale:
-            del self._sessions[sid]
+    async def mark_idle(self, key: str) -> None:
+        entry = self._data.get(key)
+        if entry:
+            entry.active = False
+        self._save()
+
+    async def clear(self, key: str) -> None:
+        self._data.pop(key, None)
+        self._save()
+
+    # ── Maintenance ────────────────────────────────────────────────────────
+
+    def purge_stale(self, ttl: int = 7200) -> int:
+        cutoff = time.time() - ttl
+        stale = [k for k, e in self._data.items() if e.last_active < cutoff and not e.active]
+        for k in stale:
+            del self._data[k]
         if stale:
             self._save()
         return len(stale)
 
-    def _load(self):
-        if self.path.exists():
-            try:
-                data = json.loads(self.path.read_text())
-                for sid, s in data.items():
-                    self._sessions[sid] = Session(**s)
-            except (json.JSONDecodeError, TypeError):
-                self._sessions = {}
+    def stats(self) -> dict:
+        active = sum(1 for e in self._data.values() if e.active)
+        return {
+            "total": len(self._data),
+            "active": active,
+            "idle": len(self._data) - active,
+        }
 
-    def _save(self):
-        self.path.write_text(json.dumps(
-            {sid: asdict(s) for sid, s in self._sessions.items()},
-            indent=2
-        ))
+    # ── Persistence ────────────────────────────────────────────────────────
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            raw = json.loads(self.path.read_text())
+            for k, v in raw.items():
+                self._data[k] = SessionEntry(**v)
+        except (json.JSONDecodeError, TypeError):
+            self._data = {}
+
+    def _save(self) -> None:
+        try:
+            self.path.write_text(
+                json.dumps({k: asdict(e) for k, e in self._data.items()}, indent=2)
+            )
+        except OSError:
+            pass

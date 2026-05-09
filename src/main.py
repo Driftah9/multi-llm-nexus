@@ -164,7 +164,7 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
         sys.exit(1)
 
     router = _build_router(providers, routing_config)
-    sessions = SessionStore(config_dir / "sessions")
+    sessions = SessionStore(str(config_dir / "sessions.json"))
     bridge = NexusBridge(
         router=router,
         sessions=sessions,

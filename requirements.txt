@@ -1,0 +1,38 @@
+# Core (always required)
+pyyaml>=6.0
+
+# Mattermost adapter
+aiohttp>=3.9
+
+# ── Provider SDKs (install only what you need) ────────────────────────────────
+
+# Anthropic (Claude API)
+anthropic>=0.30
+
+# OpenAI-compatible (OpenAI, Groq, Mistral, DeepSeek, xAI, Together,
+#   Fireworks, Perplexity, HuggingFace, Cerebras, Azure, LM Studio, vLLM)
+openai>=1.30
+
+# Google (Gemini AI Studio)
+google-generativeai>=0.8
+
+# Google (Vertex AI) — in addition to google-generativeai
+# google-cloud-aiplatform>=1.50
+
+# Cohere
+cohere>=5.0
+
+# AWS Bedrock
+boto3>=1.34
+
+# Ollama (local, no API key) — uses httpx for HTTP
+httpx>=0.27
+
+# ── Platform adapters (install only what you use) ─────────────────────────────
+
+# Telegram
+python-telegram-bot>=21.0
+
+# ── Optional dev/test dependencies ───────────────────────────────────────────
+# pytest>=8.0
+# pytest-asyncio>=0.23
