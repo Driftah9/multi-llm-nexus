@@ -177,10 +177,69 @@ The 32GB model is the only consumer-accessible path to running a 70B-class model
 
 **Requirements for the riser setup:**
 - PCIe x16 riser card compatible with SXM2 (search "V100 SXM2 PCIe adapter" — several vendors sell these)
-- 8-pin or 6+2 PCIe power connectors × 2 (250–300W TDP)
-- Motherboard with a free PCIe x16 slot
+- 8-pin or 6+2 PCIe power connectors × 2 (250–300W TDP per card)
+- Motherboard with a free PCIe x16 slot per card
 - A separate GPU or integrated graphics for display output (V100 has none)
 - Linux preferred — Ollama's CUDA support is plug-and-play; Windows requires additional driver steps
+
+### Dreadnought Build: 32GB + 16GB Dual V100 SXM2
+
+If your chassis has two PCIe x16 slots to spare, two V100 SXM2s running simultaneously turns Nexus into a fully self-contained AI platform — no cloud dependency at all, every tier running in parallel on dedicated VRAM.
+
+**Total VRAM: 48 GB HBM2 — at a lower cost than a single RTX 4090 (24 GB GDDR6X)**
+
+| Card | VRAM | Dedicated role | Models loaded simultaneously |
+|---|---|---|---|
+| V100 SXM2 32GB | 32 GB | Standard + Deep tier | Mixtral 8x7B (~26GB) or llama3.1:70B Q3 (~28GB) |
+| V100 SXM2 16GB | 16 GB | Triage + RAG + Specialist | phi4-mini (2.5GB) + nomic-embed-text (0.3GB) + mistral:7b (4.5GB) — all loaded, none evicted |
+
+Because Ollama keeps models in VRAM as long as space permits, the 16GB card maintains triage, embeddings, and a specialist model loaded at all times. Every incoming message hits triage in under a second. The 32GB card handles the heavy lifting. No tier is waiting on another to unload.
+
+**Approximate build cost (secondhand, 2025):**
+
+| Component | Est. Cost |
+|---|---|
+| V100 SXM2 32GB | $400–700 |
+| V100 SXM2 16GB | $200–400 |
+| 2× PCIe SXM2 riser adapters | $100–200 |
+| **Total GPU investment** | **~$700–1,300** |
+| RTX 4090 24GB (single card, less VRAM) | ~$1,600–2,000 |
+
+**providers.yaml for dual-V100 all-local setup:**
+
+```yaml
+providers:
+  triage:
+    type: ollama
+    model: phi4-mini                  # stays resident on 16GB card
+
+  rag:
+    type: ollama
+    model: nomic-embed-text           # embedding model, 16GB card
+
+  specialist:
+    type: ollama
+    model: mistral:7b                 # fast specialist, 16GB card
+
+  primary:
+    type: ollama
+    model: mixtral:8x7b               # 32GB card, standard workload
+
+  deep:
+    type: ollama
+    model: llama3.1:70b               # 32GB card, Q3 quantization
+
+routing:
+  default: primary
+  triage: triage
+  patterns:
+    - match: "\\bthink\\b|plan|architect|analyze|design|compare"
+      provider: deep
+    - match: "search|find|lookup|retrieve|document"
+      provider: specialist
+```
+
+Ollama auto-detects all CUDA GPUs and distributes load. No manual device assignment needed for most setups.
 
 ### Hybrid Setup (recommended for most users)
 
