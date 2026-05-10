@@ -241,6 +241,14 @@ routing:
 
 Ollama auto-detects all CUDA GPUs and distributes load. No manual device assignment needed for most setups.
 
+### Alternative: Phone LLM Cluster
+
+Used smartphones — particularly 2018–2021 era flagships running LineageOS — can serve as distributed inference nodes connected to the Nexus machine over USB. A shelf of 6–8 phones connected via a PCIe USB expansion card gives you 48–96GB of distributed unified memory at low power (~50–70W total), with each phone mapped to a dedicated Nexus tier role.
+
+The phone cluster appears as a single OpenAI-compatible `base_url` in `providers.yaml`. Nexus doesn't know or care it's talking to phones.
+
+See **[docs/phone-llm-cluster.md](docs/phone-llm-cluster.md)** for the full architecture, hardware requirements, OS recommendations, tier role mapping, and Docker coordination layer.
+
 ### Hybrid Setup (recommended for most users)
 
 ```yaml
