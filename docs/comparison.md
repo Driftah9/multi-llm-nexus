@@ -2,6 +2,8 @@
 
 A cross-reference against existing self-hosted AI platforms, agent frameworks, and LLM interfaces.
 
+> **Note:** This document reflects the state of the ecosystem at the time it was written. The AI tooling landscape moves fast — projects ship major features, change direction, get acquired, or disappear on short timescales. Feature gaps noted here may have been closed. Projects listed may have changed significantly. **Do your own research before making decisions based on this comparison.** Check each project's current documentation, GitHub activity, and release notes. What was accurate when this was written may not be accurate when you are reading it.
+
 ---
 
 ## The Landscape
@@ -91,3 +93,11 @@ It starts, it runs, it handles messages. No logged-in browser session required. 
 ## The One-Line Version
 
 Everything else is either a chat interface for interacting with models through a browser, or a developer framework for building LLM apps for other people to use. Nexus is a persistent infrastructure layer that connects your AI capability to the platforms where you already work — and it does not care which LLM is doing the work.
+
+---
+
+## A Final Word
+
+This comparison was written at a specific point in time by the people building Nexus. It is not a neutral third-party review. The intent is to give an honest picture — including where other tools are the better choice — but you should verify the claims here against current sources before drawing conclusions.
+
+The AI tooling space changes faster than most documentation can keep up with. If you are evaluating Nexus against an alternative, spin both up, run your actual workload, and let the result speak for itself. No comparison document replaces that.
