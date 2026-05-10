@@ -115,6 +115,8 @@ python -m src.main
 | **LM Studio** | OpenAI-compat | Local (no key) | `httpx` |
 | **vLLM** | OpenAI-compat | Self-hosted (no key) | `httpx` |
 
+See **[docs/comparison.md](docs/comparison.md)** for a full breakdown of how Nexus compares to Open WebUI, AnythingLLM, Dify, CrewAI, and others — including an honest gap assessment.
+
 ---
 
 ## Platform Adapters
