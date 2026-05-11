@@ -2,24 +2,21 @@
 Multi-LLM Nexus — main entry point.
 
 Bootstrap sequence:
-  1. Load config/providers.yaml + config/adapters.yaml
+  1. Load .env + config/providers.yaml + config/adapters.yaml
   2. Instantiate all configured providers
-  3. Build the router from routing config
-  4. Build the bridge (uses the router)
-  5. Start the behavioral layer
-  6. Start all configured adapters concurrently
-  7. Run until interrupted
-
-Run with:
-  python -m src.main
-  or: python -m src.main --config /path/to/providers.yaml
+  3. Build router, sessions, bridge, triage, behavior
+  4. Build the engine (ACTIVE/STANDBY hybrid tick cycle)
+  5. Start all configured adapters + engine concurrently
+  6. Run until interrupted (SIGTERM/SIGINT)
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
+import logging.handlers
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -29,13 +26,25 @@ PROJECT_ROOT = Path(__file__).parent.parent
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-def _setup_logging(level: str = "INFO") -> None:
+def _setup_logging(level: str = "INFO", log_dir: Path = None) -> None:
+    log_dir = log_dir or (PROJECT_ROOT / "data" / "logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    handlers = [
+        logging.StreamHandler(sys.stdout),
+        logging.handlers.RotatingFileHandler(
+            log_dir / "nexus.log",
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+        ),
+    ]
+
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         datefmt="%H:%M:%S",
+        handlers=handlers,
     )
-    # Quiet noisy third-party loggers
     for noisy in ("httpx", "httpcore", "aiohttp", "urllib3", "telegram"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
@@ -45,11 +54,9 @@ logger = logging.getLogger("nexus.main")
 # ── Config loading ────────────────────────────────────────────────────────────
 
 def _load_yaml(path: Path) -> dict:
-    """Load a YAML file with env var substitution (${VAR} patterns)."""
     if not path.exists():
         return {}
     text = path.read_text()
-    # Substitute ${VAR} and $VAR patterns from environment
     import re
     def replace_env(match):
         key = match.group(1) or match.group(2)
@@ -59,7 +66,6 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _load_env(path: Path) -> None:
-    """Load .env file into os.environ (simple KEY=VALUE parser)."""
     if not path.exists():
         return
     for line in path.read_text().splitlines():
@@ -76,7 +82,6 @@ def _load_env(path: Path) -> None:
 # ── Provider bootstrap ────────────────────────────────────────────────────────
 
 def _build_providers(providers_config: dict) -> dict:
-    """Instantiate all providers from config. Returns name→provider dict."""
     from .providers import load_provider
 
     instances = {}
@@ -97,22 +102,22 @@ def _build_providers(providers_config: dict) -> dict:
 
 
 def _build_router(providers: dict, routing_config: dict):
-    """Build the router from providers + routing config."""
     from .core.router import Router
     return Router(providers=providers, routing_config=routing_config)
 
 
 # ── Adapter bootstrap ─────────────────────────────────────────────────────────
 
-def _build_adapters(adapters_config: dict, bridge, sessions, behavior) -> list:
-    """Instantiate adapters for each configured platform."""
+def _build_adapters(adapters_config: dict, engine, bridge, sessions, behavior) -> list:
     adapters = []
 
     if "mattermost" in adapters_config and adapters_config["mattermost"].get("enabled", True):
         try:
             from .adapters.mattermost.adapter import MattermostAdapter
             cfg = {**adapters_config, "mattermost": adapters_config["mattermost"]}
-            adapters.append(MattermostAdapter(cfg, bridge, sessions, behavior))
+            adapter = MattermostAdapter(cfg, bridge, sessions, behavior)
+            adapter.engine = engine
+            adapters.append(adapter)
             logger.info("Mattermost adapter loaded")
         except Exception as e:
             logger.error(f"Mattermost adapter failed: {e}")
@@ -120,7 +125,9 @@ def _build_adapters(adapters_config: dict, bridge, sessions, behavior) -> list:
     if "discord" in adapters_config and adapters_config["discord"].get("enabled", True):
         try:
             from .adapters.discord.adapter import DiscordAdapter
-            adapters.append(DiscordAdapter(adapters_config, bridge, sessions, behavior))
+            adapter = DiscordAdapter(adapters_config, bridge, sessions, behavior)
+            adapter.engine = engine
+            adapters.append(adapter)
             logger.info("Discord adapter loaded")
         except Exception as e:
             logger.error(f"Discord adapter failed: {e}")
@@ -128,7 +135,9 @@ def _build_adapters(adapters_config: dict, bridge, sessions, behavior) -> list:
     if "telegram" in adapters_config and adapters_config["telegram"].get("enabled", True):
         try:
             from .adapters.telegram.adapter import TelegramAdapter
-            adapters.append(TelegramAdapter(adapters_config, bridge, sessions, behavior))
+            adapter = TelegramAdapter(adapters_config, bridge, sessions, behavior)
+            adapter.engine = engine
+            adapters.append(adapter)
             logger.info("Telegram adapter loaded")
         except Exception as e:
             logger.error(f"Telegram adapter failed: {e}")
@@ -139,7 +148,6 @@ def _build_adapters(adapters_config: dict, bridge, sessions, behavior) -> list:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> None:
-    # Load env vars first (so ${VAR} substitution works)
     _load_env(PROJECT_ROOT / ".env")
 
     providers_config_raw = _load_yaml(providers_yaml)
@@ -157,6 +165,8 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     from .core.session import SessionStore
     from .core.bridge import NexusBridge
     from .core.behaviors import NexusBehavior
+    from .core.triage import Triage
+    from .core.engine import Engine
 
     providers = _build_providers(providers_defs)
     if not providers:
@@ -173,13 +183,27 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
 
     triage_provider_name = routing_config.get("triage")
     triage_provider = providers.get(triage_provider_name) if triage_provider_name else None
+    triage = Triage(provider=triage_provider)
     behavior = NexusBehavior(config_dir=str(config_dir), triage_provider=triage_provider)
 
-    # Build adapters
-    adapters = _build_adapters(adapters_config, bridge, sessions, behavior)
+    # Build engine
+    engine_config = {
+        "tick_interval": routing_config.get("tick_interval", 30),
+        "idle_timeout": routing_config.get("idle_timeout", 300),
+        "operator_name": adapters_config.get("operator_name", "Operator"),
+        "agent_name": adapters_config.get("agent_name", "Nexus"),
+    }
+    engine = Engine(
+        router=router,
+        session_store=sessions,
+        triage=triage,
+        config=engine_config,
+    )
+
+    # Build adapters (with engine reference)
+    adapters = _build_adapters(adapters_config, engine, bridge, sessions, behavior)
     if not adapters:
         logger.warning("No adapters configured — Nexus will start but has no platform connections")
-        logger.warning("Configure adapters in config/adapters.yaml")
 
     default_provider = router.providers.get(routing_config.get("default", "primary"))
     logger.info(f"Primary provider: {default_provider}")
@@ -187,12 +211,26 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     logger.info(f"Adapters active: {len(adapters)}")
     logger.info("Nexus is running.")
 
-    # Run all adapters concurrently
-    if adapters:
-        await asyncio.gather(*[a.run() for a in adapters])
-    else:
-        # No adapters — just park until interrupted
-        await asyncio.Event().wait()
+    # Signal handling for graceful shutdown
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+
+    # Run engine + adapters concurrently
+    tasks = [asyncio.create_task(engine.start(), name="engine")]
+    for adapter in adapters:
+        tasks.append(asyncio.create_task(adapter.run(), name=adapter.__class__.__name__))
+
+    # Wait for shutdown signal
+    await stop.wait()
+    logger.info("Shutting down...")
+
+    await engine.stop()
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    logger.info("Stopped.")
 
 
 def main() -> None:

@@ -47,9 +47,20 @@ echo ""
 $PYTHON "$NEXUS_DIR/src/setup/wizard.py"
 
 echo ""
+
+# Generate systemd service file
+$PYTHON "$NEXUS_DIR/src/setup/systemd.py"
+
+echo ""
 echo "Setup complete. Start Nexus with:"
 echo "  source .venv/bin/activate && python -m src.main"
 echo ""
-echo "Or generate a systemd service:"
-echo "  python src/setup/systemd.py"
+echo "Or install as a service:"
+echo "  sudo cp nexus.service /etc/systemd/system/"
+echo "  sudo systemctl daemon-reload && sudo systemctl enable --now nexus"
+echo ""
+echo "To install watchers (zero-token background monitoring):"
+echo "  cp watchers/examples/*.sh watchers/"
+echo "  # Edit endpoints/paths in each script"
+echo "  ./watchers/install-cron.sh watchers/"
 echo ""

@@ -1,27 +1,55 @@
 """
-Nexus engine — the tick cycle that drives everything.
-Receives messages from adapters, routes through triage and providers,
-returns responses back to the originating adapter.
+Nexus Engine — the tick cycle that drives everything.
 
-When a message's context belongs to an orchestrator-enabled workspace,
-the engine delegates to the Orchestrator for specialist dispatch.
-Otherwise, it routes directly to the primary provider.
+Operates in two modes:
+
+  ACTIVE MODE (during conversation):
+    Process message queue, check triggers, route through triage/providers.
+    Burns tokens. Auto-transitions to STANDBY after idle_timeout.
+
+  STANDBY MODE (idle):
+    Linux watchers monitor for events (zero tokens).
+    When a wake trigger fires or a message is enqueued, transitions to ACTIVE.
+
+  ACTIVE → STANDBY: No activity for idle_timeout seconds
+  STANDBY → ACTIVE: Wake trigger received, or adapter enqueues a message
 """
+
 import asyncio
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional, TYPE_CHECKING
 
 from .router import Router
 from .session import SessionStore, Session
 from .triage import Triage
 from .orchestrator import Orchestrator
+from .watchers import TriggerListener, WakeEvent, WakeReason, WatcherConfig
 
 if TYPE_CHECKING:
     from ..adapters.base import BaseAdapter
     from ..providers.base import BaseProvider, Message
 
 logger = logging.getLogger("nexus.engine")
+
+
+class EngineMode(Enum):
+    ACTIVE = "active"
+    STANDBY = "standby"
+    STARTING = "starting"
+    STOPPING = "stopping"
+
+
+@dataclass
+class TickResult:
+    tick_number: int
+    messages_processed: int
+    tasks_checked: int
+    actions_taken: list[str]
+    effort_level: str  # "idle", "low", "medium", "high"
+    mode: str = "active"
 
 
 @dataclass
@@ -32,7 +60,7 @@ class InboundMessage:
     user_id: str
     username: str
     content: str
-    metadata: dict
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -41,13 +69,13 @@ class OutboundMessage:
     channel_id: str
     session_id: str
     content: str
-    metadata: dict
+    metadata: dict = field(default_factory=dict)
 
 
 class Engine:
     """
-    The core tick cycle. Adapters push InboundMessage objects in.
-    Engine routes, processes, and pushes OutboundMessage objects back.
+    Hybrid tick-cycle engine. Adapters push InboundMessage objects via enqueue().
+    Engine routes, processes, and returns OutboundMessage objects via callbacks.
     """
 
     def __init__(
@@ -63,34 +91,142 @@ class Engine:
         self.triage = triage
         self.config = config
         self.orchestrator = orchestrator
+
         self._queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
         self._running = False
+        self.mode = EngineMode.STARTING
+        self.tick_count = 0
+
+        # Hybrid mode config
+        self.tick_interval = config.get("tick_interval", 30)
+        self.idle_timeout = config.get("idle_timeout", 300)
+        self.last_activity = time.time()
+
+        # Watcher infrastructure
+        watcher_config = WatcherConfig(config)
+        self.trigger_listener = TriggerListener(watcher_config)
+
+        # Adapter callbacks — adapters register themselves so engine can push responses
+        self._response_handlers: dict[str, callable] = {}
+
+        # Observability
+        self.mode_transitions: list[dict] = []
+
+    def register_response_handler(self, platform: str, handler: callable):
+        """Adapter registers a callback to receive outbound messages."""
+        self._response_handlers[platform] = handler
 
     def enqueue(self, message: InboundMessage):
-        """Adapter calls this to hand off an inbound message."""
+        """Adapter calls this to hand off an inbound message. Also activates the engine."""
         self._queue.put_nowait(message)
+        self.last_activity = time.time()
+        if self.mode == EngineMode.STANDBY:
+            self._set_mode(EngineMode.ACTIVE)
 
     async def start(self):
         self._running = True
-        logger.info("Nexus engine started")
+        self._set_mode(EngineMode.STANDBY)
+        logger.info("Nexus engine started (STANDBY)")
+
         while self._running:
             try:
-                msg = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-                asyncio.create_task(self._process(msg))
-            except asyncio.TimeoutError:
-                continue
+                if self.mode == EngineMode.STANDBY:
+                    await self._standby_loop()
+                elif self.mode == EngineMode.ACTIVE:
+                    await self._active_loop()
             except Exception as e:
                 logger.error(f"Engine loop error: {e}")
+                await asyncio.sleep(1)
 
     async def stop(self):
+        self._set_mode(EngineMode.STOPPING)
         self._running = False
         logger.info("Nexus engine stopped")
+
+    # ── Standby Loop ─────────────────────────────────────────────
+
+    async def _standby_loop(self):
+        """Zero-token wait. Check triggers and queue for wake signals."""
+        # Check queue first — adapter may have pushed a message
+        if not self._queue.empty():
+            self._set_mode(EngineMode.ACTIVE)
+            return
+
+        # Poll trigger file (blocks up to 60s)
+        events = await self.trigger_listener.wait_for_event(timeout=60.0)
+        if events:
+            self._set_mode(EngineMode.ACTIVE)
+            await self._process_wake_events(events)
+            return
+
+        # Also check if a message arrived while we were polling
+        if not self._queue.empty():
+            self._set_mode(EngineMode.ACTIVE)
+
+    async def _process_wake_events(self, events: list[WakeEvent]):
+        events.sort(key=lambda e: e.priority)
+        for event in events:
+            self.last_activity = time.time()
+            logger.info(f"Wake event: {event.reason.value} from {event.source} — {event.summary}")
+
+    # ── Active Loop ──────────────────────────────────────────────
+
+    async def _active_loop(self):
+        """Process messages and check triggers. Auto-idle after timeout."""
+        result = await self._tick()
+
+        # Check idle timeout → transition to standby
+        idle_seconds = time.time() - self.last_activity
+        if idle_seconds >= self.idle_timeout and result.effort_level == "idle":
+            logger.info(f"Idle for {idle_seconds:.0f}s — transitioning to STANDBY")
+            self._set_mode(EngineMode.STANDBY)
+            return
+
+        await asyncio.sleep(self.tick_interval)
+
+    async def _tick(self) -> TickResult:
+        self.tick_count += 1
+        messages_processed = 0
+        actions = []
+
+        # Drain the message queue
+        while not self._queue.empty():
+            try:
+                msg = self._queue.get_nowait()
+                outbound = await self._process(msg)
+                if outbound:
+                    await self._deliver(outbound)
+                    messages_processed += 1
+                    actions.append(f"replied:{msg.platform}:{msg.channel_id}")
+            except Exception as e:
+                logger.error(f"Message processing error: {e}")
+
+        # Check for pending wake events from watchers
+        pending = self.trigger_listener.read_events()
+        if pending:
+            self.last_activity = time.time()
+            await self._process_wake_events(pending)
+            actions.append(f"wake_events:{len(pending)}")
+
+        effort = "idle" if messages_processed == 0 and not pending else "medium"
+        if messages_processed > 0:
+            self.last_activity = time.time()
+
+        return TickResult(
+            tick_number=self.tick_count,
+            messages_processed=messages_processed,
+            tasks_checked=len(pending),
+            actions_taken=actions,
+            effort_level=effort,
+            mode=self.mode.value,
+        )
+
+    # ── Message Processing ───────────────────────────────────────
 
     async def _process(self, inbound: InboundMessage) -> Optional[OutboundMessage]:
         try:
             context = inbound.metadata.get("context", inbound.channel_id)
 
-            # Check orchestrator path first
             if self.orchestrator and self.orchestrator.should_orchestrate(context):
                 return await self._process_orchestrated(inbound, context)
 
@@ -102,7 +238,6 @@ class Engine:
     async def _process_orchestrated(
         self, inbound: InboundMessage, context: str
     ) -> Optional[OutboundMessage]:
-        """Delegate to orchestrator for specialist dispatch + synthesis."""
         workspace_name = self.orchestrator.get_workspace_for_display(context) or context
         operator_context = self._build_operator_context(inbound)
 
@@ -116,34 +251,23 @@ class Engine:
         )
 
         if result.bypassed:
-            logger.debug(f"Orchestrator bypassed for {context} — falling through")
             return await self._process_standard(inbound)
-
-        specialists_label = ", ".join(result.specialists_used)
-        metadata = {
-            "orchestrated": True,
-            "specialists": result.specialists_used,
-            "synthesized": result.synthesized,
-            "cost_usd": result.total_cost,
-            "elapsed": result.elapsed,
-        }
-
-        logger.info(
-            f"Orchestrated response: specialists=[{specialists_label}] "
-            f"synthesized={result.synthesized} cost=${result.total_cost:.4f} "
-            f"elapsed={result.elapsed:.1f}s"
-        )
 
         return OutboundMessage(
             platform=inbound.platform,
             channel_id=inbound.channel_id,
             session_id=inbound.session_id,
             content=result.response,
-            metadata=metadata,
+            metadata={
+                "orchestrated": True,
+                "specialists": result.specialists_used,
+                "synthesized": result.synthesized,
+                "cost_usd": result.total_cost,
+                "elapsed": result.elapsed,
+            },
         )
 
     async def _process_standard(self, inbound: InboundMessage) -> Optional[OutboundMessage]:
-        """Standard single-session processing (no specialist dispatch)."""
         triage_result = await self.triage.classify(inbound.content)
         session = self.sessions.get_or_create(
             session_id=inbound.session_id,
@@ -170,6 +294,18 @@ class Engine:
             metadata={"provider": repr(provider), "task_type": triage_result.task_type},
         )
 
+    async def _deliver(self, outbound: OutboundMessage):
+        handler = self._response_handlers.get(outbound.platform)
+        if handler:
+            try:
+                await handler(outbound)
+            except Exception as e:
+                logger.error(f"Delivery failed for {outbound.platform}: {e}")
+        else:
+            logger.warning(f"No response handler for platform: {outbound.platform}")
+
+    # ── Helpers ──────────────────────────────────────────────────
+
     def _build_system(self, inbound: InboundMessage, session: Session) -> str:
         operator_name = self.config.get("operator_name", "Operator")
         agent_name = self.config.get("agent_name", "Nexus")
@@ -187,3 +323,27 @@ class Engine:
             f"Platform: {inbound.platform}. "
             f"User: {inbound.username}."
         )
+
+    # ── Mode Management ──────────────────────────────────────────
+
+    def _set_mode(self, new_mode: EngineMode):
+        old_mode = self.mode
+        self.mode = new_mode
+        self.mode_transitions.append({
+            "from": old_mode.value,
+            "to": new_mode.value,
+            "timestamp": time.time(),
+            "tick_count": self.tick_count,
+        })
+        if old_mode != new_mode:
+            logger.info(f"Engine mode: {old_mode.value} → {new_mode.value}")
+
+    def get_status(self) -> dict:
+        return {
+            "mode": self.mode.value,
+            "tick_count": self.tick_count,
+            "running": self._running,
+            "idle_seconds": time.time() - self.last_activity,
+            "queue_size": self._queue.qsize(),
+            "transitions": len(self.mode_transitions),
+        }

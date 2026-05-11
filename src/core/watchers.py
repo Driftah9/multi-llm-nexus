@@ -75,7 +75,7 @@ class WatcherConfig:
     def __init__(self, config: dict):
         self.watchers = config.get("watchers", [])
         self.trigger_path = Path(
-            config.get("trigger_path", "/tmp/claude-brain-wake.trigger")
+            config.get("trigger_path", "/tmp/nexus-wake.trigger")
         )
         self.standby_poll_interval = config.get("standby_poll_seconds", 5)
 
