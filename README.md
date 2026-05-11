@@ -57,51 +57,42 @@ watchers/
 ```bash
 git clone https://github.com/Driftah9/multi-llm-nexus
 cd multi-llm-nexus
-python -m venv .venv
-source .venv/bin/activate
-
-# Install core + the providers/adapters you need:
-pip install pyyaml aiohttp                        # always required
-
-pip install anthropic                             # Claude API
-pip install openai                                # OpenAI + Groq/Mistral/DeepSeek/etc.
-pip install google-generativeai                   # Gemini AI Studio
-pip install cohere                                # Cohere
-pip install boto3                                 # AWS Bedrock
-pip install httpx                                 # Ollama / LM Studio / vLLM
-pip install python-telegram-bot                   # Telegram adapter
-
-# Or install everything at once:
-pip install -e ".[all]"
+./setup.sh
 ```
 
-Run the setup wizard:
+That's it. `setup.sh` creates the virtual environment, installs the minimal bootstrap packages, and launches the interactive wizard.
 
-```bash
-python -m src.setup.wizard
-```
+**What the wizard does:**
 
-The wizard will:
-1. Ask which LLM provider(s) to configure
-2. Ask subscription vs. API access per provider
-3. Let you pick models and assign them to triage / primary / specialist roles
-4. Ask which platform adapter(s) to enable
-5. Write `config/providers.yaml`, `config/adapters.yaml`, and `.env`
-6. Run a live connection test
+1. **System scan** — checks which Python packages, CLI tools (`claude`, `ollama`, `docker`), and local services (Ollama, vLLM, LM Studio) are already present, and which API keys exist in `.env`
+2. **Select providers** — choose from 20 cloud and local LLM providers; the wizard shows what's already detected
+3. **Select adapters** — choose which platforms users will message from (Mattermost, Discord, Telegram)
+4. **Install dependencies** — computes the exact packages your selections need, shows the list, and installs them with a single pip pass — no manual `pip install` required
+5. **Configure credentials** — enters API keys per provider, tests connections live, discovers available models
+6. **Assign roles** — set which provider handles primary, triage, specialist, and deep-reasoning tasks
+7. **Write config** — generates `config/providers.yaml` and `.env` with your choices
 
 Then start:
 
 ```bash
+source .venv/bin/activate
 python -m src.main
+```
+
+**Re-run the wizard anytime** to add providers, change models, or reconfigure:
+
+```bash
+source .venv/bin/activate
+python -m src.setup.wizard
 ```
 
 ---
 
 ## Provider Support
 
-| Provider | Type | Access | Package |
+| Provider | Type | Access | Installed by wizard |
 |---|---|---|---|
-| **Claude Code** (CLI) | Native | Subscription (Pro/Teams/Claude Code) | — |
+| **Claude Code** (CLI) | Native | Subscription (Pro/Teams/Claude Code) | — (needs `claude` CLI) |
 | **Anthropic API** | Native | API key | `anthropic` |
 | **OpenAI** | OpenAI-compat | API key | `openai` |
 | **Azure OpenAI** | OpenAI-compat | API key + endpoint | `openai` |
@@ -115,12 +106,14 @@ python -m src.main
 | **HuggingFace** | OpenAI-compat | API key | `openai` |
 | **Cerebras** | OpenAI-compat | API key | `openai` |
 | **Google Gemini** | Native | API key | `google-generativeai` |
-| **Google Vertex AI** | Native | GCP project + ADC | `google-generativeai` |
+| **Google Vertex AI** | Native | GCP project + ADC | `google-cloud-aiplatform` |
 | **Cohere** | Native | API key | `cohere` |
 | **AWS Bedrock** | Native | AWS credentials | `boto3` |
-| **Ollama** | OpenAI-compat | Local (no key) | `httpx` |
-| **LM Studio** | OpenAI-compat | Local (no key) | `httpx` |
-| **vLLM** | OpenAI-compat | Self-hosted (no key) | `httpx` |
+| **Ollama** | OpenAI-compat | Local (no key) | — (uses built-in `httpx`) |
+| **LM Studio** | OpenAI-compat | Local (no key) | `openai` |
+| **vLLM** | OpenAI-compat | Self-hosted (no key) | `openai` |
+
+The wizard installs only the packages your selected providers actually need — nothing extra. The `Package` column shows what gets installed for each choice.
 
 See **[docs/comparison.md](docs/comparison.md)** for a full breakdown of how Nexus compares to Open WebUI, AnythingLLM, Dify, CrewAI, and others — including an honest gap assessment.
 
