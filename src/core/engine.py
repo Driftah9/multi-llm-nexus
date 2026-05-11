@@ -335,6 +335,8 @@ class Engine:
             "timestamp": time.time(),
             "tick_count": self.tick_count,
         })
+        if len(self.mode_transitions) > 100:
+            self.mode_transitions = self.mode_transitions[-100:]
         if old_mode != new_mode:
             logger.info(f"Engine mode: {old_mode.value} → {new_mode.value}")
 

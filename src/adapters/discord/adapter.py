@@ -49,6 +49,7 @@ class DiscordAdapter:
 
         self.commands = CommandRegistry("discord")
         self.fmt = PlatformFormatter("discord")
+        self._stop = asyncio.Event()
 
     def _headers(self) -> dict:
         return {
@@ -90,7 +91,7 @@ class DiscordAdapter:
 
         logger.info(f"Discord adapter started (channel {self.channel_id})")
 
-        while True:
+        while not self._stop.is_set():
             try:
                 await self._poll()
             except urllib.error.HTTPError as e:
@@ -106,6 +107,9 @@ class DiscordAdapter:
                 await asyncio.sleep(30)
 
             await asyncio.sleep(self.poll_interval)
+
+    async def stop(self) -> None:
+        self._stop.set()
 
     async def _poll(self) -> None:
         if not self.last_message_id:
@@ -164,11 +168,12 @@ class DiscordAdapter:
                 task_type=triage.provider_key,
             )
         except Exception as e:
+            logger.error(f"Discord invoke error: {e}")
             try:
                 await asyncio.to_thread(
                     self._patch,
                     f"/channels/{self.channel_id}/messages/{ack['id']}",
-                    {"content": f"Error: {e}"},
+                    {"content": "_(error processing your request)_"},
                 )
             except Exception:
                 pass

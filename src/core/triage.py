@@ -3,9 +3,12 @@ Message triage — fast classification before routing to primary provider.
 Uses the triage_provider (typically a fast/local model) to classify intent.
 Falls back to keyword heuristics if no triage provider is configured.
 """
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..providers.base import BaseProvider, Message
@@ -77,8 +80,8 @@ class Triage:
                     command=None,
                     confidence=0.85
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"LLM triage failed: {e}")
         return self._keyword_classify(message)
 
     def _keyword_classify(self, message: str) -> TriageResult:

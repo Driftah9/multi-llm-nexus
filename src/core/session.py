@@ -15,6 +15,7 @@ API used by bridge.py and all adapters:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field, asdict
@@ -74,7 +75,7 @@ class SessionStore:
                 last_active=entry.last_active,
             )
         self._data[session_id] = SessionEntry(value=session_id)
-        self._save()
+        self._save_sync()
         return Session(
             session_id=session_id,
             platform=platform,
@@ -87,7 +88,7 @@ class SessionStore:
         if entry:
             entry.last_active = time.time()
             entry.active = True
-            self._save()
+            self._save_sync()
 
     # ── Async writes ───────────────────────────────────────────────────────
 
@@ -98,7 +99,7 @@ class SessionStore:
             entry.last_active = time.time()
         else:
             self._data[key] = SessionEntry(value=value)
-        self._save()
+        await self._save()
 
     async def mark_active(self, key: str) -> None:
         entry = self._data.get(key)
@@ -107,17 +108,17 @@ class SessionStore:
             entry.last_active = time.time()
         else:
             self._data[key] = SessionEntry(active=True)
-        self._save()
+        await self._save()
 
     async def mark_idle(self, key: str) -> None:
         entry = self._data.get(key)
         if entry:
             entry.active = False
-        self._save()
+        await self._save()
 
     async def clear(self, key: str) -> None:
         self._data.pop(key, None)
-        self._save()
+        await self._save()
 
     # ── Maintenance ────────────────────────────────────────────────────────
 
@@ -150,10 +151,13 @@ class SessionStore:
         except (json.JSONDecodeError, TypeError):
             self._data = {}
 
-    def _save(self) -> None:
+    def _save_sync(self) -> None:
         try:
             self.path.write_text(
                 json.dumps({k: asdict(e) for k, e in self._data.items()}, indent=2)
             )
         except OSError:
             pass
+
+    async def _save(self) -> None:
+        await asyncio.to_thread(self._save_sync)

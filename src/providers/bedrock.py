@@ -91,41 +91,34 @@ class BedrockProvider(BaseProvider):
         if effective_system:
             kwargs["system"] = [{"text": effective_system}]
 
-        try:
-            # boto3 is sync — run in executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, lambda: self._client.converse(**kwargs)
-            )
+        # boto3 is sync — run in executor to avoid blocking the event loop
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None, lambda: self._client.converse(**kwargs)
+        )
 
-            output = response.get("output", {}).get("message", {})
-            content = ""
-            tool_calls = []
+        output = response.get("output", {}).get("message", {})
+        content = ""
+        tool_calls = []
 
-            for block in output.get("content", []):
-                if block.get("type") == "text" or "text" in block:
-                    content += block.get("text", "")
-                elif block.get("type") == "toolUse" or "toolUse" in block:
-                    tu = block.get("toolUse", block)
-                    tool_calls.append(ToolCall(
-                        name=tu.get("name", ""),
-                        arguments=tu.get("input", {}),
-                        call_id=tu.get("toolUseId"),
-                    ))
+        for block in output.get("content", []):
+            if block.get("type") == "text" or "text" in block:
+                content += block.get("text", "")
+            elif block.get("type") == "toolUse" or "toolUse" in block:
+                tu = block.get("toolUse", block)
+                tool_calls.append(ToolCall(
+                    name=tu.get("name", ""),
+                    arguments=tu.get("input", {}),
+                    call_id=tu.get("toolUseId"),
+                ))
 
-            usage_raw = response.get("usage", {})
-            usage = {
-                "input_tokens": usage_raw.get("inputTokens", 0),
-                "output_tokens": usage_raw.get("outputTokens", 0),
-            }
+        usage_raw = response.get("usage", {})
+        usage = {
+            "input_tokens": usage_raw.get("inputTokens", 0),
+            "output_tokens": usage_raw.get("outputTokens", 0),
+        }
 
-            return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
-
-        except botocore.exceptions.ClientError as e:
-            code = e.response["Error"]["Code"]
-            return ProviderResponse(content=f"[bedrock error {code}: {e}]")
-        except Exception as e:
-            return ProviderResponse(content=f"[error: {e}]")
+        return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
 
     def supports_tools(self) -> bool:
         return True
@@ -133,7 +126,7 @@ class BedrockProvider(BaseProvider):
     async def health_check(self) -> bool:
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, lambda: self._mgmt_client.get_foundation_model(modelIdentifier=self.model)
             )
@@ -145,7 +138,7 @@ class BedrockProvider(BaseProvider):
         """Return available Bedrock foundation model IDs."""
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
                 None, lambda: self._mgmt_client.list_foundation_models(
                     byOutputModality="TEXT"

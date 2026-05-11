@@ -56,37 +56,34 @@ class OpenAIProvider(BaseProvider):
 
     async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
         oai_messages = self._convert_messages(messages, system)
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=oai_messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                timeout=self.timeout,
-            )
-            choice = response.choices[0]
-            content = choice.message.content or ""
-            tool_calls = []
-            if choice.message.tool_calls:
-                for tc in choice.message.tool_calls:
-                    try:
-                        args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        args = {}
-                    tool_calls.append(ToolCall(
-                        name=tc.function.name,
-                        arguments=args,
-                        call_id=tc.id,
-                    ))
-            usage = {}
-            if response.usage:
-                usage = {
-                    "input_tokens": response.usage.prompt_tokens,
-                    "output_tokens": response.usage.completion_tokens,
-                }
-            return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
-        except Exception as e:
-            return ProviderResponse(content=f"[error: {e}]")
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=oai_messages,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            timeout=self.timeout,
+        )
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        tool_calls = []
+        if choice.message.tool_calls:
+            for tc in choice.message.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
+                tool_calls.append(ToolCall(
+                    name=tc.function.name,
+                    arguments=args,
+                    call_id=tc.id,
+                ))
+        usage = {}
+        if response.usage:
+            usage = {
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
+            }
+        return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
 
     def _convert_messages(self, messages: list[Message], system: str) -> list[dict]:
         result = []

@@ -34,33 +34,30 @@ class AnthropicProvider(BaseProvider):
     async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
         sdk_messages = self._convert_messages(messages)
         system_blocks = self._build_system(system)
-        try:
-            response = await self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=system_blocks,
-                messages=sdk_messages,
-            )
-            content = ""
-            tool_calls = []
-            for block in response.content:
-                if block.type == "text":
-                    content = block.text
-                elif block.type == "tool_use":
-                    tool_calls.append(ToolCall(
-                        name=block.name,
-                        arguments=block.input,
-                        call_id=block.id
-                    ))
-            usage = {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-                "cache_read": getattr(response.usage, "cache_read_input_tokens", 0),
-                "cache_write": getattr(response.usage, "cache_creation_input_tokens", 0),
-            }
-            return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
-        except Exception as e:
-            return ProviderResponse(content=f"[error: {e}]")
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system_blocks,
+            messages=sdk_messages,
+        )
+        content = ""
+        tool_calls = []
+        for block in response.content:
+            if block.type == "text":
+                content = block.text
+            elif block.type == "tool_use":
+                tool_calls.append(ToolCall(
+                    name=block.name,
+                    arguments=block.input,
+                    call_id=block.id
+                ))
+        usage = {
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+            "cache_read": getattr(response.usage, "cache_read_input_tokens", 0),
+            "cache_write": getattr(response.usage, "cache_creation_input_tokens", 0),
+        }
+        return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
 
     def _build_system(self, system: str) -> list[dict] | str:
         if not system:

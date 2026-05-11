@@ -637,7 +637,7 @@ async def _query_bedrock_models(region: str, env: dict) -> list[str]:
         import boto3
         session = boto3.Session()
         client = session.client("bedrock", region_name=region)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         resp = await loop.run_in_executor(
             None, lambda: client.list_foundation_models(byOutputModality="TEXT")
         )
@@ -836,6 +836,7 @@ def _write_env(configured: dict[str, dict]) -> Path:
 
     with open(ENV_FILE, "w") as f:
         f.writelines(lines)
+    os.chmod(ENV_FILE, 0o600)
     return ENV_FILE
 
 

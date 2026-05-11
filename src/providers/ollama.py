@@ -38,20 +38,15 @@ class OllamaProvider(BaseProvider):
             "stream": False,
             "options": self.options,
         }
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.endpoint}/api/chat",
-                    json=payload
-                )
-                response.raise_for_status()
-                data = response.json()
-                content = data.get("message", {}).get("content", "")
-                return ProviderResponse(content=content, raw=data)
-        except httpx.TimeoutException:
-            return ProviderResponse(content="[timeout: ollama did not respond]")
-        except Exception as e:
-            return ProviderResponse(content=f"[error: {e}]")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.endpoint}/api/chat",
+                json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data.get("message", {}).get("content", "")
+            return ProviderResponse(content=content, raw=data)
 
     def _convert_messages(self, messages: list[Message], system: str) -> list[dict]:
         result = []

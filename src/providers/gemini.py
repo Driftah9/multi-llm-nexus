@@ -85,47 +85,42 @@ class GeminiProvider(BaseProvider):
         return result
 
     async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
-        try:
-            model = self._build_model(system)
-            history = self._convert_messages(messages[:-1]) if len(messages) > 1 else []
-            last = messages[-1].content if messages else ""
+        model = self._build_model(system)
+        history = self._convert_messages(messages[:-1]) if len(messages) > 1 else []
+        last = messages[-1].content if messages else ""
 
-            generation_config = {
-                "max_output_tokens": self.max_tokens,
-                "temperature": self.temperature,
+        generation_config = {
+            "max_output_tokens": self.max_tokens,
+            "temperature": self.temperature,
+        }
+
+        chat = model.start_chat(history=history)
+        response = await chat.send_message_async(
+            last,
+            generation_config=generation_config,
+            safety_settings=self._safety,
+        )
+
+        content = response.text or ""
+        tool_calls = []
+
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, "function_call") and part.function_call.name:
+                fc = part.function_call
+                tool_calls.append(ToolCall(
+                    name=fc.name,
+                    arguments=dict(fc.args),
+                    call_id=None,
+                ))
+
+        usage = {}
+        if hasattr(response, "usage_metadata"):
+            usage = {
+                "input_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
+                "output_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
             }
 
-            chat = model.start_chat(history=history)
-            response = await chat.send_message_async(
-                last,
-                generation_config=generation_config,
-                safety_settings=self._safety,
-            )
-
-            content = response.text or ""
-            tool_calls = []
-
-            # Extract function calls if present
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, "function_call") and part.function_call.name:
-                    fc = part.function_call
-                    tool_calls.append(ToolCall(
-                        name=fc.name,
-                        arguments=dict(fc.args),
-                        call_id=None,
-                    ))
-
-            usage = {}
-            if hasattr(response, "usage_metadata"):
-                usage = {
-                    "input_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
-                    "output_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
-                }
-
-            return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
-
-        except Exception as e:
-            return ProviderResponse(content=f"[error: {e}]")
+        return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
 
     def supports_tools(self) -> bool:
         return True

@@ -309,9 +309,8 @@ class HealthMonitor:
 
         except Exception as e:
             logger.warning(f"Health check failed for {entry.name}: {e}")
-            async with self.chain._lock:
-                entry.last_check = time.time()
-                await self.chain.record_failure(entry.provider, error=str(e))
+            entry.last_check = time.time()
+            await self.chain.record_failure(entry.provider, error=str(e))
 
     async def stop(self) -> None:
         """Stop the health monitor."""

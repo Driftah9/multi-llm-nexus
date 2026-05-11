@@ -62,33 +62,29 @@ class CohereProvider(BaseProvider):
                 *chat_messages,
             ]
 
-        try:
-            response = await self._client.chat(**kwargs)
-            content = ""
-            tool_calls = []
+        response = await self._client.chat(**kwargs)
+        content = ""
+        tool_calls = []
 
-            for block in response.message.content:
-                if block.type == "text":
-                    content += block.text
-                elif block.type == "tool_call":
-                    tc = block.tool_call
-                    tool_calls.append(ToolCall(
-                        name=tc.name,
-                        arguments=tc.parameters or {},
-                        call_id=getattr(tc, "id", None),
-                    ))
+        for block in response.message.content:
+            if block.type == "text":
+                content += block.text
+            elif block.type == "tool_call":
+                tc = block.tool_call
+                tool_calls.append(ToolCall(
+                    name=tc.name,
+                    arguments=tc.parameters or {},
+                    call_id=getattr(tc, "id", None),
+                ))
 
-            usage = {}
-            if response.usage:
-                usage = {
-                    "input_tokens": getattr(response.usage.billed_units, "input_tokens", 0),
-                    "output_tokens": getattr(response.usage.billed_units, "output_tokens", 0),
-                }
+        usage = {}
+        if response.usage:
+            usage = {
+                "input_tokens": getattr(response.usage.billed_units, "input_tokens", 0),
+                "output_tokens": getattr(response.usage.billed_units, "output_tokens", 0),
+            }
 
-            return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
-
-        except Exception as e:
-            return ProviderResponse(content=f"[error: {e}]")
+        return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
 
     def supports_tools(self) -> bool:
         return True

@@ -109,17 +109,20 @@ class TriggerListener:
         """
         Read and consume all pending wake events.
 
-        Atomic: reads the file, parses events, then truncates.
-        Events that fail to parse are logged and discarded.
+        Atomic: renames the trigger file before reading so concurrent watcher
+        appends go to a fresh file rather than being lost between read and truncate.
         """
         events = []
+        tmp_path = self.trigger_path.with_suffix(".reading")
         try:
-            content = self.trigger_path.read_text().strip()
+            self.trigger_path.rename(tmp_path)
+            self._ensure_trigger_file()  # recreate empty file for new appends
+
+            content = tmp_path.read_text().strip()
+            tmp_path.unlink(missing_ok=True)
+
             if not content:
                 return events
-
-            # Consume: truncate the file after reading
-            self.trigger_path.write_text("")
 
             for line in content.splitlines():
                 line = line.strip()
@@ -128,11 +131,25 @@ class TriggerListener:
                 try:
                     events.append(WakeEvent.from_json(line))
                 except (json.JSONDecodeError, KeyError, ValueError):
-                    # Bad event line — skip it, don't crash
                     pass
 
         except FileNotFoundError:
             self._ensure_trigger_file()
+        except OSError:
+            # Rename failed (cross-device, permissions) — fall back to read+truncate
+            try:
+                content = self.trigger_path.read_text().strip()
+                self.trigger_path.write_text("")
+                for line in content.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(WakeEvent.from_json(line))
+                    except (json.JSONDecodeError, KeyError, ValueError):
+                        pass
+            except FileNotFoundError:
+                self._ensure_trigger_file()
 
         return events
 

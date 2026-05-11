@@ -219,7 +219,8 @@ class NexusBridge:
         system: str = "",
     ) -> BridgeResult:
         """Claude Code CLI — session_id-based resumption, MCP tools."""
-        session_id = self.sessions.get(session_key)
+        cc_key = session_key + "__cc"  # separate namespace from generic sessions
+        session_id = self.sessions.get(cc_key)
 
         if session_id:
             provider.config["resume_session"] = session_id
@@ -240,7 +241,7 @@ class NexusBridge:
                     break
 
         if new_session_id:
-            await self.sessions.set(session_key, new_session_id)
+            await self.sessions.set(cc_key, new_session_id)
 
         usage = response.usage or {}
         cost = self._estimate_cost_claude(

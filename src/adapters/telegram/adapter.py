@@ -45,6 +45,7 @@ class TelegramAdapter:
         self.allowed_users: Set[int] = set(tg.get("allowed_users", []))
         self.chat_id: Optional[int] = tg.get("chat_id")
         self._app: Optional["Application"] = None
+        self._stop = asyncio.Event()
 
         self.commands = CommandRegistry("telegram")
         self.fmt = PlatformFormatter("telegram")
@@ -75,8 +76,16 @@ class TelegramAdapter:
             await app.start()
             logger.info("Telegram adapter started")
             await app.updater.start_polling(drop_pending_updates=True)
-            stop = asyncio.Event()
-            await stop.wait()
+            await self._stop.wait()
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._app:
+            try:
+                await self._app.updater.stop()
+                await self._app.stop()
+            except Exception:
+                pass
 
     async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.effective_message
@@ -118,7 +127,8 @@ class TelegramAdapter:
                 task_type=triage.provider_key,
             )
         except Exception as e:
-            await ack.edit_text(f"Error: {e}")
+            logger.error(f"Telegram invoke error: {e}")
+            await ack.edit_text("_(error processing your request)_")
             return
 
         response = result.text or "_(no response)_"
