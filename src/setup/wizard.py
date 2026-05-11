@@ -735,11 +735,78 @@ def _assign_roles(configured: dict[str, dict]) -> dict:
 # Config writers
 # ─────────────────────────────────────────────
 
-def _write_providers_yaml(configured: dict[str, dict], routing: dict) -> Path:
+NOTIFY_ADAPTERS = [
+    ("mattermost", "Mattermost  (self-hosted team chat)"),
+    ("slack",      "Slack"),
+    ("discord",    "Discord  (webhook — push-only)"),
+    ("telegram",   "Telegram  (bot API)"),
+    ("none",       "None — disable internal notifications"),
+]
+
+
+def _configure_notify() -> dict:
+    """
+    Ask the operator which adapter Nexus should use for out-of-band
+    notifications (watchers, health alerts, scheduled task output).
+    This becomes the default_protocol for the Notifier.
+    """
+    header("Step 3b — Notification Adapter")
+    print("  Nexus sends internal alerts (watcher events, health checks,")
+    print("  cron output) via your chosen protocol. You can change this")
+    print("  at any time by editing config/nexus.yaml.")
+    print()
+
+    proto = ask_choice("Which protocol should Nexus use for notifications?",
+                       [label for _, label in NOTIFY_ADAPTERS])
+    key = dict(zip([label for _, label in NOTIFY_ADAPTERS],
+                   [k for k, _ in NOTIFY_ADAPTERS]))[proto]
+
+    if key == "none":
+        print(dim("  Notifications disabled."))
+        return {}
+
+    dest = ask_choice("Default destination?", ["dm", "channel"])
+    proto_cfg: dict = {}
+
+    if key == "mattermost":
+        url = ask("  Mattermost URL", "http://localhost:8065")
+        token = ask_secret("  Bot token")
+        team = ask("  Team name", "nexus")
+        dm_id = ask("  DM channel ID (leave blank to resolve at runtime)", "")
+        proto_cfg = {"url": url, "bot_token": token, "team": team}
+        if dm_id:
+            proto_cfg["dm_channel_id"] = dm_id
+
+    elif key == "slack":
+        token = ask_secret("  Slack bot token (xoxb-...)")
+        default_channel = ask("  Default channel (e.g. #alerts)", "#alerts")
+        proto_cfg = {"bot_token": token, "default_channel": default_channel}
+
+    elif key == "discord":
+        webhook = ask_secret("  Webhook URL")
+        proto_cfg = {"webhook_url": webhook}
+
+    elif key == "telegram":
+        bot_token = ask_secret("  Bot token")
+        chat_id = ask("  Chat/Group ID")
+        proto_cfg = {"bot_token": bot_token, "chat_id": chat_id}
+
+    print(f"  {check_mark(True)} Notifications → {bold(key)} ({dest})")
+
+    return {
+        "default_protocol": key,
+        "default_destination": dest,
+        "protocols": {key: proto_cfg},
+    }
+
+
+def _write_providers_yaml(configured: dict[str, dict], routing: dict, notify: dict = None) -> Path:
     out: dict = {"providers": {}, "routing": routing}
     for name, cfg in configured.items():
         clean = {k: v for k, v in cfg.items() if not k.startswith("_")}
         out["providers"][name] = clean
+    if notify:
+        out["notify"] = notify
 
     path = CONFIG_DIR / "providers.yaml"
     with open(path, "w") as f:
@@ -826,9 +893,12 @@ async def run() -> None:
     # ── Step 3: Role assignment ──────────────────────────────────────────
     routing = _assign_roles(configured)
 
+    # ── Step 3b: Notification adapter ───────────────────────────────────
+    notify_cfg = _configure_notify()
+
     # ── Step 4: Write config ─────────────────────────────────────────────
     header("Step 4 — Writing Configuration")
-    yaml_path = _write_providers_yaml(configured, routing)
+    yaml_path = _write_providers_yaml(configured, routing, notify_cfg)
     env_path  = _write_env(configured)
 
     print(f"  {check_mark(True)} {yaml_path.relative_to(PROJECT_ROOT)}")

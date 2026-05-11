@@ -1,0 +1,190 @@
+# Multi-LLM-Nexus — Provider Configuration with Hierarchical Failover
+#
+# This example shows how to configure multiple providers with automatic failover.
+# The bridge will try providers in priority order (1 = primary, 2 = secondary, etc).
+#
+# If primary provider fails or becomes unhealthy, the system automatically
+# switches to the next available provider without user intervention.
+#
+# This enables true provider-agnostic infrastructure: swap Claude for Gemini,
+# add a local Ollama fallback, or any combination.
+
+providers:
+
+  # ── PRIMARY (1) — Priority 1 ──────────────────────────────────
+  # Orchestrator and decision-maker. Attempts all requests here first.
+  # If this fails consistently, secondary takes over.
+
+  claude:
+    type: claude_code
+    model: claude-sonnet-4-6
+    priority: 1
+    tier: standard              # nano | standard | deep
+    display_prefix: Claude      # Heartbeat label — what the user sees
+    model_display: Sonnet       # Human-friendly model name
+    effort_levels: true         # Provider supports effort (low/standard/high)
+    timeout: 600
+
+  # ── SECONDARY (2) — Priority 2 ─────────────────────────────────
+  # Fallback if primary is unavailable.
+  # Same tier capability as primary to ensure quality.
+
+  gemini:
+    type: gemini
+    model: gemini-1.5-pro
+    priority: 2
+    tier: standard
+    display_prefix: Gemini
+    model_display: 1.5-pro
+    effort_levels: false        # Gemini has "thinking" mode, not effort levels
+    api_key: ${GOOGLE_API_KEY}
+
+  # ── TERTIARY (3) — Priority 3 ─────────────────────────────────
+  # Last resort. Local, always available, no API costs.
+  # Smaller model but good for basic operations.
+
+  ollama_local:
+    type: ollama
+    model: llama3.2:8b
+    priority: 3
+    tier: nano
+    display_prefix: Local       # All local_endpoint providers show as "Local"
+    model_display: llama3.2:8b  # Model name shown in heartbeat
+    effort_levels: false
+    endpoint: http://localhost:11434
+
+  # ── OPTIONAL PROVIDERS ──────────────────────────────────────────
+  # Keep these commented out or uncomment as needed.
+
+  # Anthropic direct API (fast, with prompt caching)
+  # anthropic_direct:
+  #   type: anthropic
+  #   model: claude-sonnet-4-6
+  #   priority: 2
+  #   tier: standard
+  #   display_prefix: Claude
+  #   model_display: Sonnet
+  #   effort_levels: true
+  #   api_key: ${ANTHROPIC_API_KEY}
+  #   prompt_caching: true
+
+  # OpenAI — another solid secondary
+  # openai_4o:
+  #   type: openai
+  #   model: gpt-4o
+  #   priority: 2
+  #   tier: standard
+  #   display_prefix: OpenAI
+  #   model_display: gpt-4o
+  #   api_key: ${OPENAI_API_KEY}
+
+  # OpenAI o3 (supports reasoning mode — displayed as effort level)
+  # openai_o3:
+  #   type: openai
+  #   model: o3
+  #   priority: 2
+  #   tier: deep
+  #   display_prefix: OpenAI
+  #   model_display: o3
+  #   effort_levels: true         # o3 has "reasoning" mode
+  #   api_key: ${OPENAI_API_KEY}
+
+  # Groq — very fast triage provider
+  # groq_triage:
+  #   type: openai
+  #   model: llama-3.1-8b-instant
+  #   priority: 3
+  #   tier: nano
+  #   display_prefix: Groq
+  #   model_display: llama3-8b
+  #   api_key: ${GROQ_API_KEY}
+  #   base_url: https://api.groq.com/openai/v1
+
+  # DeepSeek — cost-optimized fallback
+  # deepseek:
+  #   type: openai
+  #   model: deepseek-chat
+  #   priority: 4
+  #   tier: standard
+  #   display_prefix: DeepSeek
+  #   model_display: deepseek-chat
+  #   api_key: ${DEEPSEEK_API_KEY}
+  #   base_url: https://api.deepseek.com/v1
+
+  # Ollama with Phi (smaller, faster local alternative)
+  # ollama_phi:
+  #   type: ollama
+  #   model: phi4:7b
+  #   priority: 3
+  #   tier: nano
+  #   display_prefix: Local
+  #   model_display: phi4:7b
+  #   endpoint: http://localhost:11434
+
+
+# ─────────────────────────────────────────────────────────────────────
+# FAILOVER CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────
+failover:
+  # Strategy for provider selection
+  # - priority: Always try lowest priority number first (default)
+  # - round-robin: Distribute load across equal-priority providers
+  # - cost-optimized: Prefer cheaper providers, escalate on failure
+  strategy: priority
+
+  # Health check interval (seconds) — background monitors check provider health
+  health_check_interval: 60
+
+  # How many providers to try before giving up
+  # 1 = try primary only; 2 = primary then secondary; etc.
+  retry_attempts: 2
+
+  # Delay between retry attempts (seconds)
+  retry_delay: 0.5
+
+  # Mark provider as failed after this many consecutive errors
+  failure_threshold: 3
+
+  # What to do if all providers fail
+  # - next_available: try whatever's left (default)
+  # - local_only: switch to local providers (nano tier) only
+  # - silent: return empty error string (let adapter handle it)
+  on_failure: next_available
+
+  # Enable background health monitoring
+  # If true, periodically calls provider.health_check() to detect issues early
+  enable_health_monitoring: true
+
+
+# ─────────────────────────────────────────────────────────────────────
+# ROUTING CONFIGURATION (legacy — still supported)
+# ─────────────────────────────────────────────────────────────────────
+# If you're not using ProviderChain failover, the Router uses these rules
+# to decide which single provider handles each task.
+
+routing:
+  default: claude             # fallback for unmatched messages
+  triage: ollama_local        # fast classifier (runs before routing)
+
+  # Pattern matching — first match wins
+  patterns:
+    - match: "code|debug|fix|script|implement|refactor"
+      provider: claude
+    - match: "private|sensitive|local|offline|confidential"
+      provider: ollama_local
+    # Route searches to Perplexity if available
+    # - match: "search|latest|current|today|news"
+    #   provider: perplexity_search
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SPECIALIST ORCHESTRATION (optional)
+# ─────────────────────────────────────────────────────────────────────
+# Load specialist profiles (config/specialists/*.md) for the orchestrator
+# to invoke when keywords match
+
+orchestrator:
+  enabled: true
+  specialists_dir: config/specialists
+  # Which provider handles synthesis (combining specialist outputs)
+  synthesis_provider: claude

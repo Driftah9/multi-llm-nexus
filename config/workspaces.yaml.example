@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────────────────────────
+# Nexus Workspaces — Specialist Agent Orchestration
+# ─────────────────────────────────────────────────────────────────────
+#
+# Workspaces group adapter contexts (channels, topics, rooms) into
+# operational categories. When orchestrator mode is enabled for a
+# workspace, the engine spawns specialist agents in parallel and
+# synthesizes their output before responding.
+#
+# Terminology:
+#   context    — adapter-specific location (MM channel, Discord forum, TG topic)
+#   workspace  — operator-defined grouping of contexts
+#   specialist — role-specific agent profile (loaded from config/specialists/)
+#   orchestrator — engine component that dispatches to specialists
+#
+# Copy this file to workspaces.yaml and customize for your deployment.
+# ─────────────────────────────────────────────────────────────────────
+
+workspaces:
+
+  # ── Example: Business Operations (orchestrator active) ──────────
+  # Any message in these contexts triggers specialist routing.
+  # The engine analyzes the message, spawns relevant specialists
+  # in parallel, and synthesizes their responses.
+
+  business-ops:
+    display_name: "Business Operations"
+    orchestrator: true
+
+    # Adapter contexts that belong to this workspace.
+    # These are context identifiers from the adapter — channel names,
+    # topic names, room IDs, etc. The adapter normalizes them.
+    contexts:
+      - "cpa-agent"
+      - "business-questions"
+      - "llc-business"
+      - "invoice-ninja"
+
+    # Which specialist profiles are available in this workspace.
+    # Each must have a matching .md file in config/specialists/
+    specialists:
+      - financial
+      - legal
+      - marketing
+      - operations
+
+    # Keyword-based routing rules.
+    # When a message matches keywords, only the listed specialists
+    # are spawned (not all of them). Multiple rules can match —
+    # specialists are deduplicated.
+    routing_rules:
+      - keywords: [tax, nese, sga, quarterly, deduction, expense, revenue, profit, loss, invoice]
+        specialists: [financial]
+
+      - keywords: [contract, agreement, compliance, filing, sdat, ssdi, regulation, liability]
+        specialists: [legal, financial]
+
+      - keywords: [pricing, client, proposal, market, rate, package, outreach, branding, advertising]
+        specialists: [marketing, financial]
+
+      - keywords: [hire, contractor, resource, timeline, capacity, workflow, priority, deadline]
+        specialists: [operations, financial, legal]
+
+      - keywords: [stripe, square, payment, processor, gateway, settlement]
+        specialists: [financial]
+
+    # Fallback when no routing rules match but orchestrator is active.
+    # If empty, the engine falls through to standard single-session mode.
+    default_specialists:
+      - financial
+
+    # Provider tier for specialist invocations.
+    # Specialists run as one-shot queries — no session history.
+    # "standard" is recommended. "deep" for complex analysis.
+    specialist_tier: "standard"
+
+    # Provider tier for synthesis (merging multiple specialist outputs).
+    # Should be at least as capable as specialist_tier.
+    synthesis_tier: "standard"
+
+
+  # ── Example: Tech Services (no auto-orchestration) ──────────────
+  # Standard single-session mode. Specialists are available but only
+  # invoked when the operator explicitly requests them.
+
+  tech-services:
+    display_name: "Tech Services"
+    orchestrator: false
+    contexts:
+      - "support"
+      - "website-design"
+    specialists:
+      - marketing
+      - operations
+    # No routing_rules needed — orchestrator is off.
+    # The Chief of Staff can still reference these specialists
+    # if the operator asks: "get the marketing specialist's take on this"
+
+
+  # ── Example: R&D / Personal (no orchestration) ──────────────────
+  # Everything not explicitly mapped lands here.
+  # Pure single-session mode — no specialist spawning.
+
+  # default:
+  #   display_name: "Default"
+  #   orchestrator: false
+  #   contexts: []    # empty = catch-all for unmapped contexts
+  #   specialists: []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Notes for operators:
+#
+# 1. Context names are adapter-agnostic. If "cpa-agent" is a Mattermost
+#    channel AND a Discord forum thread, both route to the same workspace.
+#
+# 2. Specialist profiles live in config/specialists/<id>.md
+#    The file must have YAML frontmatter with id, name, tier fields.
+#
+# 3. Routing rules use simple keyword matching (case-insensitive).
+#    For complex routing, the triage provider can be used instead —
+#    set routing_mode: "llm" on the workspace (future feature).
+#
+# 4. Cost awareness: each specialist invocation is a separate LLM call.
+#    A message that triggers 3 specialists = 3 LLM calls + 1 synthesis.
+#    Use routing_rules to limit unnecessary specialist spawning.
+#
+# 5. Specialists are stateless — they receive the message and workspace
+#    context but no conversation history. The Chief of Staff's session
+#    maintains continuity; specialists provide point-in-time analysis.
+# ─────────────────────────────────────────────────────────────────────

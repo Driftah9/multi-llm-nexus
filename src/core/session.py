@@ -30,6 +30,18 @@ class SessionEntry:
     active: bool = False
 
 
+@dataclass
+class Session:
+    """Per-conversation session metadata used by the engine."""
+    session_id: str
+    platform: str = ""
+    channel_id: str = ""
+    provider_name: str = ""
+    message_count: int = 0
+    created_at: float = field(default_factory=time.time)
+    last_active: float = field(default_factory=time.time)
+
+
 class SessionStore:
     def __init__(self, store_path: str = "config/sessions.json"):
         self.path = Path(store_path)
@@ -42,6 +54,40 @@ class SessionStore:
     def get(self, key: str) -> Optional[str]:
         entry = self._data.get(key)
         return entry.value if entry else None
+
+    def get_or_create(
+        self,
+        session_id: str,
+        platform: str = "",
+        channel_id: str = "",
+        provider_name: str = "",
+    ) -> Session:
+        entry = self._data.get(session_id)
+        if entry:
+            return Session(
+                session_id=session_id,
+                platform=platform,
+                channel_id=channel_id,
+                provider_name=provider_name,
+                message_count=0,
+                created_at=entry.created_at,
+                last_active=entry.last_active,
+            )
+        self._data[session_id] = SessionEntry(value=session_id)
+        self._save()
+        return Session(
+            session_id=session_id,
+            platform=platform,
+            channel_id=channel_id,
+            provider_name=provider_name,
+        )
+
+    def update(self, session: Session) -> None:
+        entry = self._data.get(session.session_id)
+        if entry:
+            entry.last_active = time.time()
+            entry.active = True
+            self._save()
 
     # ── Async writes ───────────────────────────────────────────────────────
 

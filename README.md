@@ -33,7 +33,7 @@ A persistent, always-on agent platform that:
 
 ```
 src/
-  core/          Engine, session management, bridge, behaviors, triage, commands, formatter
+  core/          Engine, session, bridge, heartbeat, triage, orchestrator, commands
   providers/     LLM abstraction layer — 20 providers, swap any in/out
   adapters/      Platform connectors — Mattermost (WebSocket), Discord (REST), Telegram
   setup/         Interactive install wizard
@@ -128,6 +128,45 @@ See **[docs/comparison.md](docs/comparison.md)** for a full breakdown of how Nex
 | **Telegram** | Stable | python-telegram-bot, forum topic threads |
 | **Slack** | Planned | Config reserved in adapters.yaml |
 | **Matrix/Element** | Planned | Config reserved in adapters.yaml |
+
+---
+
+## Heartbeat (Live Status Display)
+
+Nexus maintains a live status display for every in-flight request — not a typing dot. The heartbeat shows exactly which provider is active, what model, at what reasoning depth, which specialists are working, and how long it's been running.
+
+```
+Claude · Opus · high — thinking 30s
+Claude · Sonnet · standard — financial, security — working 1m12s
+Claude · Orchestrator — 3 agents active — working 2m30s
+Gemini · 2.0-flash · thinking — working 55s
+Local · tinyllama — thinking 15s
+```
+
+**What you see at a glance:**
+- Which LLM provider is handling this request
+- What model (human-friendly name, not model IDs)
+- Effort/reasoning depth (only if the provider supports it — Claude, OpenAI o3)
+- Active specialists and how many remain (decrements in real-time)
+- How long the current operation has been running
+
+**What it costs:** Zero tokens. The heartbeat is purely mechanical — asyncio background tasks update the status display every 30 seconds. No LLM reasoning is spent on bookkeeping.
+
+**Failover notification:** When the primary goes down and the chain switches providers, the heartbeat updates instantly — `Claude · Opus` becomes `Local · tinyllama` in the same post.
+
+Configure display names in `providers.yaml`:
+
+```yaml
+claude:
+  display_prefix: Claude      # What appears in the heartbeat
+  model_display: Opus         # Human-friendly model name
+  effort_levels: true         # Show effort in display
+
+ollama_local:
+  display_prefix: Local
+  model_display: tinyllama
+  effort_levels: false        # No effort concept — omitted from display
+```
 
 ---
 

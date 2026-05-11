@@ -3,13 +3,17 @@ Provider bridge — the unified invoke interface for all adapters.
 
 Adapters call bridge.invoke(prompt, session_key, tier) and get back
 a BridgeResult(text, cost). The bridge handles:
-  - Routing to the correct provider via the Router
+  - Routing to the correct provider via the Router OR ProviderChain
+  - Automatic failover to next provider on error
   - Session/message-history management per provider type
   - Response formatting
 
 Claude Code CLI is a special case: it manages its own session_id and
 handles multi-turn history internally. Every other provider requires
 Nexus to maintain message history explicitly.
+
+ProviderChain enables multi-provider failover: if primary (Claude) fails,
+automatically try secondary (Gemini), then tertiary (Ollama).
 """
 from __future__ import annotations
 
@@ -20,7 +24,9 @@ from typing import Callable, Optional
 
 from .session import SessionStore
 from .router import Router
-from ..providers.base import Message, ProviderResponse
+from .provider_chain import ProviderChain, ProviderChainEntry
+from .heartbeat import HeartbeatManager
+from ..providers.base import Message, ProviderResponse, BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -41,25 +47,36 @@ class BridgeResult:
 
 class NexusBridge:
     """
-    Provider-agnostic invoke interface.
+    Provider-agnostic invoke interface with automatic failover.
 
     Adapters don't know which LLM they're talking to. They call invoke()
     and get back a BridgeResult. The bridge picks the provider via the
-    router, manages history, and returns a normalized result.
+    router OR chain, manages history, and returns a normalized result.
 
     For claude_code: session_id is stored in SessionStore and passed
     back to the CLI to resume context between calls.
 
     For all other providers: message history is accumulated in SessionStore
     and sent with each request (stateless API pattern).
+
+    If a ProviderChain is provided, it replaces the Router and enables
+    automatic failover: on error, tries the next provider in priority order.
     """
 
-    def __init__(self, router: Router, sessions: SessionStore, system_prompt: str = ""):
+    def __init__(
+        self,
+        router: Optional[Router] = None,
+        chain: Optional[ProviderChain] = None,
+        sessions: Optional[SessionStore] = None,
+        system_prompt: str = "",
+    ):
         self.router = router
-        self.sessions = sessions
+        self.chain = chain
+        self.sessions = sessions or SessionStore()
         self.system_prompt = system_prompt
         # In-memory message history per session key, for non-claude_code providers
         self._history: dict[str, list[Message]] = {}
+        self._last_provider_used: dict[str, str] = {}  # session_key → provider_type
 
     async def invoke(
         self,
@@ -68,9 +85,16 @@ class NexusBridge:
         tier: Optional[str] = None,
         task_type: Optional[str] = None,
         on_output: Optional[Callable[[str], None]] = None,
+        on_provider_change: Optional[Callable] = None,
+        system_prompt: Optional[str] = None,
+        ephemeral: bool = False,
     ) -> BridgeResult:
         """
-        Send a prompt and return the response.
+        Send a prompt and return the response with automatic failover.
+
+        Uses ProviderChain if configured, otherwise falls back to Router.
+        If ProviderChain: automatically tries next provider on failure.
+        If Router: single provider, error on failure (legacy mode).
 
         Args:
             prompt: The user message text (may include platform prefix)
@@ -78,33 +102,125 @@ class NexusBridge:
             tier: Force a tier (nano/standard/deep). If None, uses routing config.
             task_type: Force a task type for routing (code/privacy/etc.)
             on_output: Optional callback when output starts arriving (for status updates)
+            on_provider_change: Optional async callback(prefix, model_display, effort)
+                                called when the active provider changes during failover.
+                                Used by HeartbeatManager for live status updates.
+            system_prompt: Override the default system prompt (used by orchestrator
+                           for specialist and synthesis calls)
+            ephemeral: If True, don't accumulate message history for this call.
+                       Used for one-shot specialist queries.
 
         Returns:
-            BridgeResult with response text and metadata
+            BridgeResult with response text and metadata (includes provider_type)
         """
         start = time.time()
+        effective_system = system_prompt or self.system_prompt
 
+        if self.chain:
+            result = await self._invoke_with_chain(
+                prompt, session_key, tier, on_output, effective_system,
+                ephemeral, on_provider_change
+            )
+        else:
+            result = await self._invoke_with_router(
+                prompt, session_key, tier, task_type, on_output, effective_system, ephemeral
+            )
+
+        result.elapsed = time.time() - start
+        self._last_provider_used[session_key] = result.provider_type
+        return result
+
+    async def _invoke_with_chain(
+        self,
+        prompt: str,
+        session_key: str,
+        tier: Optional[str],
+        on_output: Optional[Callable],
+        system_prompt: str,
+        ephemeral: bool,
+        on_provider_change: Optional[Callable] = None,
+    ) -> BridgeResult:
+        """Invoke using ProviderChain with automatic failover."""
+        async def try_provider(provider: BaseProvider) -> BridgeResult:
+            provider_type = type(provider).__name__.lower().replace("provider", "")
+
+            try:
+                if provider_type == "claudecode":
+                    return await self._invoke_claude_code(
+                        provider, prompt, session_key, on_output, system_prompt
+                    )
+                else:
+                    return await self._invoke_api_provider(
+                        provider, prompt, session_key, provider_type,
+                        system_prompt, ephemeral
+                    )
+            except Exception as e:
+                logger.warning(f"Provider {provider_type} failed: {e}")
+                raise
+
+        async def _on_attempt(entry: ProviderChainEntry) -> None:
+            if on_provider_change:
+                effort = None  # populated by caller if applicable
+                await on_provider_change(
+                    entry.display_prefix or entry.name,
+                    entry.model_display or entry.tier,
+                    effort,
+                )
+
+        success, result, provider, error = await self.chain.try_with_fallback(
+            try_provider, tier=tier, on_attempt=_on_attempt
+        )
+
+        if success:
+            return result
+        else:
+            provider_type = "unknown"
+            if provider:
+                provider_type = type(provider).__name__.lower().replace("provider", "")
+            logger.error(f"All providers exhausted. Last error: {error}")
+            return BridgeResult(
+                text=f"_(All providers failed: {error})_",
+                provider_type=provider_type,
+            )
+
+    async def _invoke_with_router(
+        self,
+        prompt: str,
+        session_key: str,
+        tier: Optional[str],
+        task_type: Optional[str],
+        on_output: Optional[Callable],
+        system_prompt: str,
+        ephemeral: bool,
+    ) -> BridgeResult:
+        """Invoke using Router (single provider, legacy mode)."""
         provider = self.router.route(prompt, task_type=tier or task_type)
         provider_type = type(provider).__name__.lower().replace("provider", "")
 
         try:
             if provider_type == "claudecode":
-                result = await self._invoke_claude_code(provider, prompt, session_key, on_output)
+                result = await self._invoke_claude_code(
+                    provider, prompt, session_key, on_output, system_prompt
+                )
             else:
-                result = await self._invoke_api_provider(provider, prompt, session_key, provider_type)
+                result = await self._invoke_api_provider(
+                    provider, prompt, session_key, provider_type,
+                    system_prompt, ephemeral
+                )
         except Exception as e:
             logger.error(f"Bridge invoke error ({provider_type}): {e}")
             result = BridgeResult(text=f"_(error: {e})_", provider_type=provider_type)
 
-        result.elapsed = time.time() - start
         result.provider_type = provider_type
         return result
 
-    async def _invoke_claude_code(self, provider, prompt: str, session_key: str, on_output) -> BridgeResult:
+    async def _invoke_claude_code(
+        self, provider, prompt: str, session_key: str, on_output,
+        system: str = "",
+    ) -> BridgeResult:
         """Claude Code CLI — session_id-based resumption, MCP tools."""
         session_id = self.sessions.get(session_key)
 
-        # Inject session_id into config if present
         if session_id:
             provider.config["resume_session"] = session_id
 
@@ -113,7 +229,7 @@ class NexusBridge:
 
         response: ProviderResponse = await provider.send(
             [Message(role="user", content=prompt)],
-            system=self.system_prompt,
+            system=system,
         )
 
         new_session_id = None
@@ -141,25 +257,30 @@ class NexusBridge:
             output_tokens=usage.get("output_tokens", 0),
         )
 
-    async def _invoke_api_provider(self, provider, prompt: str, session_key: str, provider_type: str) -> BridgeResult:
+    async def _invoke_api_provider(
+        self, provider, prompt: str, session_key: str, provider_type: str,
+        system: str = "", ephemeral: bool = False,
+    ) -> BridgeResult:
         """All API providers — explicit message history management."""
-        history = self._history.setdefault(session_key, [])
+        if ephemeral:
+            messages = [Message(role="user", content=prompt)]
+        else:
+            history = self._history.setdefault(session_key, [])
+            history.append(Message(role="user", content=prompt))
 
-        # Add the new user message
-        history.append(Message(role="user", content=prompt))
+            if len(history) > MAX_HISTORY:
+                self._history[session_key] = history[-MAX_HISTORY:]
+                history = self._history[session_key]
 
-        # Trim to max history (keep pairs)
-        if len(history) > MAX_HISTORY:
-            self._history[session_key] = history[-MAX_HISTORY:]
-            history = self._history[session_key]
+            messages = history
 
         response: ProviderResponse = await provider.send(
-            history,
-            system=self.system_prompt,
+            messages,
+            system=system,
         )
 
-        # Add assistant response to history
-        if response.content:
+        if response.content and not ephemeral:
+            history = self._history.get(session_key, [])
             history.append(Message(role="assistant", content=response.content))
 
         usage = response.usage or {}
@@ -178,9 +299,26 @@ class NexusBridge:
     def clear_session(self, session_key: str) -> None:
         """Clear history and session ID for a session key."""
         self._history.pop(session_key, None)
+        self._last_provider_used.pop(session_key, None)
 
     def get_history_length(self, session_key: str) -> int:
         return len(self._history.get(session_key, []))
+
+    async def start_health_monitoring(self) -> None:
+        """Start background health monitoring if ProviderChain is configured."""
+        if self.chain:
+            await self.chain.start_health_monitoring()
+
+    async def stop_health_monitoring(self) -> None:
+        """Stop background health monitoring."""
+        if self.chain:
+            await self.chain.stop_health_monitoring()
+
+    async def get_provider_status(self) -> dict:
+        """Get current health status of all providers in the chain."""
+        if self.chain:
+            return await self.chain.get_status()
+        return {}
 
     @staticmethod
     def _estimate_cost_claude(input_tokens: int, output_tokens: int, tier: str) -> float:
