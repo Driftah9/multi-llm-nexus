@@ -2,6 +2,8 @@
 
 **For Operators running Nexus on a multi-GPU inference server.**
 
+This is the operational playbook for [Citadel-tier](citadel-tier.md) deployments. If you haven't read [citadel-tier.md](citadel-tier.md) (what the tier is and why it matters) or [server-grade-builds.md](server-grade-builds.md) (which hardware qualifies), start there.
+
 If you have a single GPU or a workstation-class build, this document is not for you — skip it. If you have a server with 4 or more GPUs and are thinking about how to organize them for best results with Nexus, read on.
 
 ---
@@ -323,6 +325,12 @@ NVLink does not automatically pool VRAM into one address space. Applications (vL
 For the Operator: if your server has NVLink-connected GPUs and you're using vLLM for tensor parallelism, the interconnect is being used correctly. If you're running independent Ollama instances on each GPU, NVLink is present but not being used — which is fine for independent mode.
 
 ---
+
+## Related Documentation
+
+- [citadel-tier.md](citadel-tier.md) — What the Citadel tier is, sovereignty progression, cost reality
+- [server-grade-builds.md](server-grade-builds.md) — Which hardware qualifies, GPU generations, practical considerations
+- [phone-llm-cluster.md](phone-llm-cluster.md) — Complementary always-on tier using repurposed smartphones
 
 ## Getting Help
 

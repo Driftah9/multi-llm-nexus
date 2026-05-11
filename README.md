@@ -297,13 +297,19 @@ The phone cluster appears as a single OpenAI-compatible `base_url` in `providers
 
 See **[docs/phone-llm-cluster.md](docs/phone-llm-cluster.md)** for the full architecture, hardware requirements, OS recommendations, tier role mapping, and Docker coordination layer.
 
-### Server-Grade GPU Pools
+### Citadel Tier — Server-Grade GPU Pools
 
-If you're running a multi-GPU inference server — 4 or more GPUs organized into independent worker pools and tensor-parallel deep pools — Nexus supports pool-aware routing out of the box. Configure `config/pools.yaml` to tell Nexus how your GPUs are grouped, and Nexus will route around busy pools automatically using vLLM's metrics endpoint.
+The **Citadel** is the hardware tier where all Nexus tiers run locally — triage, standard, deep, and specialists — on 4-8 server-grade GPUs with NVLink fabric. Cloud becomes optional fallback, not a dependency.
 
-Nexus doesn't manage GPU assignment or model loading. It sits above the inference servers (Ollama/vLLM) and routes to whichever pool is available.
+Nexus supports pool-aware routing for Citadel deployments out of the box. Configure `config/pools.yaml` to tell Nexus how your GPUs are grouped (independent workers vs. tensor-parallel pools), and Nexus routes around busy pools automatically using vLLM's metrics endpoint.
 
-See **[docs/gpu-pool-topology.md](docs/gpu-pool-topology.md)** for pool configuration, operator profiles (general, advanced, specialist, science/maximum), inference server launch patterns, and the full pools.yaml reference.
+Three docs cover the Citadel path:
+
+| Doc | What It Covers |
+|---|---|
+| **[docs/citadel-tier.md](docs/citadel-tier.md)** | What the tier is, sovereignty progression, why it matters, cost reality |
+| **[docs/server-grade-builds.md](docs/server-grade-builds.md)** | Qualifying hardware: V100/A100/H100 platforms, power/cooling/storage, build checklist |
+| **[docs/gpu-pool-topology.md](docs/gpu-pool-topology.md)** | Operational playbook: pools.yaml config, operator profiles, vLLM/Ollama launch patterns |
 
 ### Hybrid Setup (recommended for most users)
 
