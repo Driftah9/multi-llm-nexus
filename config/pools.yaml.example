@@ -1,0 +1,136 @@
+# Nexus GPU Pool Configuration
+#
+# This file is OPTIONAL. Use it when running Nexus on a multi-GPU server
+# where GPUs are organized into pools (independent workers and/or
+# tensor-parallel pooled models).
+#
+# Nexus does NOT manage GPU assignment or model loading.
+# You are responsible for launching the inference servers (Ollama/vLLM)
+# with the correct CUDA_VISIBLE_DEVICES per pool.
+#
+# See docs/gpu-pool-topology.md for complete setup instructions.
+#
+# ─────────────────────────────────────────────────────────────────
+# OPERATOR PROFILE EXAMPLES (uncomment the one that fits your setup)
+# ─────────────────────────────────────────────────────────────────
+
+
+# ── Profile A: General — independent workers + one deep pool ──────────────────
+#
+# Hardware example: 4× GPU (any size) independent + 2× GPU pooled for deep
+# No load-aware routing needed — deep pool queues naturally, user waits.
+#
+# pools:
+#   workers:
+#     description: "Always-on lightweight workers"
+#     mode: independent
+#     gpus: [0, 1, 2, 3]
+#     vram_per_gpu: 16
+#     providers: [triage, standard, code, vision]
+#
+#   deep:
+#     description: "Pooled deep tier — 70B class"
+#     mode: pooled
+#     gpus: [4, 5]
+#     vram_per_gpu: 32
+#     providers: [deep]
+#     metrics_url: http://localhost:8000/metrics
+#
+# routing:
+#   pool_fallback: false     # general user: just queue, don't reroute
+#   poll_interval: 10
+
+
+# ── Profile B: Advanced — redundant deep pools, fallback routing ──────────────
+#
+# Hardware example: 4× 16GB independent + 2× 32GB pool (A) + 2× 32GB pool (B)
+# When Pool A is busy serving a 70B inference, Pool B takes the next request.
+#
+# pools:
+#   workers:
+#     description: "Independent lightweight workers"
+#     mode: independent
+#     gpus: [0, 1, 2, 3]
+#     vram_per_gpu: 16
+#     providers: [triage, standard, code, vision]
+#
+#   deep_primary:
+#     description: "Primary deep pool"
+#     mode: pooled
+#     gpus: [4, 5]
+#     vram_per_gpu: 32
+#     providers: [deep]
+#     metrics_url: http://localhost:8000/metrics
+#
+#   deep_secondary:
+#     description: "Fallback deep pool — different model or same model"
+#     mode: pooled
+#     gpus: [6, 7]
+#     vram_per_gpu: 32
+#     providers: [deep_b]
+#     metrics_url: http://localhost:8001/metrics
+#
+# routing:
+#   pool_fallback: true
+#   busy_threshold:
+#     queue_depth: 1          # any waiting request = busy, route to secondary
+#     cache_usage: 0.80
+#   poll_interval: 10
+
+
+# ── Profile C: Specialist — multiple model pools ───────────────────────────────
+#
+# Hardware example: 4× 16GB independent + 2× 32GB code-specialist + 2× 32GB deep
+# Advanced routing: code requests go to the code pool, deep thinking to deep pool.
+# Each pool is independent of the others.
+#
+# pools:
+#   workers:
+#     description: "Triage and standard always-on"
+#     mode: independent
+#     gpus: [0, 1]
+#     vram_per_gpu: 16
+#     providers: [triage, standard]
+#
+#   code_pool:
+#     description: "Large code specialist — Qwen Coder 32B or Codestral"
+#     mode: pooled
+#     gpus: [2, 3]
+#     vram_per_gpu: 16
+#     providers: [code]
+#     metrics_url: http://localhost:8001/metrics
+#
+#   deep_pool:
+#     description: "Deep reasoning pool"
+#     mode: pooled
+#     gpus: [4, 5, 6, 7]
+#     vram_per_gpu: 32
+#     providers: [deep]
+#     metrics_url: http://localhost:8000/metrics
+#
+# routing:
+#   pool_fallback: true
+#   busy_threshold:
+#     queue_depth: 2
+#     cache_usage: 0.85
+#   poll_interval: 10
+
+
+# ── Profile D: Science / Maximum Pool ─────────────────────────────────────────
+#
+# Hardware example: All GPUs pooled into one or two massive pools.
+# No independent workers — everything is deep tier.
+# Cloud or a small local triage handles classification.
+#
+# pools:
+#   flagship:
+#     description: "All compute in one pool — maximum model size"
+#     mode: pooled
+#     gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+#     vram_per_gpu: 32
+#     providers: [deep]
+#     metrics_url: http://localhost:8000/metrics
+#
+# routing:
+#   pool_fallback: false    # one pool, nothing to fall back to
+#   poll_interval: 15

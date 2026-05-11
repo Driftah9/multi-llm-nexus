@@ -167,6 +167,8 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     from .core.behaviors import NexusBehavior
     from .core.triage import Triage
     from .core.engine import Engine
+    from .core.pool_manager import PoolManager
+    from .core.provider_chain import set_pool_manager
 
     providers = _build_providers(providers_defs)
     if not providers:
@@ -205,6 +207,14 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     if not adapters:
         logger.warning("No adapters configured — Nexus will start but has no platform connections")
 
+    # Load pool topology (optional — only present on multi-GPU servers)
+    pool_manager = PoolManager.from_file(config_dir / "pools.yaml")
+    if pool_manager:
+        set_pool_manager(pool_manager)
+        logger.info(f"GPU pool topology loaded: {len(pool_manager.pools)} pool(s)")
+    else:
+        logger.info("No pools.yaml — running without pool-aware routing")
+
     default_provider = router.providers.get(routing_config.get("default", "primary"))
     logger.info(f"Primary provider: {default_provider}")
     logger.info(f"Triage provider: {triage_provider or '(keyword heuristics)'}")
@@ -217,8 +227,10 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
 
-    # Run engine + adapters concurrently
+    # Run engine + adapters + pool monitor concurrently
     tasks = [asyncio.create_task(engine.start(), name="engine")]
+    if pool_manager:
+        tasks.append(asyncio.create_task(pool_manager.start(), name="pool_manager"))
     for adapter in adapters:
         tasks.append(asyncio.create_task(adapter.run(), name=adapter.__class__.__name__))
 
@@ -227,6 +239,8 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     logger.info("Shutting down...")
 
     await engine.stop()
+    if pool_manager:
+        await pool_manager.stop()
     for t in tasks:
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)

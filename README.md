@@ -297,6 +297,14 @@ The phone cluster appears as a single OpenAI-compatible `base_url` in `providers
 
 See **[docs/phone-llm-cluster.md](docs/phone-llm-cluster.md)** for the full architecture, hardware requirements, OS recommendations, tier role mapping, and Docker coordination layer.
 
+### Server-Grade GPU Pools
+
+If you're running a multi-GPU inference server — 4 or more GPUs organized into independent worker pools and tensor-parallel deep pools — Nexus supports pool-aware routing out of the box. Configure `config/pools.yaml` to tell Nexus how your GPUs are grouped, and Nexus will route around busy pools automatically using vLLM's metrics endpoint.
+
+Nexus doesn't manage GPU assignment or model loading. It sits above the inference servers (Ollama/vLLM) and routes to whichever pool is available.
+
+See **[docs/gpu-pool-topology.md](docs/gpu-pool-topology.md)** for pool configuration, operator profiles (general, advanced, specialist, science/maximum), inference server launch patterns, and the full pools.yaml reference.
+
 ### Hybrid Setup (recommended for most users)
 
 ```yaml

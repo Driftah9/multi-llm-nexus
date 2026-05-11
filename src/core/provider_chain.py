@@ -20,6 +20,14 @@ from ..providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
+_pool_manager = None  # Set by main.py after PoolManager is loaded
+
+
+def set_pool_manager(manager) -> None:
+    """Wire the pool manager into the chain at startup."""
+    global _pool_manager
+    _pool_manager = manager
+
 
 class ProviderHealth(Enum):
     """Health status of a provider."""
@@ -116,6 +124,17 @@ class ProviderChain:
                     e.priority  # lower priority number = higher precedence
                 )
             )
+
+            # Pool-aware selection: prefer non-busy pools when pool_manager is active
+            if _pool_manager:
+                non_busy = [
+                    e for e in sorted_entries
+                    if not _pool_manager.is_busy(e.name)
+                    and e.health != ProviderHealth.FAILED
+                ]
+                if non_busy:
+                    return non_busy[0].provider
+                # All pools busy or no pool config — fall through to normal selection
 
             if sorted_entries and sorted_entries[0].health != ProviderHealth.FAILED:
                 return sorted_entries[0].provider
