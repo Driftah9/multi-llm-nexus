@@ -241,3 +241,14 @@ class DiscordAdapter:
 
         elif name == "help":
             await reply(self.commands.help_text())
+
+    async def deliver(self, outbound) -> None:
+        """Engine callback — post an autonomously-generated response to a channel."""
+        chunks = self.fmt.format_response(outbound.content)
+        channel = outbound.channel_id or self.channel_id
+        for chunk in chunks:
+            await asyncio.to_thread(
+                self._post,
+                f"/channels/{channel}/messages",
+                {"content": chunk},
+            )

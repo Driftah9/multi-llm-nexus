@@ -190,3 +190,16 @@ class TelegramAdapter:
                 await asyncio.sleep(5)
         except (asyncio.CancelledError, Exception):
             pass
+
+    async def deliver(self, outbound) -> None:
+        """Engine callback — post an autonomously-generated response to a chat."""
+        if not self._app:
+            logger.warning("Telegram deliver: app not running, dropping outbound message")
+            return
+        chunks = self.fmt.format_response(outbound.content)
+        for chunk in chunks:
+            try:
+                await self._app.bot.send_message(chat_id=int(outbound.channel_id), text=chunk)
+            except Exception as e:
+                logger.error(f"Telegram deliver failed: {e}")
+                break

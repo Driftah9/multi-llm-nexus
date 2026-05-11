@@ -172,14 +172,14 @@ class MattermostAdapter:
         placeholder_id = placeholder.get("id", "")
 
         start = time.time()
-        _working = False
+        _working = [False]
 
         async def _heartbeat():
             while True:
                 await asyncio.sleep(30)
                 elapsed = int(time.time() - start)
                 m, s = divmod(elapsed, 60)
-                label = "working" if _working else "thinking"
+                label = "working" if _working[0] else "thinking"
                 try:
                     await self.api.update_message(
                         placeholder_id,
@@ -193,6 +193,7 @@ class MattermostAdapter:
 
         prompt = f"[Platform: Mattermost | Channel: #{channel_name}]\n{message}"
 
+        _working[0] = True
         try:
             result = await self.bridge.invoke(
                 prompt=prompt,
@@ -200,7 +201,6 @@ class MattermostAdapter:
                 tier=triage.tier,
                 task_type=triage.provider_key,
             )
-            _working = True
         finally:
             heartbeat.cancel()
             typing_task.cancel()
@@ -360,3 +360,9 @@ class MattermostAdapter:
             return name
         except Exception:
             return user_id
+
+    async def deliver(self, outbound) -> None:
+        """Engine callback — post an autonomously-generated response to a channel."""
+        chunks = self.fmt.format_response(outbound.content)
+        for chunk in chunks:
+            await self.api.post_message(outbound.channel_id, chunk)

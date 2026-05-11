@@ -117,6 +117,7 @@ def _build_adapters(adapters_config: dict, engine, bridge, sessions, behavior) -
             cfg = {**adapters_config, "mattermost": adapters_config["mattermost"]}
             adapter = MattermostAdapter(cfg, bridge, sessions, behavior)
             adapter.engine = engine
+            engine.register_response_handler("mattermost", adapter.deliver)
             adapters.append(adapter)
             logger.info("Mattermost adapter loaded")
         except Exception as e:
@@ -127,6 +128,7 @@ def _build_adapters(adapters_config: dict, engine, bridge, sessions, behavior) -
             from .adapters.discord.adapter import DiscordAdapter
             adapter = DiscordAdapter(adapters_config, bridge, sessions, behavior)
             adapter.engine = engine
+            engine.register_response_handler("discord", adapter.deliver)
             adapters.append(adapter)
             logger.info("Discord adapter loaded")
         except Exception as e:
@@ -137,6 +139,7 @@ def _build_adapters(adapters_config: dict, engine, bridge, sessions, behavior) -
             from .adapters.telegram.adapter import TelegramAdapter
             adapter = TelegramAdapter(adapters_config, bridge, sessions, behavior)
             adapter.engine = engine
+            engine.register_response_handler("telegram", adapter.deliver)
             adapters.append(adapter)
             logger.info("Telegram adapter loaded")
         except Exception as e:
