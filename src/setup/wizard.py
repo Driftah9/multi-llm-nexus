@@ -14,10 +14,13 @@ Or via: setup.sh (calls this automatically)
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
+import importlib.util
 import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -176,6 +179,215 @@ _DISPLAY_TO_TYPE = {
     "anthropic":    _CLAUDE_SUB_KEY,   # "Anthropic — subscription" → claude_code
     "claude_code":  _CLAUDE_API_KEY,   # "Anthropic — API key" → anthropic
 }
+
+
+# ─────────────────────────────────────────────
+# Dependency maps
+# ─────────────────────────────────────────────
+
+# pip package name → Python import name (where they differ)
+_PIP_TO_IMPORT: dict[str, str] = {
+    "google-generativeai":     "google.generativeai",
+    "google-cloud-aiplatform": "google.cloud.aiplatform",
+    "python-telegram-bot":     "telegram",
+    "pyyaml":                  "yaml",
+    "python-dotenv":           "dotenv",
+}
+
+# Which pip packages each provider requires
+PROVIDER_DEPS: dict[str, list[str]] = {
+    "anthropic":     ["anthropic"],
+    "claude_code":   [],                        # needs claude CLI, not a pip package
+    "openai":        ["openai"],
+    "gemini":        ["google-generativeai"],
+    "vertex_ai":     ["google-cloud-aiplatform"],
+    "groq":          ["openai"],
+    "mistral":       ["openai"],
+    "deepseek":      ["openai"],
+    "xai":           ["openai"],
+    "cohere":        ["cohere"],
+    "together":      ["openai"],
+    "fireworks":     ["openai"],
+    "perplexity":    ["openai"],
+    "huggingface":   ["openai"],
+    "cerebras":      ["openai"],
+    "bedrock":       ["boto3"],
+    "azure_openai":  ["openai"],
+    "ollama":        [],                        # uses httpx (already a core dep)
+    "lm_studio":     ["openai"],
+    "vllm":          ["openai"],
+}
+
+# Which pip packages each platform adapter requires
+ADAPTER_DEPS: dict[str, list[str]] = {
+    "mattermost": ["aiohttp"],
+    "telegram":   ["python-telegram-bot"],
+    "discord":    [],
+    "slack":      ["slack-sdk"],
+}
+
+# Known API key env vars and the provider they belong to
+_ENV_KEY_MAP: dict[str, str] = {
+    "ANTHROPIC_API_KEY":    "Anthropic",
+    "OPENAI_API_KEY":       "OpenAI",
+    "GOOGLE_API_KEY":       "Google Gemini",
+    "GROQ_API_KEY":         "Groq",
+    "MISTRAL_API_KEY":      "Mistral",
+    "DEEPSEEK_API_KEY":     "DeepSeek",
+    "XAI_API_KEY":          "xAI",
+    "COHERE_API_KEY":       "Cohere",
+    "TOGETHER_API_KEY":     "Together.ai",
+    "FIREWORKS_API_KEY":    "Fireworks",
+    "PERPLEXITY_API_KEY":   "Perplexity",
+    "HF_TOKEN":             "Hugging Face",
+    "CEREBRAS_API_KEY":     "Cerebras",
+    "AWS_ACCESS_KEY_ID":    "AWS / Bedrock",
+    "AZURE_OPENAI_API_KEY": "Azure OpenAI",
+}
+
+# Local services to probe
+_LOCAL_SERVICES: dict[str, str] = {
+    "Ollama":    "http://localhost:11434",
+    "vLLM":      "http://localhost:8000/v1/models",
+    "LM Studio": "http://localhost:1234/v1/models",
+}
+
+
+# ─────────────────────────────────────────────
+# System scan
+# ─────────────────────────────────────────────
+
+@dataclass
+class ScanResult:
+    packages: dict[str, Optional[str]]  = field(default_factory=dict)   # pip_name → version|None
+    cli_tools: dict[str, Optional[str]] = field(default_factory=dict)   # tool → path|None
+    services: dict[str, bool]           = field(default_factory=dict)   # name → reachable
+    env_keys: dict[str, bool]           = field(default_factory=dict)   # var → present
+
+
+def _pkg_version(pip_name: str) -> Optional[str]:
+    import_name = _PIP_TO_IMPORT.get(pip_name, pip_name)
+    top = import_name.split(".")[0]
+    if importlib.util.find_spec(top) is None:
+        return None
+    try:
+        return importlib.metadata.version(pip_name)
+    except Exception:
+        return "installed"
+
+
+async def _probe_service(url: str) -> bool:
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get(url)
+            return r.status_code < 500
+    except Exception:
+        return False
+
+
+def _load_dotenv_map() -> dict[str, str]:
+    result: dict[str, str] = {}
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                result[k.strip()] = v.strip()
+    return result
+
+
+async def _run_scan() -> ScanResult:
+    # Collect all unique packages across providers + adapters
+    all_pkgs = sorted(set(
+        p
+        for deps in list(PROVIDER_DEPS.values()) + list(ADAPTER_DEPS.values())
+        for p in deps
+    ))
+
+    packages  = {pkg: _pkg_version(pkg) for pkg in all_pkgs}
+    cli_tools = {
+        "claude": shutil.which("claude"),
+        "ollama": shutil.which("ollama"),
+        "docker": shutil.which("docker"),
+        "git":    shutil.which("git"),
+    }
+
+    probe_tasks = {name: asyncio.create_task(_probe_service(url))
+                   for name, url in _LOCAL_SERVICES.items()}
+    services = {name: await task for name, task in probe_tasks.items()}
+
+    env_map = {**_load_dotenv_map(), **os.environ}
+    env_keys = {var: bool(env_map.get(var)) for var in _ENV_KEY_MAP}
+
+    return ScanResult(packages=packages, cli_tools=cli_tools,
+                      services=services, env_keys=env_keys)
+
+
+def _show_scan(result: ScanResult) -> None:
+    header("System Scan")
+
+    print(f"  {bold('CLI Tools')}")
+    for tool, path in result.cli_tools.items():
+        status = check_mark(bool(path))
+        detail = dim(path) if path else dim("not found")
+        print(f"    {status} {tool:<10} {detail}")
+
+    print()
+    print(f"  {bold('Python Packages')}")
+    for pkg, ver in sorted(result.packages.items()):
+        status = check_mark(bool(ver))
+        detail = dim(ver) if ver else dim("not installed")
+        print(f"    {status} {pkg:<30} {detail}")
+
+    print()
+    print(f"  {bold('Local Services')}")
+    for name, ok in result.services.items():
+        status = check_mark(ok)
+        detail = dim("responding") if ok else dim("not reached")
+        print(f"    {status} {name:<12} {detail}")
+
+    print()
+    print(f"  {bold('API Keys')}")
+    found = [(var, label) for var, label in _ENV_KEY_MAP.items()
+             if result.env_keys.get(var)]
+    if found:
+        for _, label in found:
+            print(f"    {check_mark(True)} {label}")
+    else:
+        print(f"    {dim('None found in .env — keys will be entered during setup.')}")
+
+
+def _install_packages(packages: list[str]) -> bool:
+    """Install pip packages into the running Python environment."""
+    if not packages:
+        return True
+    cmd = [sys.executable, "-m", "pip", "install", "--quiet"] + packages
+    print()
+    for pkg in packages:
+        print(f"    {dim('→')} {pkg}")
+    print()
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            print(f"  {check_mark(True)} Packages installed.")
+            return True
+        print(red(f"  Install error:\n    {proc.stderr.strip()[:600]}"))
+        return False
+    except Exception as e:
+        print(red(f"  Install failed: {e}"))
+        return False
+
+
+def _missing_deps(selected_providers: list[str],
+                  selected_adapters: list[str],
+                  scan: ScanResult) -> list[str]:
+    required: set[str] = set()
+    for key in selected_providers:
+        required.update(PROVIDER_DEPS.get(key, []))
+    for key in selected_adapters:
+        required.update(ADAPTER_DEPS.get(key, []))
+    return sorted(pkg for pkg in required if not scan.packages.get(pkg))
 
 
 # ─────────────────────────────────────────────
@@ -856,9 +1068,20 @@ async def run() -> None:
     print()
     print(dim("  Press Ctrl+C at any time to exit."))
 
+    # ── Scan ─────────────────────────────────────────────────────────────
+    print(f"\n  {dim('Scanning system...')}", end=" ", flush=True)
+    scan = await _run_scan()
+    print(green("done"))
+    _show_scan(scan)
+
+    if not ask_yn("\n  Continue to provider setup?"):
+        return
+
     # ── Step 1: Provider selection ──────────────────────────────────────
     header("Step 1 — Select Your Providers")
     print(dim("  Select all providers you have access to."))
+    if any(scan.env_keys.values()):
+        print(dim("  (Tip: keys already detected in your .env are pre-verified.)"))
 
     cloud_keys = ask_multiselect("Cloud providers:", CLOUD_PROVIDERS)
     infra_keys = ask_multiselect("Cloud infrastructure (AWS/Azure/GCP):", CLOUD_INFRA_PROVIDERS)
@@ -868,6 +1091,35 @@ async def run() -> None:
     if not all_keys:
         print(yellow("\n  No providers selected. Exiting."))
         return
+
+    # ── Step 1b: Adapter selection ───────────────────────────────────────
+    header("Step 1b — Select Platform Adapters")
+    print(dim("  Which platforms will users send messages from?"))
+    ADAPTER_OPTIONS = [
+        ("mattermost", "Mattermost  (self-hosted team chat — WebSocket)"),
+        ("discord",    "Discord  (REST polling)"),
+        ("telegram",   "Telegram  (Bot API)"),
+    ]
+    selected_adapters = ask_multiselect("Platform adapters:", ADAPTER_OPTIONS)
+
+    # ── Step 1c: Install dependencies ────────────────────────────────────
+    header("Step 1c — Installing Dependencies")
+    missing = _missing_deps(all_keys, selected_adapters, scan)
+
+    if not missing:
+        print(f"  {check_mark(True)} All required packages already installed.")
+    else:
+        print(f"  {len(missing)} package(s) needed for your selections:")
+        if ask_yn("  Install now?"):
+            ok = _install_packages(missing)
+            if not ok:
+                if not ask_yn("  Install had errors. Continue anyway?", default=False):
+                    return
+            # Refresh scan result for newly installed packages
+            for pkg in missing:
+                scan.packages[pkg] = _pkg_version(pkg)
+        else:
+            print(yellow("  Skipping — some connection tests may fail."))
 
     # ── Step 2: Configure each provider ─────────────────────────────────
     header("Step 2 — Configure Providers")
@@ -910,6 +1162,11 @@ async def run() -> None:
     print(f"  Providers configured: {bold(str(len(configured)))}")
     print(f"  Primary:  {bold(routing.get('default', '—'))}")
     print(f"  Triage:   {bold(routing.get('triage', '—'))}")
+    if selected_adapters:
+        print(f"  Adapters: {bold(', '.join(selected_adapters))}")
+        print()
+        print(dim("  Configure adapter credentials in config/adapters.yaml"))
+        print(dim("  (copy config/adapters.yaml.example as a starting point)"))
     print()
     print("  Start Nexus:")
     print(f"  {cyan('source .venv/bin/activate && python -m src.main')}")
