@@ -30,6 +30,7 @@ from ..providers.registry import (
     TIER_NANO, TIER_STANDARD, TIER_DEEP,
     get_models_for_tier, PROVIDERS,
 )
+from .review_gate import ReviewGate, ReviewTrigger, ChangeScope
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,7 @@ class NexusBehavior:
         self.prefs = UserPreferences.load(self.prefs_path)
         self.triage_provider = triage_provider
         self._prefs_mtime: float = 0.0
+        self.review_gate = ReviewGate()
 
     def set_triage_provider(self, provider) -> None:
         self.triage_provider = provider
@@ -336,6 +338,38 @@ class NexusBehavior:
             "channel_overrides": len(self.prefs.channel_overrides),
             "last_modified_by": self.prefs.modified_by,
         }
+
+    def check_review_trigger(self, files: list[str], lines_added: int, lines_deleted: int, is_commit_point: bool = False) -> tuple[ReviewTrigger, Optional[str]]:
+        """
+        Check if a changeset should trigger external review.
+
+        Args:
+            files: List of changed file paths
+            lines_added: Lines added in this changeset
+            lines_deleted: Lines deleted in this changeset
+            is_commit_point: Whether this is about to be committed
+
+        Returns:
+            (ReviewTrigger, suggestion_message_or_none)
+        """
+        core, is_test, is_security, is_provider = ReviewGate.classify_files(files)
+
+        scope = ChangeScope(
+            files_changed=len(files),
+            lines_added=lines_added,
+            lines_deleted=lines_deleted,
+            core_modules_touched=core,
+            is_commit_point=is_commit_point,
+            is_test_change=is_test,
+            is_security_change=is_security,
+            touched_providers=is_provider,
+            touched_adapters=any("adapter" in f.lower() for f in files),
+        )
+
+        trigger = self.review_gate.analyze(scope)
+        message = self.review_gate.suggestion_message(scope, trigger)
+
+        return trigger, message
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

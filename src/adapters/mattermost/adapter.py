@@ -188,24 +188,53 @@ class MattermostAdapter:
 
         prompt = f"[Platform: Mattermost | Channel: #{channel_name}]\n{message}"
 
+        orchestrator = getattr(getattr(self, "engine", None), "orchestrator", None)
+        use_orchestrator = (
+            orchestrator is not None and orchestrator.should_orchestrate(channel_name)
+        )
+
         try:
-            result = await self.bridge.invoke(
-                prompt=prompt,
-                session_key=session_key,
-                tier=triage.tier,
-                task_type=triage.provider_key,
-                on_provider_change=heartbeat.set_provider,
-            )
+            if use_orchestrator:
+                orch_result = await orchestrator.dispatch(
+                    message=message,
+                    context=channel_name,
+                    session_key=session_key,
+                    operator_context=f"Platform: Mattermost | Channel: #{channel_name}",
+                    heartbeat=heartbeat,
+                )
+                if not orch_result.bypassed:
+                    response_text = orch_result.response
+                    cost_usd = orch_result.total_cost
+                else:
+                    bridge_result = await self.bridge.invoke(
+                        prompt=prompt,
+                        session_key=session_key,
+                        tier=triage.tier,
+                        task_type=triage.provider_key,
+                        on_provider_change=heartbeat.set_provider,
+                    )
+                    response_text = bridge_result.text
+                    cost_usd = bridge_result.cost_usd
+            else:
+                bridge_result = await self.bridge.invoke(
+                    prompt=prompt,
+                    session_key=session_key,
+                    tier=triage.tier,
+                    task_type=triage.provider_key,
+                    on_provider_change=heartbeat.set_provider,
+                )
+                response_text = bridge_result.text
+                cost_usd = bridge_result.cost_usd
         finally:
             heartbeat.stop()
             typing_task.cancel()
 
-        if result.cost_usd > 0:
+        if cost_usd > 0:
             c = self._costs.setdefault(session_key, {"cost_usd": 0.0, "responses": 0})
-            c["cost_usd"] += result.cost_usd
+            c["cost_usd"] += cost_usd
             c["responses"] += 1
 
-        response = result.text or "_(no response)_"
+        response = response_text or "_(no response)_"
         chunks = self.fmt.format_response(response)
 
         if placeholder_id:
@@ -358,6 +387,9 @@ class MattermostAdapter:
 
     async def deliver(self, outbound) -> None:
         """Engine callback — post an autonomously-generated response to a channel."""
-        chunks = self.fmt.format_response(outbound.content)
-        for chunk in chunks:
-            await self.api.post_message(outbound.channel_id, chunk)
+        try:
+            chunks = self.fmt.format_response(outbound.content)
+            for chunk in chunks:
+                await self.api.post_message(outbound.channel_id, chunk)
+        except Exception as e:
+            logger.error(f"deliver() failed for channel {outbound.channel_id}: {e}")

@@ -43,6 +43,7 @@ def build_provider_chain(
         failure_threshold=failover_config.get("failure_threshold", 3),
         on_failure=failover_config.get("on_failure", "next_available"),
         enable_health_monitoring=failover_config.get("enable_health_monitoring", True),
+        cooldown_seconds=failover_config.get("cooldown_seconds", 30.0),
     )
 
     # Build chain entries, sorted by priority

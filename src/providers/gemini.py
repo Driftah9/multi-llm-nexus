@@ -5,21 +5,20 @@ Two config paths:
   AI Studio  — GOOGLE_API_KEY, free tier available at aistudio.google.com
   Vertex AI  — GOOGLE_CLOUD_PROJECT + region, uses Application Default Credentials
 
-Install: pip install google-generativeai
+Install: pip install google-genai
 """
 from typing import Optional
 
 from .base import BaseProvider, Message, ProviderResponse, ToolCall
 
 try:
-    import google.generativeai as genai
-    from google.generativeai.types import HarmCategory, HarmBlockThreshold
+    from google import genai
+    from google.genai import types as genai_types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
 
 
-# Gemini role mapping — Gemini uses "user"/"model" not "user"/"assistant"
 _ROLE_MAP = {"user": "user", "assistant": "model", "system": "user"}
 
 
@@ -40,7 +39,7 @@ class GeminiProvider(BaseProvider):
         super().__init__(config)
         if not GEMINI_AVAILABLE:
             raise ImportError(
-                "google-generativeai package required: pip install google-generativeai"
+                "google-genai package required: pip install google-genai"
             )
 
         self.max_tokens = config.get("max_tokens", 8192)
@@ -52,69 +51,76 @@ class GeminiProvider(BaseProvider):
         self._use_vertex = bool(self._project and not api_key)
 
         if self._use_vertex:
-            # Vertex AI — uses Application Default Credentials
-            import vertexai
-            vertexai.init(project=self._project, location=self._region)
-            from vertexai.generative_models import GenerativeModel
-            self._model_cls = GenerativeModel
+            self._client = genai.Client(
+                vertexai=True,
+                project=self._project,
+                location=self._region,
+            )
         else:
-            if api_key:
-                genai.configure(api_key=api_key)
-            self._model_cls = genai.GenerativeModel
+            self._client = genai.Client(api_key=api_key)
 
-        self._safety = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
+        self._safety = [
+            genai_types.SafetySetting(
+                category="HARM_CATEGORY_HARASSMENT",
+                threshold="BLOCK_NONE",
+            ),
+            genai_types.SafetySetting(
+                category="HARM_CATEGORY_HATE_SPEECH",
+                threshold="BLOCK_NONE",
+            ),
+            genai_types.SafetySetting(
+                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                threshold="BLOCK_NONE",
+            ),
+            genai_types.SafetySetting(
+                category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                threshold="BLOCK_NONE",
+            ),
+        ]
 
-    def _build_model(self, system: str):
-        kwargs = {}
-        if system:
-            kwargs["system_instruction"] = system
-        return self._model_cls(self.model, **kwargs)
-
-    def _convert_messages(self, messages: list[Message]) -> list[dict]:
+    def _convert_messages(self, messages: list[Message]) -> list[genai_types.Content]:
         result = []
         for msg in messages:
             if msg.role == "system":
-                continue  # system handled via system_instruction
+                continue
             role = _ROLE_MAP.get(msg.role, "user")
-            result.append({"role": role, "parts": [msg.content]})
+            result.append(
+                genai_types.Content(role=role, parts=[genai_types.Part(text=msg.content)])
+            )
         return result
 
     async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
-        model = self._build_model(system)
-        history = self._convert_messages(messages[:-1]) if len(messages) > 1 else []
-        last = messages[-1].content if messages else ""
+        contents = self._convert_messages(messages)
 
-        generation_config = {
-            "max_output_tokens": self.max_tokens,
-            "temperature": self.temperature,
-        }
-
-        chat = model.start_chat(history=history)
-        response = await chat.send_message_async(
-            last,
-            generation_config=generation_config,
+        config = genai_types.GenerateContentConfig(
+            max_output_tokens=self.max_tokens,
+            temperature=self.temperature,
             safety_settings=self._safety,
+        )
+        if system:
+            config.system_instruction = system
+
+        response = await self._client.aio.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=config,
         )
 
         content = response.text or ""
         tool_calls = []
 
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, "function_call") and part.function_call.name:
-                fc = part.function_call
-                tool_calls.append(ToolCall(
-                    name=fc.name,
-                    arguments=dict(fc.args),
-                    call_id=None,
-                ))
+        for candidate in (response.candidates or []):
+            for part in (candidate.content.parts or []):
+                if hasattr(part, "function_call") and part.function_call and part.function_call.name:
+                    fc = part.function_call
+                    tool_calls.append(ToolCall(
+                        name=fc.name,
+                        arguments=dict(fc.args) if fc.args else {},
+                        call_id=None,
+                    ))
 
         usage = {}
-        if hasattr(response, "usage_metadata"):
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
             usage = {
                 "input_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
                 "output_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
@@ -127,16 +133,20 @@ class GeminiProvider(BaseProvider):
 
     async def health_check(self) -> bool:
         try:
-            model = self._build_model("")
-            response = await model.generate_content_async("ping")
+            response = await self._client.aio.models.generate_content(
+                model=self.model,
+                contents="ping",
+            )
             return bool(response.text)
         except Exception:
             return False
 
     async def list_models(self) -> list[str]:
-        """Return available Gemini models for this API key."""
         try:
-            return [m.name.replace("models/", "") for m in genai.list_models()
-                    if "generateContent" in m.supported_generation_methods]
+            models = []
+            async for m in self._client.aio.models.list():
+                if "generateContent" in (m.supported_actions or []):
+                    models.append(m.name.replace("models/", ""))
+            return models
         except Exception:
             return []

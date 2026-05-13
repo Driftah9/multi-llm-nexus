@@ -290,11 +290,20 @@ class NexusBridge:
             usage.get("output_tokens", 0),
         )
 
+        inp = usage.get("input_tokens", 0)
+        out = usage.get("output_tokens", 0)
+
+        try:
+            from scripts.rate_monitor import record_usage  # type: ignore
+            record_usage(provider_type, inp, out)
+        except Exception:
+            pass
+
         return BridgeResult(
             text=response.content,
             cost_usd=cost,
-            input_tokens=usage.get("input_tokens", 0),
-            output_tokens=usage.get("output_tokens", 0),
+            input_tokens=inp,
+            output_tokens=out,
         )
 
     def clear_session(self, session_key: str) -> None:

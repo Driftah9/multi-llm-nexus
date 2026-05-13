@@ -106,40 +106,6 @@ def _build_router(providers: dict, routing_config: dict):
     return Router(providers=providers, routing_config=routing_config)
 
 
-def _build_chain(providers_instances: dict, providers_defs: dict, failover_config: dict):
-    """Build ProviderChain from per-provider priority/tier metadata + failover config."""
-    from .core.provider_chain import ProviderChain, ProviderChainEntry, ChainConfig
-
-    entries = []
-    for name, cfg in providers_defs.items():
-        if name not in providers_instances:
-            continue
-        entry = ProviderChainEntry(
-            provider=providers_instances[name],
-            priority=cfg.get("priority", 99),
-            tier=cfg.get("tier", "standard"),
-            name=name,
-            display_prefix=cfg.get("display_prefix", name.capitalize()),
-            model_display=cfg.get("model_display", cfg.get("model", "")),
-            effort_levels=cfg.get("effort_levels", False),
-        )
-        entries.append(entry)
-
-    if not entries:
-        return None
-
-    chain_config = ChainConfig(
-        strategy=failover_config.get("strategy", "priority"),
-        health_check_interval=failover_config.get("health_check_interval", 60),
-        retry_attempts=failover_config.get("retry_attempts", len(entries)),
-        retry_delay=failover_config.get("retry_delay", 0.5),
-        failure_threshold=failover_config.get("failure_threshold", 3),
-        on_failure=failover_config.get("on_failure", "next_available"),
-        enable_health_monitoring=failover_config.get("enable_health_monitoring", True),
-        cooldown_seconds=failover_config.get("cooldown_seconds", 30.0),
-    )
-
-    return ProviderChain(entries=entries, config=chain_config)
 
 
 # ── Adapter bootstrap ─────────────────────────────────────────────────────────
@@ -219,9 +185,10 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     sessions = SessionStore(str(config_dir / "sessions.json"))
 
     # Build ProviderChain if failover config is present (F2 fix)
+    from .core.chain_builder import build_provider_chain
     chain = None
     if failover_config:
-        chain = _build_chain(providers, providers_defs, failover_config)
+        chain = build_provider_chain(providers, providers_config_raw)
         if chain:
             logger.info(
                 f"ProviderChain loaded: {len(chain.entries)} provider(s) in failover order"

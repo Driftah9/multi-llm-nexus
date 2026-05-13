@@ -38,7 +38,7 @@ class SpecialistOutput:
 
 @dataclass
 class OrchestratorResult:
-    response: str
+    response: str = ""
     specialists_used: list[str] = field(default_factory=list)
     synthesized: bool = False
     bypassed: bool = False
@@ -161,7 +161,13 @@ class Orchestrator:
         if not workspace or not workspace.orchestrator:
             return OrchestratorResult(bypassed=True)
 
-        specialist_ids = await self._route_to_specialists(message, workspace)
+        try:
+            specialist_ids = await asyncio.wait_for(
+                self._route_to_specialists(message, workspace), timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Specialist routing timed out in {workspace.name} — bypassing")
+            return OrchestratorResult(bypassed=True)
 
         if not specialist_ids:
             logger.debug(f"No routing match in {workspace.name} — bypassing orchestrator")
@@ -323,16 +329,17 @@ class Orchestrator:
         active_names = [p.name for p in profiles]
 
         async def _tracked(profile: SpecialistProfile) -> SpecialistOutput:
-            result = await self._invoke_one(
-                profile, message, session_key, workspace, operator_context
-            )
             try:
-                active_names.remove(profile.name)
-            except ValueError:
-                pass
-            if heartbeat:
-                await heartbeat.set_agents(list(active_names))
-            return result
+                return await self._invoke_one(
+                    profile, message, session_key, workspace, operator_context
+                )
+            finally:
+                try:
+                    active_names.remove(profile.name)
+                except ValueError:
+                    pass
+                if heartbeat:
+                    await heartbeat.set_agents(list(active_names))
 
         tasks = [_tracked(profile) for profile in profiles]
         results = await asyncio.gather(*tasks, return_exceptions=True)
