@@ -69,11 +69,13 @@ class NexusBridge:
         chain: Optional[ProviderChain] = None,
         sessions: Optional[SessionStore] = None,
         system_prompt: str = "",
+        quota_manager=None,
     ):
         self.router = router
         self.chain = chain
         self.sessions = sessions or SessionStore()
         self.system_prompt = system_prompt
+        self.quota_manager = quota_manager
         # In-memory message history per session key, for non-claude_code providers
         self._history: dict[str, list[Message]] = {}
         self._last_provider_used: dict[str, str] = {}  # session_key → provider_type
@@ -293,11 +295,8 @@ class NexusBridge:
         inp = usage.get("input_tokens", 0)
         out = usage.get("output_tokens", 0)
 
-        try:
-            from scripts.rate_monitor import record_usage  # type: ignore
-            record_usage(provider_type, inp, out)
-        except Exception:
-            pass
+        if self.quota_manager:
+            self.quota_manager.record(provider_type, inp, out, cost)
 
         return BridgeResult(
             text=response.content,

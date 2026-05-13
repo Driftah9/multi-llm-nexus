@@ -175,6 +175,7 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     from .core.engine import Engine
     from .core.pool_manager import PoolManager
     from .core.provider_chain import set_pool_manager
+    from .core.provider_quota import ProviderQuotaManager
 
     providers = _build_providers(providers_defs)
     if not providers:
@@ -198,11 +199,18 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     else:
         logger.info("No failover: config — running in single-provider router mode")
 
+    # Build quota manager — register limits from provider configs
+    quota_manager = ProviderQuotaManager()
+    for name, cfg in providers_defs.items():
+        quota_manager.register_from_config(name, cfg)
+    logger.info(f"Quota manager: {len(providers_defs)} provider(s) registered")
+
     bridge = NexusBridge(
         router=router,
         chain=chain,
         sessions=sessions,
         system_prompt=adapters_config.get("system_prompt", ""),
+        quota_manager=quota_manager,
     )
 
     triage_provider_name = routing_config.get("triage")
