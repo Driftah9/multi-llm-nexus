@@ -106,6 +106,42 @@ def _build_router(providers: dict, routing_config: dict):
     return Router(providers=providers, routing_config=routing_config)
 
 
+def _build_chain(providers_instances: dict, providers_defs: dict, failover_config: dict):
+    """Build ProviderChain from per-provider priority/tier metadata + failover config."""
+    from .core.provider_chain import ProviderChain, ProviderChainEntry, ChainConfig
+
+    entries = []
+    for name, cfg in providers_defs.items():
+        if name not in providers_instances:
+            continue
+        entry = ProviderChainEntry(
+            provider=providers_instances[name],
+            priority=cfg.get("priority", 99),
+            tier=cfg.get("tier", "standard"),
+            name=name,
+            display_prefix=cfg.get("display_prefix", name.capitalize()),
+            model_display=cfg.get("model_display", cfg.get("model", "")),
+            effort_levels=cfg.get("effort_levels", False),
+        )
+        entries.append(entry)
+
+    if not entries:
+        return None
+
+    chain_config = ChainConfig(
+        strategy=failover_config.get("strategy", "priority"),
+        health_check_interval=failover_config.get("health_check_interval", 60),
+        retry_attempts=failover_config.get("retry_attempts", len(entries)),
+        retry_delay=failover_config.get("retry_delay", 0.5),
+        failure_threshold=failover_config.get("failure_threshold", 3),
+        on_failure=failover_config.get("on_failure", "next_available"),
+        enable_health_monitoring=failover_config.get("enable_health_monitoring", True),
+        cooldown_seconds=failover_config.get("cooldown_seconds", 30.0),
+    )
+
+    return ProviderChain(entries=entries, config=chain_config)
+
+
 # ── Adapter bootstrap ─────────────────────────────────────────────────────────
 
 def _build_adapters(adapters_config: dict, engine, bridge, sessions, behavior) -> list:
@@ -158,6 +194,7 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
 
     providers_defs = providers_config_raw.get("providers", {})
     routing_config = providers_config_raw.get("routing", {})
+    failover_config = providers_config_raw.get("failover", {})
 
     if not providers_defs:
         logger.error(f"No providers configured in {providers_yaml}")
@@ -180,8 +217,23 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
 
     router = _build_router(providers, routing_config)
     sessions = SessionStore(str(config_dir / "sessions.json"))
+
+    # Build ProviderChain if failover config is present (F2 fix)
+    chain = None
+    if failover_config:
+        chain = _build_chain(providers, providers_defs, failover_config)
+        if chain:
+            logger.info(
+                f"ProviderChain loaded: {len(chain.entries)} provider(s) in failover order"
+            )
+        else:
+            logger.warning("failover: config present but no chain entries built — using router")
+    else:
+        logger.info("No failover: config — running in single-provider router mode")
+
     bridge = NexusBridge(
         router=router,
+        chain=chain,
         sessions=sessions,
         system_prompt=adapters_config.get("system_prompt", ""),
     )
@@ -198,11 +250,37 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
         "operator_name": adapters_config.get("operator_name", "Operator"),
         "agent_name": adapters_config.get("agent_name", "Nexus"),
     }
+    # Build Orchestrator if workspaces.yaml exists and orchestrator is enabled (F1 fix)
+    orchestrator = None
+    orchestrator_cfg = providers_config_raw.get("orchestrator", {})
+    workspaces_path = config_dir / "workspaces.yaml"
+    if orchestrator_cfg.get("enabled", False):
+        if workspaces_path.exists():
+            from .core.orchestrator import Orchestrator
+            from .core.specialists import SpecialistLoader
+            workspaces_config = _load_yaml(workspaces_path)
+            specialist_loader = SpecialistLoader(str(config_dir / "specialists"))
+            orchestrator = Orchestrator(
+                bridge=bridge,
+                specialist_loader=specialist_loader,
+                workspaces_config=workspaces_config,
+            )
+            logger.info(
+                f"Orchestrator loaded: {len(orchestrator.workspaces)} workspace(s), "
+                f"{len(orchestrator.specialists.list_ids())} specialist(s)"
+            )
+        else:
+            logger.warning(
+                "orchestrator.enabled=true but no workspaces.yaml found — "
+                f"copy config/workspaces.yaml.example to {workspaces_path}"
+            )
+
     engine = Engine(
         router=router,
         session_store=sessions,
         triage=triage,
         config=engine_config,
+        orchestrator=orchestrator,
     )
 
     # Build adapters (with engine reference)
@@ -230,6 +308,10 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
 
+    # Start chain health monitoring if configured
+    if chain:
+        await bridge.start_health_monitoring()
+
     # Run engine + adapters + pool monitor concurrently
     tasks = [asyncio.create_task(engine.start(), name="engine")]
     if pool_manager:
@@ -242,6 +324,8 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     logger.info("Shutting down...")
 
     await engine.stop()
+    if chain:
+        await bridge.stop_health_monitoring()
     if pool_manager:
         await pool_manager.stop()
     for t in tasks:

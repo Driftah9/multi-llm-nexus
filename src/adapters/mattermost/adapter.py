@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +20,7 @@ from ...core.behaviors import NexusBehavior, tier_label
 from ...core.bridge import NexusBridge
 from ...core.commands import CommandRegistry
 from ...core.formatter import PlatformFormatter
+from ...core.heartbeat import HeartbeatManager, HeartbeatState
 from ...core.session import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -171,38 +171,33 @@ class MattermostAdapter:
         )
         placeholder_id = placeholder.get("id", "")
 
-        start = time.time()
-        _working = [False]
+        async def _push_heartbeat(post_id: str, text: str) -> None:
+            try:
+                await self.api.update_message(post_id, text)
+            except Exception:
+                pass
 
-        async def _heartbeat():
-            while True:
-                await asyncio.sleep(30)
-                elapsed = int(time.time() - start)
-                m, s = divmod(elapsed, 60)
-                label = "working" if _working[0] else "thinking"
-                try:
-                    await self.api.update_message(
-                        placeholder_id,
-                        f"_{label} ({tier_display}) — {m}:{s:02d}_",
-                    )
-                except Exception:
-                    pass
-
-        heartbeat = asyncio.create_task(_heartbeat())
+        hb_state = HeartbeatState(
+            post_id=placeholder_id,
+            display_prefix=self.bot_name,
+            model_display=tier_display,
+            effort=None,
+        )
+        heartbeat = HeartbeatManager(hb_state, _push_heartbeat).start()
         typing_task = asyncio.create_task(self._typing_loop(channel_id))
 
         prompt = f"[Platform: Mattermost | Channel: #{channel_name}]\n{message}"
 
-        _working[0] = True
         try:
             result = await self.bridge.invoke(
                 prompt=prompt,
                 session_key=session_key,
                 tier=triage.tier,
                 task_type=triage.provider_key,
+                on_provider_change=heartbeat.set_provider,
             )
         finally:
-            heartbeat.cancel()
+            heartbeat.stop()
             typing_task.cancel()
 
         if result.cost_usd > 0:

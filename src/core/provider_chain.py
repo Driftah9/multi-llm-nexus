@@ -52,6 +52,7 @@ class ProviderChainEntry:
     consecutive_failures: int = 0
     last_error: str = ""
     response_time_ms: float = 0.0
+    cooldown_until: float = 0.0  # epoch time until which this entry is skipped on hot path
 
 
 @dataclass
@@ -64,6 +65,7 @@ class ChainConfig:
     failure_threshold: int = 3  # consecutive failures before marking unhealthy
     on_failure: str = "next_available"  # next_available | local_only | silent
     enable_health_monitoring: bool = True
+    cooldown_seconds: float = 30.0  # hot-path skip window after a failure
 
 
 class ProviderChain:
@@ -116,9 +118,20 @@ class ProviderChain:
                 logger.warning(f"No providers available for tier: {tier}")
                 return None
 
+            now = time.time()
+
+            # Hot-path circuit breaker: skip providers still in cooldown window
+            eligible = [
+                e for e in candidates
+                if not (e.health == ProviderHealth.DEGRADED and now < e.cooldown_until)
+            ]
+            # Fall back to full candidate list if circuit breaker eliminates everything
+            if not eligible:
+                eligible = candidates
+
             # Sort by: health status (healthy first), then priority
             sorted_entries = sorted(
-                candidates,
+                eligible,
                 key=lambda e: (
                     e.health != ProviderHealth.HEALTHY,  # healthy=0, others=1
                     e.priority  # lower priority number = higher precedence
@@ -228,6 +241,7 @@ class ProviderChain:
                         )
                     else:
                         entry.health = ProviderHealth.DEGRADED
+                        entry.cooldown_until = time.time() + self.config.cooldown_seconds
                     break
 
     async def start_health_monitoring(self) -> None:

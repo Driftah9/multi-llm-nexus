@@ -568,91 +568,30 @@ async def _configure_openai_compatible(
     }
 
 
-async def _configure_groq() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "groq", "Groq", "GROQ_API_KEY",
-        "https://api.groq.com/openai/v1",
-        "https://console.groq.com",
-        "llama-3.1-8b-instant",
-        "Free tier available — generous rate limits.",
-    )
+# Declarative specs for OpenAI-compatible providers.
+# Each entry: (key, display_name, env_var, base_url, key_url, default_model, note)
+_OPENAI_COMPATIBLE_SPECS: list[tuple] = [
+    ("groq",        "Groq",                   "GROQ_API_KEY",       "https://api.groq.com/openai/v1",              "https://console.groq.com",                   "llama-3.1-8b-instant",                          "Free tier available — generous rate limits."),
+    ("mistral",     "Mistral AI",              "MISTRAL_API_KEY",    "https://api.mistral.ai/v1",                   "https://console.mistral.ai",                 "mistral-small-latest",                          "EU-hosted. Suitable for GDPR / data residency requirements."),
+    ("deepseek",    "DeepSeek",                "DEEPSEEK_API_KEY",   "https://api.deepseek.com/v1",                 "https://platform.deepseek.com",              "deepseek-chat",                                 "deepseek-chat (V3) is extremely low cost. deepseek-reasoner is R1 chain-of-thought."),
+    ("xai",         "xAI / Grok",              "XAI_API_KEY",        "https://api.x.ai/v1",                         "https://console.x.ai",                       "grok-2",                                        "Note: X/Twitter subscription does not include API access."),
+    ("together",    "Together.ai",             "TOGETHER_API_KEY",   "https://api.together.xyz/v1",                 "https://api.together.ai",                    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",   ""),
+    ("fireworks",   "Fireworks.ai",            "FIREWORKS_API_KEY",  "https://api.fireworks.ai/inference/v1",       "https://fireworks.ai",                       "accounts/fireworks/models/llama-v3p1-8b-instruct", ""),
+    ("perplexity",  "Perplexity",              "PERPLEXITY_API_KEY", "https://api.perplexity.ai",                   "https://www.perplexity.ai/settings/api",     "llama-3.1-sonar-large-128k-online",             "Models have live web search built in. Best as a research specialist."),
+    ("huggingface", "Hugging Face Inference",  "HF_TOKEN",           "https://api-inference.huggingface.co/v1",    "https://huggingface.co/settings/tokens",     "meta-llama/Llama-3.1-8B-Instruct",              "Free tier available. Cold-start latency possible — not for triage."),
+    ("cerebras",    "Cerebras",                "CEREBRAS_API_KEY",   "https://api.cerebras.ai/v1",                  "https://cloud.cerebras.ai",                  "llama3.1-8b",                                   ""),
+]
 
 
-async def _configure_mistral() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "mistral", "Mistral AI", "MISTRAL_API_KEY",
-        "https://api.mistral.ai/v1",
-        "https://console.mistral.ai",
-        "mistral-small-latest",
-        "EU-hosted. Suitable for GDPR / data residency requirements.",
-    )
-
-
-async def _configure_deepseek() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "deepseek", "DeepSeek", "DEEPSEEK_API_KEY",
-        "https://api.deepseek.com/v1",
-        "https://platform.deepseek.com",
-        "deepseek-chat",
-        "deepseek-chat (V3) is extremely low cost. deepseek-reasoner is R1 chain-of-thought.",
-    )
-
-
-async def _configure_xai() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "xai", "xAI / Grok", "XAI_API_KEY",
-        "https://api.x.ai/v1",
-        "https://console.x.ai",
-        "grok-2",
-        "Note: X/Twitter subscription does not include API access.",
-    )
-
-
-async def _configure_together() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "together", "Together.ai", "TOGETHER_API_KEY",
-        "https://api.together.xyz/v1",
-        "https://api.together.ai",
-        "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-    )
-
-
-async def _configure_fireworks() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "fireworks", "Fireworks.ai", "FIREWORKS_API_KEY",
-        "https://api.fireworks.ai/inference/v1",
-        "https://fireworks.ai",
-        "accounts/fireworks/models/llama-v3p1-8b-instruct",
-    )
-
-
-async def _configure_perplexity() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "perplexity", "Perplexity", "PERPLEXITY_API_KEY",
-        "https://api.perplexity.ai",
-        "https://www.perplexity.ai/settings/api",
-        "llama-3.1-sonar-large-128k-online",
-        "Models have live web search built in. Best as a research specialist.",
-    )
-
-
-async def _configure_huggingface() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "huggingface", "Hugging Face Inference", "HF_TOKEN",
-        "https://api-inference.huggingface.co/v1",
-        "https://huggingface.co/settings/tokens",
-        "meta-llama/Llama-3.1-8B-Instruct",
-        "Free tier available. Cold-start latency possible — not for triage.",
-    )
-
-
-async def _configure_cerebras() -> Optional[dict]:
-    return await _configure_openai_compatible(
-        "cerebras", "Cerebras", "CEREBRAS_API_KEY",
-        "https://api.cerebras.ai/v1",
-        "https://cloud.cerebras.ai",
-        "llama3.1-8b",
-    )
+def _make_openai_compatible_configurator(spec: tuple):
+    """Generate a configurator coroutine from a declarative provider spec."""
+    key, display, env_var, base_url, key_url, default_model, note = spec
+    async def _configurator() -> Optional[dict]:
+        return await _configure_openai_compatible(
+            key, display, env_var, base_url, key_url, default_model, note
+        )
+    _configurator.__name__ = f"_configure_{key}"
+    return _configurator
 
 
 async def _configure_cohere() -> Optional[dict]:
@@ -765,28 +704,21 @@ async def _configure_vllm() -> Optional[dict]:
     }
 
 
-# Dispatch table — maps provider key → configure function
+# Dispatch table — maps provider key → configure function.
+# OpenAI-compatible providers are generated from _OPENAI_COMPATIBLE_SPECS.
 _CONFIGURATORS = {
     "anthropic":    _configure_claude_subscription,
     "claude_code":  _configure_claude_api,
     "openai":       _configure_openai,
     "gemini":       _configure_gemini,
     "vertex_ai":    _configure_vertex_ai,
-    "groq":         _configure_groq,
-    "mistral":      _configure_mistral,
-    "deepseek":     _configure_deepseek,
-    "xai":          _configure_xai,
     "cohere":       _configure_cohere,
-    "together":     _configure_together,
-    "fireworks":    _configure_fireworks,
-    "perplexity":   _configure_perplexity,
-    "huggingface":  _configure_huggingface,
-    "cerebras":     _configure_cerebras,
     "bedrock":      _configure_bedrock,
     "azure_openai": _configure_azure_openai,
     "ollama":       _configure_ollama,
     "lm_studio":    _configure_lm_studio,
     "vllm":         _configure_vllm,
+    **{spec[0]: _make_openai_compatible_configurator(spec) for spec in _OPENAI_COMPATIBLE_SPECS},
 }
 
 

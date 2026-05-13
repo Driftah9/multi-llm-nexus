@@ -57,6 +57,7 @@ class WorkspaceConfig:
     default_specialists: list[str]
     specialist_tier: str = "standard"
     synthesis_tier: str = "standard"
+    routing_mode: str = "llm"  # "llm" (default) or "keyword"
 
 
 class Orchestrator:
@@ -103,6 +104,7 @@ class Orchestrator:
                 default_specialists=ws_data.get("default_specialists", []),
                 specialist_tier=ws_data.get("specialist_tier", "standard"),
                 synthesis_tier=ws_data.get("synthesis_tier", "standard"),
+                routing_mode=ws_data.get("routing_mode", "llm"),
             )
             self.workspaces[ws_name] = ws
 
@@ -159,7 +161,7 @@ class Orchestrator:
         if not workspace or not workspace.orchestrator:
             return OrchestratorResult(bypassed=True)
 
-        specialist_ids = self._route_to_specialists(message, workspace)
+        specialist_ids = await self._route_to_specialists(message, workspace)
 
         if not specialist_ids:
             logger.debug(f"No routing match in {workspace.name} — bypassing orchestrator")
@@ -219,9 +221,70 @@ class Orchestrator:
 
     # ── Routing ────────────────────────────────────────────────────
 
-    def _route_to_specialists(
+    async def _route_to_specialists(
         self, message: str, workspace: WorkspaceConfig
     ) -> list[str]:
+        """Route message to specialists. LLM-based by default, keyword fallback."""
+        if workspace.routing_mode == "keyword":
+            return self._route_to_specialists_keyword(message, workspace)
+        return await self._route_to_specialists_llm(message, workspace)
+
+    async def _route_to_specialists_llm(
+        self, message: str, workspace: WorkspaceConfig
+    ) -> list[str]:
+        """Ask the configured LLM which specialists should handle this message."""
+        if not workspace.specialists:
+            return []
+
+        specialist_descs = []
+        for sid in workspace.specialists:
+            profile = self.specialists.get(sid)
+            if profile:
+                specialist_descs.append(f"- {sid}: {profile.name}")
+            else:
+                specialist_descs.append(f"- {sid}")
+
+        routing_prompt = (
+            f"Which specialists should handle this message?\n\n"
+            f"Message: {message}\n\n"
+            f"Available specialists:\n" + "\n".join(specialist_descs) + "\n\n"
+            f"Reply with ONLY the relevant specialist IDs, comma-separated. "
+            f"Reply 'none' if no specialist is needed. Reply 'all' to use all."
+        )
+
+        try:
+            result = await self.bridge.invoke(
+                prompt=routing_prompt,
+                session_key="__nexus_routing__",
+                tier="nano",
+                ephemeral=True,
+            )
+            response = result.text.strip().lower()
+
+            if response == "none":
+                return []
+            if response == "all":
+                return list(workspace.specialists)
+
+            selected = [s.strip() for s in response.replace(",", " ").split()]
+            available = set(workspace.specialists)
+            valid = [s for s in selected if s in available]
+
+            if valid:
+                return valid
+
+            logger.debug(
+                f"LLM routing returned unrecognized IDs {selected}, falling back to keyword"
+            )
+        except Exception as e:
+            logger.warning(f"LLM routing failed ({e}), falling back to keyword")
+
+        return self._route_to_specialists_keyword(message, workspace)
+
+    def _route_to_specialists_keyword(
+        self, message: str, workspace: WorkspaceConfig
+    ) -> list[str]:
+        """Keyword substring routing — fallback when LLM routing is unavailable."""
         msg_lower = message.lower()
         matched: set[str] = set()
 
