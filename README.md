@@ -1,5 +1,7 @@
 # Multi-LLM-Nexus
 
+> **Status: Active Beta** — Core patterns are validated. The runtime is under active development. Expect rough edges. Not recommended for critical production workloads without your own testing.
+
 **Your AI platform. You are the Operator. Who you put in the court is up to you.**
 
 Multi-LLM-Nexus is a self-hosted AI agent platform connecting your infrastructure, your communication platforms, and any LLM you choose. It does not have a personality — you give it one. One user calls theirs a castle and their agent Chamberlin. Another names theirs Terry. The Nexus doesn't care. It just runs.
@@ -123,9 +125,9 @@ See **[docs/comparison.md](docs/comparison.md)** for a full breakdown of how Nex
 
 | Platform | Status | Notes |
 |---|---|---|
-| **Mattermost** | Stable | WebSocket + REST, forum topics, typing indicator, cost tracking |
-| **Discord** | Stable | REST polling, reply threads |
-| **Telegram** | Stable | python-telegram-bot, forum topic threads |
+| **Mattermost** | Beta | WebSocket + REST, forum topics, typing indicator, cost tracking |
+| **Discord** | Beta | REST polling, reply threads |
+| **Telegram** | Beta | python-telegram-bot, forum topic threads |
 | **Slack** | Planned | Config reserved in adapters.yaml |
 | **Matrix/Element** | Planned | Config reserved in adapters.yaml |
 
