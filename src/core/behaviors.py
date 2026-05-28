@@ -40,11 +40,11 @@ VALID_TIERS = {TIER_NANO, TIER_STANDARD, TIER_DEEP}
 VALID_EFFORTS = {"low", "medium", "high", "max"}
 
 
-# ── Triage result ─────────────────────────────────────────────────────────────
+# ── Routing decision ──────────────────────────────────────────────────────────
 
 @dataclass
-class TriageResult:
-    """Result of message triage — tier and effort."""
+class RoutingDecision:
+    """Result of behavioral routing — tier, effort, and optional provider override."""
     tier: str = TIER_STANDARD       # nano / standard / deep
     effort: str = "medium"          # low / medium / high / max
     provider_key: Optional[str] = None   # force a specific provider (optional)
@@ -64,7 +64,7 @@ Rules:
 Message: """
 
 
-async def triage_message(prompt: str, triage_provider, timeout: int = 10) -> TriageResult:
+async def triage_message(prompt: str, triage_provider, timeout: int = 10) -> RoutingDecision:
     """
     Use the configured triage provider to classify message complexity.
     Falls back to standard/medium on any failure.
@@ -90,11 +90,11 @@ async def triage_message(prompt: str, triage_provider, timeout: int = 10) -> Tri
         if effort not in VALID_EFFORTS:
             effort = "medium"
 
-        return TriageResult(tier=tier, effort=effort, source="triage")
+        return RoutingDecision(tier=tier, effort=effort, source="triage")
 
     except Exception as e:
         logger.debug(f"Triage failed ({e}), defaulting to standard/medium")
-        return TriageResult()
+        return RoutingDecision()
 
 
 # ── User preferences ──────────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ class NexusBehavior:
         except FileNotFoundError:
             pass
 
-    async def route_message(self, message: str, channel_key: str = "", platform: str = "") -> TriageResult:
+    async def route_message(self, message: str, channel_key: str = "", platform: str = "") -> RoutingDecision:
         """
         Decide which tier and effort level to use for a message.
 
@@ -247,7 +247,7 @@ class NexusBehavior:
         # 1. Per-channel override
         if channel_key and channel_key in self.prefs.channel_overrides:
             ov = self.prefs.channel_overrides[channel_key]
-            return TriageResult(
+            return RoutingDecision(
                 tier=ov.get("tier", TIER_STANDARD),
                 effort=ov.get("effort", "medium"),
                 provider_key=ov.get("provider"),
@@ -256,7 +256,7 @@ class NexusBehavior:
 
         # 2. Global override
         if self.prefs.tier_override and not self.prefs.auto_triage:
-            return TriageResult(
+            return RoutingDecision(
                 tier=self.prefs.tier_override,
                 effort=self.prefs.effort_override or "medium",
                 provider_key=self.prefs.provider_override,
@@ -268,7 +268,7 @@ class NexusBehavior:
             return await triage_message(message, self.triage_provider)
 
         # 4. Default
-        return TriageResult()
+        return RoutingDecision()
 
     def handle_command(self, command: str, channel_key: str = "", platform: str = "") -> Optional[BehaviorEvent]:
         """

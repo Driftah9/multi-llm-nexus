@@ -30,6 +30,10 @@ class AnthropicProvider(BaseProvider):
         )
         self.max_tokens = config.get("max_tokens", 8096)
         self.use_cache = config.get("prompt_caching", True)
+        # How many trailing messages to leave uncached (the live tail).
+        # Everything before the tail gets a cache breakpoint so stable history
+        # accumulates cache reads rather than being re-sent uncached each turn.
+        self.cache_history_tail = config.get("cache_history_tail", 2)
 
     async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
         sdk_messages = self._convert_messages(messages)
@@ -71,6 +75,24 @@ class AnthropicProvider(BaseProvider):
         for msg in messages:
             if msg.role in ("user", "assistant"):
                 result.append({"role": msg.role, "content": msg.content})
+
+        # Second cache breakpoint: stable conversation history.
+        # Mark the message just before the live tail so every turn pays a cache
+        # write for 1 new message and gets cache reads for all prior stable history.
+        if self.use_cache and len(result) > self.cache_history_tail + 1:
+            boundary_idx = len(result) - self.cache_history_tail - 1
+            msg = result[boundary_idx]
+            text = msg["content"]
+            if isinstance(text, str):
+                msg["content"] = [
+                    {"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}
+                ]
+            elif isinstance(text, list):
+                for block in reversed(text):
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        block["cache_control"] = {"type": "ephemeral"}
+                        break
+
         return result
 
     def supports_tools(self) -> bool:

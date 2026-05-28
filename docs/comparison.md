@@ -8,18 +8,87 @@ A cross-reference against existing self-hosted AI platforms, agent frameworks, a
 
 ## The Landscape
 
-There are roughly four categories of tools that overlap with what Nexus does:
+There are roughly five categories of tools that overlap with what Nexus does:
 
 | Category | Examples |
 |---|---|
+| **Agent harnesses** | Hermes (Nous Research), OpenClaw |
 | **Self-hosted chat UIs** | Open WebUI, AnythingLLM, Jan.ai |
 | **LLM app platforms** | Dify, Flowise, LangFlow |
 | **Agent frameworks** | LangChain / LangGraph, CrewAI, AutoGen (Microsoft) |
 | **Autonomous agent runners** | AutoGPT, SuperAGI, AgentGPT |
 
+The agent harness category — Hermes and OpenClaw — is where most people comparing Nexus will land. That comparison gets its own section first.
+
 ---
 
-## Feature Comparison
+---
+
+## Hermes and OpenClaw: The Closest Comparisons
+
+Most people evaluating Nexus have already looked at Hermes (Nous Research) or OpenClaw. These are the right tools to compare against — all three are agent harnesses, not chat UIs or app builders.
+
+| Feature | **Nexus** | **Hermes** | **OpenClaw** |
+|---|---|---|---|
+| **Primary runtime** | Python daemon on your hardware | Python daemon, local or VPS | Node.js daemon, local or VPS |
+| **Installation** | `git clone` + `./setup.sh` wizard | One-command curl installer | One-command curl or npm |
+| **Platform adapters** | Mattermost, Discord, Telegram | 21 platforms (Telegram, Discord, Slack, WhatsApp, Signal, Mattermost, Matrix, more) | 20+ platforms including iMessage, Line, Zalo |
+| **LLM providers** | 20 direct providers + any Ollama/OpenAI-compat endpoint | 30 providers, OpenRouter as primary aggregator | Provider-agnostic via config |
+| **Memory model** | Typed files (user/feedback/project/reference), structured index, operator-maintained | Two flat files (USER.md 1,375 chars, MEMORY.md 2,200 chars), hard char limits, agent-curated | Two flat files, similar to Hermes |
+| **Memory plugins** | No plugin system (by design) | 7 plugins: Honcho, Holographic, mem0, hindsight, and others | Honcho-compatible (less integrated) |
+| **Cross-session recall** | Planned (ChromaDB RAG, not deployed) | FTS5 keyword search on session history | Session search via flat file |
+| **Skill format** | SKILL.md with YAML frontmatter (v0.4) | SKILL.md with YAML frontmatter | SKILL.md with YAML frontmatter |
+| **Skill creation** | Measurement → metrics → candidate → operator approval | LLM-prompted: agent creates skills autonomously during sessions | Marketplace (ClawHub) + manual |
+| **Skill metrics** | Runtime SQLite collection → self-eval report | Usage tracking (skill_usage.py), not fed back to refinement | No runtime metrics |
+| **Self-improvement loop** | Bi-weekly: behavioral review → research → candidate queue → approval | Curator (background, 7-day cycle): lifecycle management, not content refinement | None |
+| **Operator/core separation** | Explicit: workspace config vs. core logic | None: single config per deployment | Partial: owner plugin vs. core SDK |
+| **Cron/scheduling** | External scripts → MM notification | Built-in, per-job profiles, platform delivery | Built-in |
+| **Subagents** | Specialist dispatch (parallel) | Full AIAgent copies (depth 1 default, cap 3) | ACP spawn system |
+| **Approval gate** | All candidates require operator approval before deployment | Autonomous: agent creates/edits skills without approval | Not applicable |
+| **Config model** | YAML — providers.yaml, adapters.yaml, spaces.yml | Single config.yaml + .env per profile | YAML + .env |
+| **Codebase scale** | Moderate — tighter files | Large (cli.py 660KB, mid-refactor) | Moderate — strict SDK boundaries |
+| **Tests** | Not measured | ~17,000 tests across ~900 files | Not measured |
+| **License** | MIT | MIT | MIT |
+
+### Where Hermes Wins
+
+- **Install experience** — one command, guided onboarding, works on Linux/Mac/VPS immediately
+- **Platform breadth** — 21 adapters including iMessage, Line, WeChat, email, SMS
+- **Memory plugins** — Honcho for behavioral profiling is a genuine differentiator; 7 memory backends available
+- **Session search** — FTS5 across conversation history is live; Nexus's RAG is planned but not deployed
+- **Test coverage** — 17k tests is a serious engineering investment
+- **Autonomous skill building** — agent creates skills from experience without operator input (if you trust it to)
+- **Community** — larger adoption, more documentation, more third-party content
+
+### Where OpenClaw Wins
+
+- **Install experience** — single npm command, guided wizard, native on all desktop platforms
+- **Platform breadth** — 20+ adapters, widest platform support in the category
+- **SDK boundaries** — strict plugin/core separation, contracts well-defined
+- **Skill marketplace** — ClawHub gives access to community-built skills (with security caveats)
+- **Community** — large early adopter base, extensive documentation
+
+### Where Nexus Is Different
+
+**Operator control is not optional.** In Hermes, the agent creates skills autonomously. In Nexus, all changes surface as candidates waiting for your review. For operators running production infrastructure, compliance-aware systems, or environments where an autonomous skill creation could cause problems, this matters.
+
+**Memory is structured, not size-limited.** Hermes enforces 3,575 total characters across memory files, forcing the agent to decide what to keep. Nexus uses typed files (user, feedback, project, reference) with explicit purpose. Neither approach is wrong — they reflect different philosophies: Hermes trusts the agent to curate; Nexus trusts the operator.
+
+**Metrics pipeline before skill creation.** Nexus measures deployed modules before formalizing them as skills. Hermes ships skills without runtime feedback. The hypothesis: a skill that's measured and refined is worth more than a skill that was simply generated.
+
+**Operator/core separation is explicit.** Workspace config, specialist profiles, and behavioral rules are operator data. The routing engine, session management, and provider abstraction are core. These two layers are not mixed. Nexus targets operators who want to understand exactly what is theirs and what is the platform.
+
+**It is not trying to be Hermes.** Hermes has a mission, a following, and a growth trajectory. Nexus was built by one operator to solve a specific problem — a persistent, always-on AI layer that lives on your infrastructure and works through the channels you already use. That scope is intentional.
+
+### Honest Assessment
+
+If you want the fastest path to a working agent, well-documented onboarding, and the largest community: **use Hermes**.
+
+If you want a platform where every architectural decision is auditable, operator approval is required before anything changes, and the separation between "what the platform does" and "what the operator configured" is explicit: **Nexus is worth the additional setup**.
+
+---
+
+## Feature Comparison (Against UI Tools and Frameworks)
 
 | Feature | **Nexus** | Open WebUI | AnythingLLM | Dify | CrewAI / LangGraph |
 |---|---|---|---|---|---|

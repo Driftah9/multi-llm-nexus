@@ -142,20 +142,24 @@ def check_mark(ok: bool) -> str:
 # ─────────────────────────────────────────────
 
 CLOUD_PROVIDERS = [
-    ("anthropic",    "Anthropic / Claude — subscription (Claude Code CLI)"),
-    ("claude_code",  "Anthropic / Claude — API key  (no CLI required)"),
-    ("openai",       "OpenAI  (GPT-4o, o3)"),
-    ("gemini",       "Google Gemini  (Flash, Pro — free tier available)"),
-    ("groq",         "Groq  (fast open-source inference — free tier available)"),
-    ("mistral",      "Mistral AI  (EU-hosted, GDPR-friendly)"),
-    ("deepseek",     "DeepSeek  (V3 + R1 reasoning — very low cost)"),
-    ("xai",          "xAI / Grok"),
-    ("cohere",       "Cohere  (Command R — best for RAG — free tier)"),
-    ("together",     "Together.ai  (50+ open models)"),
-    ("fireworks",    "Fireworks.ai"),
-    ("perplexity",   "Perplexity  (web search baked in)"),
-    ("huggingface",  "Hugging Face Inference  (free tier)"),
-    ("cerebras",     "Cerebras  (wafer-chip, very fast)"),
+    # ── Subscription CLI (no API key needed, authenticate via provider's own tooling) ──
+    ("anthropic",       "Anthropic / Claude — subscription CLI (Claude Code — Pro/Teams plan)"),
+    # ── API key ──
+    ("claude_code",     "Anthropic / Claude — API key  (no CLI required)"),
+    ("openai",          "OpenAI  (GPT-4o, o3)  — API key, not ChatGPT Plus"),
+    ("github_models",   "GitHub Models  (GPT-4o, Llama, Mistral + more — free GitHub account or Copilot)"),
+    ("openrouter",      "OpenRouter  (100+ models, 30+ providers — one API key)"),
+    ("gemini",          "Google Gemini  (Flash, Pro — free tier available)"),
+    ("groq",            "Groq  (fast open-source inference — free tier available)"),
+    ("mistral",         "Mistral AI  (EU-hosted, GDPR-friendly)"),
+    ("deepseek",        "DeepSeek  (V3 + R1 reasoning — very low cost)"),
+    ("xai",             "xAI / Grok  — API key, not X/Twitter Premium"),
+    ("cohere",          "Cohere  (Command R — best for RAG — free tier)"),
+    ("together",        "Together.ai  (50+ open models)"),
+    ("fireworks",       "Fireworks.ai"),
+    ("perplexity",      "Perplexity  (web search baked in)"),
+    ("huggingface",     "Hugging Face Inference  (free tier)"),
+    ("cerebras",        "Cerebras  (wafer-chip, very fast)"),
 ]
 
 CLOUD_INFRA_PROVIDERS = [
@@ -196,26 +200,28 @@ _PIP_TO_IMPORT: dict[str, str] = {
 
 # Which pip packages each provider requires
 PROVIDER_DEPS: dict[str, list[str]] = {
-    "anthropic":     ["anthropic"],
-    "claude_code":   [],                        # needs claude CLI, not a pip package
-    "openai":        ["openai"],
-    "gemini":        ["google-generativeai"],
-    "vertex_ai":     ["google-cloud-aiplatform"],
-    "groq":          ["openai"],
-    "mistral":       ["openai"],
-    "deepseek":      ["openai"],
-    "xai":           ["openai"],
-    "cohere":        ["cohere"],
-    "together":      ["openai"],
-    "fireworks":     ["openai"],
-    "perplexity":    ["openai"],
-    "huggingface":   ["openai"],
-    "cerebras":      ["openai"],
-    "bedrock":       ["boto3"],
-    "azure_openai":  ["openai"],
-    "ollama":        [],                        # uses httpx (already a core dep)
-    "lm_studio":     ["openai"],
-    "vllm":          ["openai"],
+    "anthropic":      ["anthropic"],
+    "claude_code":    [],                        # needs claude CLI, not a pip package
+    "openai":         ["openai"],
+    "github_models":  ["openai"],                # OpenAI-compat endpoint, uses openai package
+    "openrouter":     ["openai"],                # OpenAI-compat aggregator
+    "gemini":         ["google-generativeai"],
+    "vertex_ai":      ["google-cloud-aiplatform"],
+    "groq":           ["openai"],
+    "mistral":        ["openai"],
+    "deepseek":       ["openai"],
+    "xai":            ["openai"],
+    "cohere":         ["cohere"],
+    "together":       ["openai"],
+    "fireworks":      ["openai"],
+    "perplexity":     ["openai"],
+    "huggingface":    ["openai"],
+    "cerebras":       ["openai"],
+    "bedrock":        ["boto3"],
+    "azure_openai":   ["openai"],
+    "ollama":         [],                        # uses httpx (already a core dep)
+    "lm_studio":      ["openai"],
+    "vllm":           ["openai"],
 }
 
 # Which pip packages each platform adapter requires
@@ -243,6 +249,8 @@ _ENV_KEY_MAP: dict[str, str] = {
     "CEREBRAS_API_KEY":     "Cerebras",
     "AWS_ACCESS_KEY_ID":    "AWS / Bedrock",
     "AZURE_OPENAI_API_KEY": "Azure OpenAI",
+    "GITHUB_TOKEN":         "GitHub Models",
+    "OPENROUTER_API_KEY":   "OpenRouter",
 }
 
 # Local services to probe
@@ -571,6 +579,11 @@ async def _configure_openai_compatible(
 # Declarative specs for OpenAI-compatible providers.
 # Each entry: (key, display_name, env_var, base_url, key_url, default_model, note)
 _OPENAI_COMPATIBLE_SPECS: list[tuple] = [
+    # ── Subscription / free-token paths ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    ("github_models", "GitHub Models",         "GITHUB_TOKEN",       "https://models.inference.ai.azure.com",       "https://github.com/settings/tokens",         "gpt-4o",                                        "Free GitHub account: limited daily quota. Copilot subscription: higher limits. Serves GPT-4o, Llama, Mistral, Phi under one token."),
+    # ── Aggregators ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    ("openrouter",  "OpenRouter",              "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1",                "https://openrouter.ai/keys",                 "openai/gpt-4o",                                 "100+ models, 30+ providers, one key. Model IDs use provider/model format: anthropic/claude-sonnet-4-6, openai/gpt-4o, etc."),
+    # ── Standard API-key providers ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     ("groq",        "Groq",                   "GROQ_API_KEY",       "https://api.groq.com/openai/v1",              "https://console.groq.com",                   "llama-3.1-8b-instant",                          "Free tier available — generous rate limits."),
     ("mistral",     "Mistral AI",              "MISTRAL_API_KEY",    "https://api.mistral.ai/v1",                   "https://console.mistral.ai",                 "mistral-small-latest",                          "EU-hosted. Suitable for GDPR / data residency requirements."),
     ("deepseek",    "DeepSeek",                "DEEPSEEK_API_KEY",   "https://api.deepseek.com/v1",                 "https://platform.deepseek.com",              "deepseek-chat",                                 "deepseek-chat (V3) is extremely low cost. deepseek-reasoner is R1 chain-of-thought."),

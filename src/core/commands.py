@@ -263,6 +263,34 @@ COMMANDS: List[Command] = [
         },
         args="<n|all>",
     ),
+    Command(
+        name="spaces",
+        description="List registered operator spaces",
+        category=CommandCategory.INFO,
+        scope=CommandScope.SESSION,
+        behavioral=False,
+        platform_syntax={
+            "mattermost": "!spaces",
+            "discord":    "!spaces",
+            "telegram":   "!spaces",
+            "slack":      "/nexus-spaces",
+            "matrix":     "!spaces",
+        },
+    ),
+    Command(
+        name="specialists",
+        description="List available specialist profiles for the current workspace",
+        category=CommandCategory.INFO,
+        scope=CommandScope.SESSION,
+        behavioral=False,
+        platform_syntax={
+            "mattermost": "!specialists",
+            "discord":    "!specialists",
+            "telegram":   "!specialists",
+            "slack":      "/nexus-specialists",
+            "matrix":     "!specialists",
+        },
+    ),
 ]
 
 

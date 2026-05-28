@@ -17,11 +17,14 @@ automatically try secondary (Gemini), then tertiary (Ollama).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from .cache_utils import normalize_for_cache
+from .security import AuthorizationGate, SecurityPolicy
 from .session import SessionStore
 from .router import Router
 from .provider_chain import ProviderChain, ProviderChainEntry
@@ -70,15 +73,47 @@ class NexusBridge:
         sessions: Optional[SessionStore] = None,
         system_prompt: str = "",
         quota_manager=None,
+        security_policy: Optional[SecurityPolicy] = None,
     ):
         self.router = router
         self.chain = chain
         self.sessions = sessions or SessionStore()
         self.system_prompt = system_prompt
         self.quota_manager = quota_manager
+        self.security_gate = AuthorizationGate(security_policy or SecurityPolicy())
         # In-memory message history per session key, for non-claude_code providers
         self._history: dict[str, list[Message]] = {}
         self._last_provider_used: dict[str, str] = {}  # session_key → provider_type
+
+    def check_authorization(
+        self,
+        user_id: str,
+        channel_id: str,
+        action: str = "chat",
+        current_scope: str = "write",
+    ):
+        """
+        Pre-flight authorization check before invoke.
+
+        Adapters can call this before invoking to validate permissions.
+        If denied, raises AuthorizationError with reason.
+
+        Args:
+            user_id: User identifier
+            channel_id: Channel identifier
+            action: Requested action (default: "chat")
+            current_scope: User's scope level (default: "write")
+
+        Raises:
+            AuthorizationError if not allowed
+        """
+        from .security import AuthorizationError
+
+        result = self.security_gate.check_before_invoke(
+            user_id, channel_id, action, current_scope
+        )
+        if not result.allowed:
+            raise AuthorizationError(result.reason)
 
     async def invoke(
         self,
@@ -230,9 +265,12 @@ class NexusBridge:
         if on_output:
             provider.config["on_output"] = on_output
 
+        # Normalize system prompt for deterministic cache keys
+        normalized_system = normalize_for_cache(system) if system else system
+
         response: ProviderResponse = await provider.send(
             [Message(role="user", content=prompt)],
-            system=system,
+            system=normalized_system,
         )
 
         new_session_id = None
@@ -263,6 +301,7 @@ class NexusBridge:
     async def _invoke_api_provider(
         self, provider, prompt: str, session_key: str, provider_type: str,
         system: str = "", ephemeral: bool = False,
+        timeout: Optional[float] = None,
     ) -> BridgeResult:
         """All API providers — explicit message history management."""
         if ephemeral:
@@ -277,10 +316,37 @@ class NexusBridge:
 
             messages = history
 
-        response: ProviderResponse = await provider.send(
-            messages,
-            system=system,
-        )
+        normalized_system = normalize_for_cache(system) if system else system
+
+        partial_chunks: list[str] = []
+
+        def _capture_partial(chunk: str) -> None:
+            partial_chunks.append(chunk)
+
+        try:
+            send_kwargs: dict = {"system": normalized_system}
+            if hasattr(provider, "config"):
+                provider.config["on_chunk"] = _capture_partial
+
+            coro = provider.send(messages, **send_kwargs)
+            if timeout:
+                response: ProviderResponse = await asyncio.wait_for(coro, timeout=timeout)
+            else:
+                response: ProviderResponse = await coro
+
+        except asyncio.TimeoutError:
+            partial = "".join(partial_chunks)
+            if partial:
+                recovered = partial[-500:].strip()
+                logger.warning(
+                    f"Provider {provider_type} timed out — recovered {len(partial)} chars of partial output"
+                )
+                text = recovered + " _(response truncated — provider timed out)_"
+            else:
+                logger.warning(f"Provider {provider_type} timed out with no partial output")
+                text = "_(Provider timed out with no output)_"
+
+            return BridgeResult(text=text, provider_type=provider_type)
 
         if response.content and not ephemeral:
             history = self._history.get(session_key, [])

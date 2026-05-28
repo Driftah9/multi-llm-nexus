@@ -5,7 +5,7 @@ Used by watchers, health checks, cron scripts, and any internal component
 that needs to send a message independently of the normal request/response cycle.
 
 Reads the active adapter config at call time — never hardcodes a protocol.
-Changing the configured adapter in nexus.yaml is the only change needed to
+Changing the configured adapter in adapters.yaml is the only change needed to
 reroute all internal notifications.
 
 Usage:
@@ -26,7 +26,7 @@ from typing import Optional
 
 logger = logging.getLogger("nexus.notify")
 
-CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "nexus.yaml"
+CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "adapters.yaml"
 _NOTIFY_SECTION = "notify"
 
 

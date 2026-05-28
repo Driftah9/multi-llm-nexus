@@ -31,7 +31,13 @@ class ProviderDef:
     display_name: str                   # shown to the operator
     description: str
     provider_class: str                 # class name in this package
-    access_modes: list[str]             # "subscription" | "api_key" | "local" | "cloud_account"
+    access_modes: list[str]             # Access mode(s) this provider supports:
+                                        #   "subscription_cli" — official CLI drives API via flat subscription (Claude Code today)
+                                        #   "api_key"          — REST API with a secret key, pay-per-token or prepaid credits
+                                        #   "local"            — runs on the operator's hardware, no external calls
+                                        #   "cloud_account"    — needs a cloud provider account (AWS, GCP, Azure)
+                                        # Note: consumer web subscriptions (ChatGPT Plus, X Premium, Gemini Advanced)
+                                        # do NOT provide programmatic access and are NOT represented here.
     env_vars: list[str]                 # required env vars (empty = none)
     packages: list[str]                 # pip packages to install
     tool_support: str                   # "mcp" | "function_call" | "native" | "partial" | "none"
@@ -40,6 +46,12 @@ class ProviderDef:
     free_tier: bool = False
     notes: str = ""
     models: dict[str, str] = field(default_factory=dict)   # model_name → tier
+    capabilities: list[str] = field(default_factory=list)  # capability tags for smart routing:
+                                                            #   code, search, reasoning, rag,
+                                                            #   vision, local, eu_residency
+                                                            # Empty = general purpose (tier-only routing applies)
+                                                            # Populated: capability-router can prefer this provider
+                                                            # when triage detects a matching task type.
 
 
 # ─────────────────────────────────────────────
@@ -55,7 +67,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         display_name="Anthropic / Claude  (CLI — subscription)",
         description="Claude via Claude Code CLI. Full MCP tool ecosystem. No API key needed.",
         provider_class="ClaudeCodeProvider",
-        access_modes=["subscription"],
+        access_modes=["subscription_cli"],
         env_vars=[],
         packages=[],
         tool_support="mcp",
@@ -196,6 +208,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="function_call",
         model_discovery="query_api",
         base_url="https://api.mistral.ai/v1",
+        capabilities=["eu_residency"],
         notes="Hosted in EU. Use when data residency requirements apply.",
         models={
             "mistral-small-latest":  TIER_NANO,
@@ -220,6 +233,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="function_call",
         model_discovery="static",
         base_url="https://api.deepseek.com/v1",
+        capabilities=["reasoning", "code"],
         notes="deepseek-chat (V3) is ~$0.01/1M tokens. deepseek-reasoner (R1) is chain-of-thought.",
         models={
             "deepseek-chat":     TIER_STANDARD,
@@ -262,6 +276,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="native",
         model_discovery="static",
         free_tier=True,
+        capabilities=["rag"],
         notes="Strong RAG grounding. Not a general-purpose primary — use as specialist.",
         models={
             "command-r":      TIER_STANDARD,
@@ -326,6 +341,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="none",
         model_discovery="static",
         base_url="https://api.perplexity.ai",
+        capabilities=["search"],
         notes="Models have web search baked in — use as a research specialist, not primary.",
         models={
             "llama-3.1-sonar-small-128k-online": TIER_NANO,
@@ -427,6 +443,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         packages=["httpx"],
         tool_support="partial",
         model_discovery="local_query",
+        capabilities=["local"],
         notes="Install at ollama.ai. Run `ollama pull <model>` before use. "
               "phi4-mini (~1GB) is the recommended nano/triage model.",
         models={
@@ -479,6 +496,96 @@ PROVIDERS: dict[str, ProviderDef] = {
         base_url="http://localhost:8000/v1",
         notes="Set base_url to your vLLM server address.",
         models={},
+    ),
+
+    # ── GitHub Models ──────────────────────────────────────────────────────
+    #
+    # GitHub's model marketplace. Free GitHub account gets limited daily quota;
+    # GitHub Copilot subscription unlocks higher rate limits on the same endpoint.
+    # OpenAI-compatible. Auth via GITHUB_TOKEN (personal access token).
+    # Serves frontier models from multiple vendors under one key:
+    # GPT-4o, Claude, Llama, Mistral, Phi, Cohere, and others.
+    # The model list changes as GitHub adds or rotates vendor access.
+
+    "github_models": ProviderDef(
+        type_id="github_models",
+        display_name="GitHub Models  (Copilot subscription or free)",
+        description="Frontier models via GitHub's marketplace. Free tier + Copilot higher limits. Single GITHUB_TOKEN.",
+        provider_class="OpenAIProvider",
+        access_modes=["api_key", "subscription_cli"],
+        env_vars=["GITHUB_TOKEN"],
+        packages=["openai"],
+        tool_support="function_call",
+        model_discovery="query_api",
+        base_url="https://models.inference.ai.azure.com",
+        free_tier=True,
+        notes=(
+            "GITHUB_TOKEN = personal access token from github.com/settings/tokens. "
+            "Free GitHub account: rate-limited to ~15-50 req/day depending on model. "
+            "Copilot subscription (Individual $10/mo or Business $19/mo): higher limits on same endpoint. "
+            "Model availability changes — query the API for current list. "
+            "Good zero-cost path to GPT-4o, Claude, and Llama without separate API accounts."
+        ),
+        models={
+            "gpt-4o-mini":                          TIER_NANO,
+            "gpt-4o":                               TIER_STANDARD,
+            "Meta-Llama-3.1-8B-Instruct":           TIER_NANO,
+            "Meta-Llama-3.1-70B-Instruct":          TIER_STANDARD,
+            "Meta-Llama-3.3-70B-Instruct":          TIER_STANDARD,
+            "Mistral-small":                        TIER_NANO,
+            "Mistral-large":                        TIER_DEEP,
+            "Phi-3-mini-4k-instruct":               TIER_NANO,
+            "Phi-3-medium-4k-instruct":             TIER_STANDARD,
+            "Phi-4":                                TIER_STANDARD,
+            "AI21-Jamba-1.5-Mini":                  TIER_NANO,
+            "AI21-Jamba-1.5-Large":                 TIER_STANDARD,
+        },
+    ),
+
+    # ── OpenRouter ─────────────────────────────────────────────────────────
+    #
+    # API aggregator routing to 100+ models across 30+ providers with a single key.
+    # Not a subscription — pay-per-token credits (pre-purchase or on-demand).
+    # Value: one key covers Claude, GPT, Gemini, Mistral, Llama, DeepSeek, and more.
+    # Useful when operators want provider diversity without managing 10+ API accounts,
+    # or want automatic fallback across providers.
+
+    "openrouter": ProviderDef(
+        type_id="openrouter",
+        display_name="OpenRouter  (multi-provider aggregator)",
+        description="100+ models via one API key. Automatic fallback across providers. Pay-per-token credits.",
+        provider_class="OpenAIProvider",
+        access_modes=["api_key"],
+        env_vars=["OPENROUTER_API_KEY"],
+        packages=["openai"],
+        tool_support="function_call",
+        model_discovery="query_api",
+        base_url="https://openrouter.ai/api/v1",
+        free_tier=False,
+        notes=(
+            "Model IDs use provider/model format: anthropic/claude-sonnet-4-6, "
+            "openai/gpt-4o, google/gemini-2.0-flash, meta-llama/llama-3.3-70b-instruct. "
+            "Automatic provider fallback available via :nitro/:floor suffixes. "
+            "Free models available (check openrouter.ai/models — filter by free). "
+            "Useful as a single entry point when operators want access to all providers "
+            "without separate API accounts. Trade-off: adds a hop and slight latency."
+        ),
+        models={
+            "google/gemini-2.0-flash":                         TIER_NANO,
+            "meta-llama/llama-3.1-8b-instruct":                TIER_NANO,
+            "anthropic/claude-haiku-4-5-20251001":             TIER_NANO,
+            "openai/gpt-4o-mini":                              TIER_NANO,
+            "openai/gpt-4o":                                   TIER_STANDARD,
+            "anthropic/claude-sonnet-4-6":                     TIER_STANDARD,
+            "google/gemini-2.0-pro-exp":                       TIER_STANDARD,
+            "meta-llama/llama-3.3-70b-instruct":               TIER_STANDARD,
+            "mistralai/mistral-large-latest":                  TIER_STANDARD,
+            "deepseek/deepseek-chat":                          TIER_STANDARD,
+            "anthropic/claude-opus-4-7":                       TIER_DEEP,
+            "openai/o3":                                       TIER_DEEP,
+            "deepseek/deepseek-r1":                            TIER_DEEP,
+            "meta-llama/llama-3.1-405b-instruct":              TIER_DEEP,
+        },
     ),
 }
 
@@ -547,8 +654,25 @@ def recommended_triage_model(provider_type: str) -> Optional[str]:
 
 
 def list_providers_by_access(access_mode: str) -> list[ProviderDef]:
-    """Filter providers by access mode (api_key, subscription, local, cloud_account)."""
+    """
+    Filter providers by access mode.
+    Modes: subscription_cli, api_key, local, cloud_account
+    Querying "subscription" matches both "subscription_cli" and any future subscription variants.
+    """
+    if access_mode == "subscription":
+        return [p for p in PROVIDERS.values()
+                if any(m.startswith("subscription") for m in p.access_modes)]
     return [p for p in PROVIDERS.values() if access_mode in p.access_modes]
+
+
+def list_subscription_cli_providers() -> list[ProviderDef]:
+    """
+    Return providers with a CLI-driven subscription access path.
+    These are presented differently in the wizard — no API key entry,
+    instead the operator authenticates via the provider's own CLI tooling.
+    Today this is only claude_code. The hook is here for when others follow.
+    """
+    return list_providers_by_access("subscription_cli")
 
 
 def providers_with_free_tier() -> list[ProviderDef]:

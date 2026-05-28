@@ -19,9 +19,11 @@ from .api import MattermostAPI
 from ...core.behaviors import NexusBehavior, tier_label
 from ...core.bridge import NexusBridge
 from ...core.commands import CommandRegistry
+from ...core.debounce import InboundDebouncer
 from ...core.formatter import PlatformFormatter
 from ...core.heartbeat import HeartbeatManager, HeartbeatState
 from ...core.session import SessionStore
+from ...core.thread_policy import ThreadBindingPolicy, ThreadPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +41,15 @@ class MattermostAdapter:
     """
 
     def __init__(self, config: dict, bridge: NexusBridge, sessions: SessionStore,
-                 behavior: NexusBehavior):
+                 behavior: NexusBehavior, triage_validator=None, summary_store=None,
+                 triage_provider=None):
         self.config = config
         self.bridge = bridge
         self.sessions = sessions
         self.behavior = behavior
+        self.triage_validator = triage_validator
+        self.summary_store = summary_store
+        self.triage_provider = triage_provider
 
         mm = config.get("mattermost", config)
         self.token = mm.get("token", "")
@@ -57,6 +63,18 @@ class MattermostAdapter:
         self.api = MattermostAPI(self.server_url, self.token)
         self.commands = CommandRegistry("mattermost")
         self.fmt = PlatformFormatter("mattermost")
+        self.debouncer = InboundDebouncer(
+            window_ms=mm.get("debounce_window_ms", 500)
+        )
+        self.thread_policy = ThreadBindingPolicy()
+        # Load channel-specific thread policies from config
+        for ch_id, ch_config in config.get("channel_thread_policies", {}).items():
+            policy = ThreadPolicy(
+                mode=ch_config.get("mode", "isolated"),
+                session_prefix=ch_config.get("session_prefix", "mattermost"),
+                include_user_in_key=ch_config.get("include_user_in_key", False),
+            )
+            self.thread_policy.set_channel_policy(ch_id, policy)
 
         self._bot_user_id = ""
         self._team_id = ""
@@ -146,8 +164,16 @@ class MattermostAdapter:
         if not message:
             return
 
+        if self.debouncer.should_skip(user_id, channel_id, message):
+            logger.debug(f"Debounced rapid message from {user_id} in {channel_id}")
+            return
+
         channel_name = await self._resolve_channel(channel_id)
-        session_key = f"mm_{channel_id}"
+        # Generate session key respecting thread binding policy
+        thread_id = root_id if root_id != post_id else None
+        session_key = self.thread_policy.get_session_key(
+            f"mm_{channel_id}", thread_id=thread_id, user_id=user_id
+        )
 
         if self.commands.is_command(message):
             await self._handle_command(message, channel_id, post_id, session_key, channel_name)
@@ -162,6 +188,17 @@ class MattermostAdapter:
         # Triage to determine tier + effort
         triage = await self.behavior.route_message(message, channel_name, "mattermost")
         tier_display = tier_label(triage.tier)
+        invoke_start = __import__("time").time()
+
+        # Record triage decision for feedback loop
+        decision_id = -1
+        if self.triage_validator and triage.source == "triage":
+            decision_id = self.triage_validator.record_decision(
+                channel=channel_name,
+                message_hash=self.triage_validator.hash_message(message),
+                classified_tier=triage.tier,
+                classified_effort=triage.effort,
+            )
 
         reply_to = root_id if root_id != post_id else ""
         placeholder = await self.api.post_message(
@@ -186,7 +223,14 @@ class MattermostAdapter:
         heartbeat = HeartbeatManager(hb_state, _push_heartbeat).start()
         typing_task = asyncio.create_task(self._typing_loop(channel_id))
 
+        # Inject prior session context if available
+        session_context = ""
+        if self.summary_store:
+            session_context = self.summary_store.inject_context(session_key)
+
         prompt = f"[Platform: Mattermost | Channel: #{channel_name}]\n{message}"
+        if session_context:
+            prompt = session_context + prompt
 
         orchestrator = getattr(getattr(self, "engine", None), "orchestrator", None)
         use_orchestrator = (
@@ -234,7 +278,22 @@ class MattermostAdapter:
             c["cost_usd"] += cost_usd
             c["responses"] += 1
 
+        # Record response in triage validator
+        if self.triage_validator and decision_id > 0:
+            elapsed_ms = (__import__("time").time() - invoke_start) * 1000
+            self.triage_validator.record_response(
+                decision_id=decision_id,
+                response_length=len(response_text or ""),
+                response_ms=elapsed_ms,
+                channel=channel_name,
+            )
+
+        # ReviewGate: check if this looks like a commit/change-heavy response
+        review_hint = self._check_review_gate(message, response_text or "")
+
         response = response_text or "_(no response)_"
+        if review_hint:
+            response = response + f"\n\n---\n{review_hint}"
         chunks = self.fmt.format_response(response)
 
         if placeholder_id:
@@ -255,8 +314,19 @@ class MattermostAdapter:
 
         # Behavioral commands — NexusBehavior handles them
         if cmd.behavioral:
+            prev_tier = self.behavior.prefs.tier_override
             event = self.behavior.handle_command(message, channel_name, "mattermost")
             if event:
+                # Record tier override signal for triage validator
+                if self.triage_validator and event.event_type.value == "tier_changed":
+                    new_tier = self.behavior.prefs.tier_override or "standard"
+                    if prev_tier != new_tier and not prev_tier:
+                        # Was on auto-triage, now locking — record as override
+                        self.triage_validator.record_override(
+                            channel_name, from_tier="standard", to_tier=new_tier
+                        )
+                elif self.triage_validator and event.event_type.value == "auto_enabled":
+                    self.triage_validator.record_auto_released(channel_name)
                 await self.api.post_message(channel_id, f"_{event.detail}_")
             return
 
@@ -264,6 +334,16 @@ class MattermostAdapter:
         name = cmd.name
 
         if name in ("new", "reset"):
+            # Distill current session before clearing (if summary store available)
+            if self.summary_store and self.triage_provider:
+                history = self.bridge._history.get(session_key, [])
+                if history:
+                    asyncio.create_task(
+                        self.summary_store.distill(session_key, history, self.triage_provider)
+                    )
+            # Record quick reset signal for triage validator
+            if self.triage_validator:
+                self.triage_validator.record_reset(channel_name)
             self.bridge.clear_session(session_key)
             await self.sessions.clear(session_key)
             await self.api.post_message(channel_id, "Session cleared. Starting fresh.")
@@ -328,6 +408,32 @@ class MattermostAdapter:
                 except Exception:
                     pass
 
+        elif name == "spaces":
+            space_registry = getattr(getattr(self, "engine", None), "space_registry", None)
+            if space_registry:
+                summary = space_registry.summary()
+                await self.api.post_message(channel_id, f"**Registered Spaces:**\n{summary}")
+            else:
+                await self.api.post_message(channel_id, "No space registry loaded.")
+
+        elif name == "specialists":
+            orchestrator = getattr(getattr(self, "engine", None), "orchestrator", None)
+            if orchestrator:
+                ws = orchestrator.get_workspace(channel_name)
+                if ws and ws.specialists:
+                    lines = [f"**Specialists in `{ws.display_name}` workspace:**\n"]
+                    for sid in ws.specialists:
+                        profile = orchestrator.specialists.get(sid)
+                        if profile:
+                            lines.append(f"- **{profile.name}** (`{sid}`) — {profile.scope or profile.name}")
+                        else:
+                            lines.append(f"- `{sid}` _(profile not loaded)_")
+                    await self.api.post_message(channel_id, "\n".join(lines))
+                else:
+                    await self.api.post_message(channel_id, "No specialist workspace mapped to this channel.")
+            else:
+                await self.api.post_message(channel_id, "Orchestrator not enabled.")
+
         elif name == "help":
             await self.api.post_message(channel_id, self.commands.help_text())
 
@@ -384,6 +490,29 @@ class MattermostAdapter:
             return name
         except Exception:
             return user_id
+
+    def _check_review_gate(self, message: str, response: str) -> str | None:
+        """
+        Estimate change scope from response content and run the ReviewGate.
+        Returns a suggestion string if review is recommended, else None.
+        """
+        import re
+        code_blocks = re.findall(r"```[\s\S]*?```", response)
+        lines_added = sum(b.count("\n") for b in code_blocks)
+        lines_deleted = sum(1 for line in message.splitlines() if line.strip().startswith("-"))
+        files = re.findall(r"`([^`]+\.(?:py|js|ts|go|rs|yaml|yml|toml|json|sh))`", response)
+        is_commit_point = any(kw in message.lower() for kw in ("commit", "push", "deploy", "merge"))
+
+        from ...core.review_gate import ReviewTrigger
+        trigger, suggestion = self.behavior.check_review_trigger(
+            files=files or [],
+            lines_added=lines_added,
+            lines_deleted=lines_deleted,
+            is_commit_point=is_commit_point,
+        )
+        if trigger != ReviewTrigger.NONE and suggestion:
+            return f"_{suggestion}_"
+        return None
 
     async def deliver(self, outbound) -> None:
         """Engine callback — post an autonomously-generated response to a channel."""

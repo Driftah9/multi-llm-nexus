@@ -17,6 +17,7 @@ from typing import Optional, Set
 from ...core.behaviors import NexusBehavior, tier_label
 from ...core.bridge import NexusBridge
 from ...core.commands import CommandRegistry
+from ...core.debounce import InboundDebouncer
 from ...core.formatter import PlatformFormatter
 from ...core.session import SessionStore
 
@@ -49,6 +50,9 @@ class DiscordAdapter:
 
         self.commands = CommandRegistry("discord")
         self.fmt = PlatformFormatter("discord")
+        self.debouncer = InboundDebouncer(
+            window_ms=dc.get("debounce_window_ms", 500)
+        )
         self._stop = asyncio.Event()
 
     def _headers(self) -> dict:
@@ -135,6 +139,13 @@ class DiscordAdapter:
     async def _handle(self, msg: dict) -> None:
         text = msg.get("content", "").strip()
         if not text:
+            return
+
+        author = msg.get("author", {})
+        user_id = str(author.get("id", ""))
+
+        if self.debouncer.should_skip(user_id, self.channel_id, text):
+            logger.debug(f"Debounced rapid message from {user_id} in {self.channel_id}")
             return
 
         session_key = f"dc_{self.channel_id}"

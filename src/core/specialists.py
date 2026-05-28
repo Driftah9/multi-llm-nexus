@@ -25,6 +25,17 @@ class SpecialistProfile:
     data_sources: list[str] = field(default_factory=list)
     scope: str = ""
 
+    @classmethod
+    def from_dynamic(cls, name: str, focus: str, tier: str = "standard") -> "SpecialistProfile":
+        spec_id = f"dynamic_{name.lower().replace(' ', '_')}"
+        return cls(
+            id=spec_id,
+            name=name,
+            tier=tier,
+            system_prompt=f"You are the {name}. Your specific area of focus: {focus}.",
+            scope=focus,
+        )
+
 
 class SpecialistLoader:
     """

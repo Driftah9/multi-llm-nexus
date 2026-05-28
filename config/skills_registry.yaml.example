@@ -1,0 +1,144 @@
+# ─────────────────────────────────────────────────────────────────────
+# Nexus Skill Registry — Core vs Standby Loading
+# ─────────────────────────────────────────────────────────────────────
+#
+# Controls which skills are active on every message cycle vs held
+# on standby until the orchestrator, an agent, or the operator
+# explicitly invokes them.
+#
+# Skills are defined in individual SKILL.md files (YAML frontmatter
+# + markdown instructions). This registry controls their runtime
+# loading behavior — it does not duplicate skill definitions.
+#
+# Copy this file to skills_registry.yaml and customize.
+# ─────────────────────────────────────────────────────────────────────
+
+skills:
+
+  # ── Core skills (always active) ────────────────────────────────────
+  # These run on every message cycle. They are operational — not
+  # specialist knowledge, but system behavior that must always apply.
+  #
+  # Keep this list tight. Every core skill adds processing to every
+  # single message, even if it does nothing.
+
+  core:
+    - debounce           # prevent rapid duplicate message processing
+    - cache_utils        # normalize system prompts for cache hit rates
+    - thread_binding     # per-channel thread isolation policy
+    - security_gate      # scope-based authorization before any action
+
+  # ── Standby skills ─────────────────────────────────────────────────
+  # Registered in the index (name + description available) but not
+  # loaded into context until triggered. Each skill defines its own
+  # trigger conditions.
+  #
+  # Trigger types:
+  #   orchestrator  — specialist routing rule activates the skill
+  #   agent         — a spawned agent requests the skill by name
+  #   user          — operator invokes via !skill-name or /skill-name
+  #   workspace     — auto-load when message is in a mapped workspace
+  #   keyword       — triage keyword match activates the skill
+  #   schedule      — cron-triggered activation (e.g., daily report)
+
+  standby:
+
+    # ── Research & Analysis ──────────────────────────────────────────
+    code_review:
+      path: skills/code-review/SKILL.md
+      triggers:
+        - type: user
+          commands: [!review, !codereview, /review]
+        - type: orchestrator
+          specialists: [operations]
+        - type: keyword
+          match: [review, audit, inspect, lint]
+
+    deep_research:
+      path: skills/deep-research/SKILL.md
+      triggers:
+        - type: user
+          commands: [!research, /research]
+        - type: keyword
+          match: [research, investigate, compare, analyze, evaluate]
+      constraints:
+        min_tier: standard    # don't run on nano — needs reasoning
+
+    # ── Financial ────────────────────────────────────────────────────
+    sga_check:
+      path: skills/sga-check/SKILL.md
+      triggers:
+        - type: workspace
+          workspaces: [business-ops]
+        - type: keyword
+          match: [sga, nese, ssdi, income, earnings, deduction]
+        - type: orchestrator
+          specialists: [financial]
+
+    # ── Infrastructure ───────────────────────────────────────────────
+    docker_ops:
+      path: skills/docker-ops/SKILL.md
+      triggers:
+        - type: workspace
+          workspaces: [infrastructure, docker-backup]
+        - type: keyword
+          match: [docker, container, compose, stack, volume, image]
+        - type: user
+          commands: [!docker]
+
+    backup_verify:
+      path: skills/backup-verify/SKILL.md
+      triggers:
+        - type: schedule
+          cron: "0 4 * * 0"    # Sunday 4am
+        - type: user
+          commands: [!backup, !verify-backups]
+
+    # ── Self-improvement ─────────────────────────────────────────────
+    metrics_report:
+      path: skills/metrics-report/SKILL.md
+      triggers:
+        - type: schedule
+          cron: "0 5 1,15 * *"    # 1st and 15th at 5am (bi-weekly)
+        - type: user
+          commands: [!metrics, !self-eval]
+
+    skill_candidate:
+      path: skills/skill-candidate/SKILL.md
+      triggers:
+        - type: user
+          commands: [!candidates, !skill-candidates]
+      constraints:
+        approval_required: true    # never auto-activates
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Skill loading behavior:
+#
+# 1. Core skills: loaded at startup, run on every message. Their
+#    SKILL.md frontmatter should have `load: core`.
+#
+# 2. Standby skills: registered by name + description. Full content
+#    loaded only when a trigger fires. SKILL.md frontmatter should
+#    have `load: standby`.
+#
+# 3. Multiple triggers are OR'd — any match activates the skill.
+#
+# 4. Constraints narrow when a skill can run:
+#      min_tier        — won't activate below this provider tier
+#      approval_required — surfaces as candidate, never auto-runs
+#      max_concurrent  — limit parallel instances of this skill
+#      cooldown        — minimum seconds between activations
+#
+# 5. Metrics: the skill_metrics pipeline records activation events
+#    for all skills (core and standby). The self-eval report uses
+#    this data to identify:
+#      - Standby skills that trigger frequently → candidate for core
+#      - Core skills that rarely fire → candidate for standby
+#      - Skills with keyword triggers that never match → stale keywords
+#      - Skills that activate but produce no useful output → review
+#
+# 6. Security: standby skills imported from external sources enter
+#    a sandboxed state regardless of trigger. See the skill security
+#    validation pipeline in the production readiness checklist.
+# ─────────────────────────────────────────────────────────────────────

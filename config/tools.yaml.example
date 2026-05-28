@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────
+# Nexus Tool Loading — Deferred vs Always-On
+# ─────────────────────────────────────────────────────────────────────
+#
+# Controls which tools are loaded into context on startup vs loaded
+# on demand when the triage classifier, orchestrator, agent, or
+# operator signals need.
+#
+# Why this matters:
+#   Every loaded tool consumes context window tokens. Loading 92 HA
+#   tools while discussing ESP32 firmware wastes budget. Deferred
+#   loading keeps the context lean — tools appear when needed and
+#   release when the task context closes.
+#
+# The triage layer classifies each inbound message once and makes
+# three routing decisions in a single pass:
+#   1. Provider tier (nano / standard / deep)
+#   2. Tool set (which tool categories to load)
+#   3. Skill set (which skills to activate)
+#
+# Copy this file to tools.yaml and customize for your deployment.
+# ─────────────────────────────────────────────────────────────────────
+
+tools:
+
+  # ── Always loaded ──────────────────────────────────────────────────
+  # These are the cost of being alive. Loaded at startup, never unloaded.
+
+  always:
+    - adapter_io        # read/write to connected platforms
+    - session_manager   # conversation state, context windowing
+    - routing           # tier classification, message dispatch
+    - basic_commands    # !help, !status, !health, !version
+    - file_ops          # read, write, edit, glob, grep (local filesystem)
+    - skill_metrics     # SQLite event recording (lightweight, always needed)
+
+  # ── Deferred tool categories ───────────────────────────────────────
+  # Registered at startup (name + description available for triage)
+  # but schemas and handlers only loaded when triggered.
+  #
+  # Triggers:
+  #   workspace  — auto-load when message arrives in a mapped workspace
+  #   keyword    — triage keyword match loads the category
+  #   explicit   — operator/agent requests by name (!load ha, !load browser)
+  #   orchestrator — specialist profile declares required tools
+
+  deferred:
+
+    home_assistant:
+      description: "Home Assistant entity control, automation, state queries"
+      load_trigger:
+        workspaces: [home-automation, smart-home]
+        keywords: [light, switch, sensor, automation, home assistant, ha, entity, climate, lock]
+        explicit: [ha, home-assistant]
+      unload: task_close    # release when conversation leaves the workspace
+      # provider: mcp       # tool protocol — mcp, function_call, or ollama
+
+    browser:
+      description: "Playwright browser automation and web scraping"
+      load_trigger:
+        workspaces: [website-design, testing]
+        keywords: [browser, screenshot, scrape, navigate, playwright, click, webpage]
+        explicit: [browser, playwright]
+      unload: task_close
+
+    ssh:
+      description: "Remote server access via configured SSH aliases"
+      load_trigger:
+        workspaces: [infrastructure, docker-backup, hestiacp]
+        keywords: [ssh, server, deploy, docker, container, remote]
+        explicit: [ssh]
+      unload: task_close
+
+    esp32:
+      description: "ESP-IDF firmware build, flash, and monitor toolchain"
+      load_trigger:
+        workspaces: [esp32-*]    # glob match on workspace names
+        keywords: [esp32, firmware, flash, idf, menuconfig, partition, zigbee, matter]
+        explicit: [esp32, idf]
+      unload: task_close
+
+    google:
+      description: "Gmail, Google Calendar, Google Drive access"
+      load_trigger:
+        workspaces: [business-ops]
+        keywords: [email, gmail, calendar, drive, schedule, meeting]
+        explicit: [google, gmail, calendar, drive]
+      unload: task_close
+
+    git:
+      description: "Git operations — commit, branch, diff, log, push"
+      load_trigger:
+        keywords: [commit, push, branch, merge, rebase, git, pull request, pr]
+        explicit: [git]
+      unload: task_close
+
+    database:
+      description: "SQLite, PostgreSQL, or other database query tools"
+      load_trigger:
+        keywords: [query, sql, database, table, migration, schema]
+        explicit: [db, database, sql]
+      unload: task_close
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Notes for operators:
+#
+# 1. "always" tools load at startup regardless of context. Keep this
+#    list minimal — every entry costs tokens on every message.
+#
+# 2. Deferred tools are registered by name+description only. The
+#    triage classifier sees the descriptions to decide what to load.
+#    Full schemas load only when triggered.
+#
+# 3. unload options:
+#      task_close   — release when conversation leaves the workspace
+#      session_end  — hold until the session is destroyed
+#      manual       — only unload on explicit !unload command
+#      never        — effectively "always" but with lazy initial load
+#
+# 4. Multiple triggers are OR'd — any one match loads the tools.
+#
+# 5. Workspace glob patterns (esp32-*) match any workspace whose
+#    name starts with the prefix. Useful for project families.
+#
+# 6. Cost tracking: the metrics pipeline records tool load/unload
+#    events. The self-eval report surfaces tools that load frequently
+#    but are rarely used (candidates for keyword tuning) and tools
+#    that are needed but not loading (missing keyword triggers).
+# ─────────────────────────────────────────────────────────────────────

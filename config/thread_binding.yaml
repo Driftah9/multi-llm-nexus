@@ -1,0 +1,37 @@
+# Thread binding policy — per-thread session isolation and scoping
+#
+# Modes:
+#   isolated — each thread is a separate conversation (default)
+#   bound — all threads share the channel conversation
+#
+# This configuration allows fine-grained control over how threads are
+# handled across different channels and platforms.
+
+# Global default policy
+global:
+  mode: isolated
+  session_prefix: channel
+  include_user_in_key: false
+
+# Per-channel overrides
+# Channels should be referenced as "platform_channel_id" (e.g., "mm_town-square")
+channel_thread_policies:
+  "mm_town-square":
+    mode: isolated
+    session_prefix: mattermost
+    include_user_in_key: false
+
+  "mm_status":
+    # Status channel: all threads share context
+    mode: bound
+    session_prefix: mattermost
+
+  "mm_dev":
+    # Dev channel: isolated threads with per-user context
+    mode: isolated
+    session_prefix: mattermost
+    include_user_in_key: true
+
+  "dc_bot-commands":
+    mode: isolated
+    session_prefix: discord

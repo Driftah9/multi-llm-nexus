@@ -110,14 +110,22 @@ def _build_router(providers: dict, routing_config: dict):
 
 # ── Adapter bootstrap ─────────────────────────────────────────────────────────
 
-def _build_adapters(adapters_config: dict, engine, bridge, sessions, behavior) -> list:
+def _build_adapters(
+    adapters_config: dict, engine, bridge, sessions, behavior,
+    triage_validator=None, summary_store=None, triage_provider=None,
+) -> list:
     adapters = []
 
     if "mattermost" in adapters_config and adapters_config["mattermost"].get("enabled", True):
         try:
             from .adapters.mattermost.adapter import MattermostAdapter
             cfg = {**adapters_config, "mattermost": adapters_config["mattermost"]}
-            adapter = MattermostAdapter(cfg, bridge, sessions, behavior)
+            adapter = MattermostAdapter(
+                cfg, bridge, sessions, behavior,
+                triage_validator=triage_validator,
+                summary_store=summary_store,
+                triage_provider=triage_provider,
+            )
             adapter.engine = engine
             engine.register_response_handler("mattermost", adapter.deliver)
             adapters.append(adapter)
@@ -176,6 +184,9 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     from .core.pool_manager import PoolManager
     from .core.provider_chain import set_pool_manager
     from .core.provider_quota import ProviderQuotaManager
+    from .core.spaces import SpaceRegistry
+    from .core.triage_validator import TriageValidator
+    from .core.session_summary import SessionSummaryStore
 
     providers = _build_providers(providers_defs)
     if not providers:
@@ -218,6 +229,20 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     triage = Triage(provider=triage_provider)
     behavior = NexusBehavior(config_dir=str(config_dir), triage_provider=triage_provider)
 
+    # Space registry — operator-defined project/business unit namespacing
+    space_registry = SpaceRegistry(config_dir)
+    logger.info(f"Space registry: {len(space_registry.spaces)} space(s) loaded")
+
+    # Triage validator — records decisions and outcome signals for self-improvement
+    triage_validator = TriageValidator(
+        db_path=config_dir.parent / "data" / "triage-validation.db"
+    )
+
+    # Session summary store — distilled context for session continuity
+    summary_store = SessionSummaryStore(
+        path=config_dir.parent / "data" / "session-summaries.json"
+    )
+
     # Build engine
     engine_config = {
         "tick_interval": routing_config.get("tick_interval", 30),
@@ -258,8 +283,16 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
         orchestrator=orchestrator,
     )
 
+    # Attach space registry to engine (adapters access via engine reference)
+    engine.space_registry = space_registry
+
     # Build adapters (with engine reference)
-    adapters = _build_adapters(adapters_config, engine, bridge, sessions, behavior)
+    adapters = _build_adapters(
+        adapters_config, engine, bridge, sessions, behavior,
+        triage_validator=triage_validator,
+        summary_store=summary_store,
+        triage_provider=triage_provider,
+    )
     if not adapters:
         logger.warning("No adapters configured — Nexus will start but has no platform connections")
 

@@ -20,6 +20,7 @@ from typing import Optional, TYPE_CHECKING
 
 from .heartbeat import HeartbeatManager
 from .specialists import SpecialistLoader, SpecialistProfile
+from .session_state import SessionState, extract_claims
 
 if TYPE_CHECKING:
     from .bridge import NexusBridge, BridgeResult
@@ -44,6 +45,7 @@ class OrchestratorResult:
     bypassed: bool = False
     total_cost: float = 0.0
     elapsed: float = 0.0
+    session_state: Optional[SessionState] = None
 
 
 @dataclass
@@ -139,27 +141,41 @@ class Orchestrator:
         session_key: str,
         operator_context: str = "",
         heartbeat: Optional[HeartbeatManager] = None,
+        live_context: Optional[str] = None,
+        session_state: Optional[SessionState] = None,
     ) -> OrchestratorResult:
         """
         Route a message through specialist agents and return synthesized output.
 
         Args:
-            message: The operator's message text
-            context: Adapter context identifier (channel name, topic, etc.)
-            session_key: Session key for the main conversation
-            operator_context: Additional context to prepend (platform, workspace info)
+            message: The operator's message text.
+            context: Adapter context identifier (channel name, topic, etc.).
+            session_key: Session key for the main conversation.
+            operator_context: Additional context to prepend (platform, workspace info).
             heartbeat: Optional HeartbeatManager for live status display updates.
-                       When provided, updates agent list in real-time as specialists
-                       complete, and switches phase during synthesis.
+            live_context: Optional recent conversation transcript fetched by the adapter.
+                          Injected into each specialist's context for higher fidelity
+                          than the rolling history window alone. Adapters populate this
+                          from their native thread/channel history APIs.
+            session_state: Optional prior SessionState for this session.
+                           If provided, accumulated claims and locked decisions are
+                           injected into each specialist's context. Updated on return.
 
         Returns:
-            OrchestratorResult with the final response and metadata
+            OrchestratorResult with the final response and updated session_state.
         """
         start = time.time()
         workspace = self.get_workspace(context)
 
         if not workspace or not workspace.orchestrator:
             return OrchestratorResult(bypassed=True)
+
+        # Create or use existing session state for claim tracking
+        state = session_state or SessionState(
+            session_key=session_key,
+            channel_name=context,
+            workspace_name=workspace.name,
+        )
 
         try:
             specialist_ids = await asyncio.wait_for(
@@ -190,12 +206,21 @@ class Orchestrator:
             await heartbeat.set_agents([p.name for p in profiles])
 
         outputs = await self._invoke_specialists(
-            profiles, message, session_key, workspace, operator_context, heartbeat
+            profiles, message, session_key, workspace, operator_context,
+            heartbeat, live_context, state
         )
 
         if not outputs:
             logger.warning("All specialists failed — bypassing orchestrator")
             return OrchestratorResult(bypassed=True)
+
+        # Extract claims from specialist outputs and run conflict detection
+        for output in outputs:
+            claims = extract_claims(output.specialist_id, output.response)
+            if claims:
+                state.add_claims(output.specialist_id, claims)
+        if len(outputs) > 1:
+            state.detect_conflicts()
 
         if len(outputs) == 1:
             if heartbeat:
@@ -206,6 +231,7 @@ class Orchestrator:
                 synthesized=False,
                 total_cost=outputs[0].cost_usd,
                 elapsed=time.time() - start,
+                session_state=state,
             )
 
         if heartbeat:
@@ -213,7 +239,7 @@ class Orchestrator:
             await heartbeat.set_phase("synthesizing")
 
         synthesized = await self._synthesize(
-            message, outputs, session_key, workspace, operator_context
+            message, outputs, session_key, workspace, operator_context, state
         )
 
         total_cost = sum(o.cost_usd for o in outputs) + synthesized.cost_usd
@@ -223,6 +249,7 @@ class Orchestrator:
             synthesized=True,
             total_cost=total_cost,
             elapsed=time.time() - start,
+            session_state=state,
         )
 
     # ── Routing ────────────────────────────────────────────────────
@@ -237,8 +264,12 @@ class Orchestrator:
 
     async def _route_to_specialists_llm(
         self, message: str, workspace: WorkspaceConfig
-    ) -> list[str]:
-        """Ask the configured LLM which specialists should handle this message."""
+    ) -> list:  # list[str | dict] — str=known ID, dict=dynamic spec {name, focus}
+        """Ask the configured LLM which specialists should handle this message.
+
+        The LLM may select from known specialist IDs or request a dynamic specialist
+        using the syntax: new:Name:focus_description
+        """
         if not workspace.specialists:
             return []
 
@@ -254,7 +285,10 @@ class Orchestrator:
             f"Which specialists should handle this message?\n\n"
             f"Message: {message}\n\n"
             f"Available specialists:\n" + "\n".join(specialist_descs) + "\n\n"
-            f"Reply with ONLY the relevant specialist IDs, comma-separated. "
+            f"Reply with relevant specialist IDs, comma-separated.\n"
+            f"If the message needs expertise not covered by the listed specialists, "
+            f"add a dynamic specialist using: new:Name:focus_description\n"
+            f"Example: financial, new:Tax_Advisor:tax_deductions_and_liability\n"
             f"Reply 'none' if no specialist is needed. Reply 'all' to use all."
         )
 
@@ -272,15 +306,27 @@ class Orchestrator:
             if response == "all":
                 return list(workspace.specialists)
 
-            selected = [s.strip() for s in response.replace(",", " ").split()]
             available = set(workspace.specialists)
-            valid = [s for s in selected if s in available]
+            selected = []
+            for token in response.replace(",", " ").split():
+                token = token.strip()
+                if not token:
+                    continue
+                if token.startswith("new:"):
+                    parts = token.split(":", 2)
+                    if len(parts) == 3 and parts[1] and parts[2]:
+                        selected.append({
+                            "name": parts[1].replace("_", " ").title(),
+                            "focus": parts[2].replace("_", " "),
+                        })
+                elif token in available:
+                    selected.append(token)
 
-            if valid:
-                return valid
+            if selected:
+                return selected
 
             logger.debug(
-                f"LLM routing returned unrecognized IDs {selected}, falling back to keyword"
+                f"LLM routing returned unrecognized tokens, falling back to keyword"
             )
         except Exception as e:
             logger.warning(f"LLM routing failed ({e}), falling back to keyword")
@@ -305,14 +351,23 @@ class Orchestrator:
         available = set(workspace.specialists)
         return [s for s in matched if s in available]
 
-    def _resolve_profiles(self, specialist_ids: list[str]) -> list[SpecialistProfile]:
+    def _resolve_profiles(self, specialist_ids: list) -> list[SpecialistProfile]:
+        """Resolve a mix of known IDs (str) and dynamic specs (dict) into profiles."""
         profiles = []
-        for sid in specialist_ids:
-            profile = self.specialists.get(sid)
-            if profile:
+        for item in specialist_ids:
+            if isinstance(item, dict):
+                profile = SpecialistProfile.from_dynamic(
+                    name=item["name"],
+                    focus=item["focus"],
+                )
+                logger.info(f"Created dynamic specialist: {profile.id} ({profile.name})")
                 profiles.append(profile)
             else:
-                logger.warning(f"Specialist profile not found: {sid}")
+                profile = self.specialists.get(item)
+                if profile:
+                    profiles.append(profile)
+                else:
+                    logger.warning(f"Specialist profile not found: {item}")
         return profiles
 
     # ── Specialist Invocation ──────────────────────────────────────
@@ -325,13 +380,17 @@ class Orchestrator:
         workspace: WorkspaceConfig,
         operator_context: str,
         heartbeat: Optional[HeartbeatManager] = None,
+        live_context: Optional[str] = None,
+        session_state: Optional[SessionState] = None,
     ) -> list[SpecialistOutput]:
         active_names = [p.name for p in profiles]
 
         async def _tracked(profile: SpecialistProfile) -> SpecialistOutput:
+            peers = [p for p in profiles if p.id != profile.id]
             try:
                 return await self._invoke_one(
-                    profile, message, session_key, workspace, operator_context
+                    profile, message, session_key, workspace, operator_context,
+                    peers, live_context, session_state
                 )
             finally:
                 try:
@@ -360,11 +419,16 @@ class Orchestrator:
         session_key: str,
         workspace: WorkspaceConfig,
         operator_context: str,
+        peers: Optional[list[SpecialistProfile]] = None,
+        live_context: Optional[str] = None,
+        session_state: Optional[SessionState] = None,
     ) -> SpecialistOutput:
         specialist_key = f"{session_key}__specialist__{profile.id}"
         start = time.time()
 
-        system = self._build_specialist_system(profile, workspace, operator_context)
+        system = self._build_specialist_system(
+            profile, workspace, operator_context, peers, live_context, session_state
+        )
 
         result: BridgeResult = await self.bridge.invoke(
             prompt=message,
@@ -387,17 +451,41 @@ class Orchestrator:
         profile: SpecialistProfile,
         workspace: WorkspaceConfig,
         operator_context: str,
+        peers: Optional[list[SpecialistProfile]] = None,
+        live_context: Optional[str] = None,
+        session_state: Optional[SessionState] = None,
     ) -> str:
         parts = [profile.system_prompt]
 
         if operator_context:
             parts.append(f"\n\n## Context\n{operator_context}")
 
+        if live_context:
+            parts.append(f"\n\n## Recent Conversation\n{live_context}")
+
+        if session_state:
+            prior = session_state.render_for_specialists()
+            if prior:
+                parts.append(f"\n\n{prior}")
+
+        if peers:
+            peer_lines = []
+            for peer in peers:
+                coverage = peer.scope or peer.name
+                peer_lines.append(f"- {peer.name}: {coverage}")
+            parts.append(
+                f"\n\n## Peer Specialists (do not duplicate their analysis)\n"
+                + "\n".join(peer_lines)
+            )
+
         parts.append(
             f"\n\nYou are responding as the {profile.name} within the "
-            f"{workspace.display_name} workspace. Other specialists may also "
-            f"be analyzing this same question from their domain. Focus on YOUR "
-            f"area of expertise. Be concise and actionable."
+            f"{workspace.display_name} workspace. "
+            + ("Focus ONLY on YOUR area of expertise — peers listed above handle the rest. "
+               if peers else
+               "Other specialists may also be analyzing this same question from their domain. "
+               "Focus on YOUR area of expertise. ")
+            + "Be concise and actionable."
         )
 
         return "\n".join(parts)
@@ -411,15 +499,16 @@ class Orchestrator:
         session_key: str,
         workspace: WorkspaceConfig,
         operator_context: str,
+        session_state: Optional[SessionState] = None,
     ) -> BridgeResult:
-        synthesis_prompt = self._build_synthesis_prompt(original_message, outputs)
+        synthesis_prompt = self._build_synthesis_prompt(original_message, outputs, session_state)
         synthesis_system = (
             "You are the Chief of Staff synthesizing specialist analyses into "
             "a unified briefing for the Operator. Present a clear, actionable "
             "response that integrates all specialist perspectives. Where "
             "specialists agree, state the consensus. Where they conflict, "
-            "present both views with the tradeoff. Lead with the recommendation, "
-            "then supporting analysis. Be concise."
+            "present BOTH views with the tradeoff — never silently resolve conflicts. "
+            "Lead with the recommendation, then supporting analysis. Be concise."
         )
 
         if operator_context:
@@ -435,7 +524,9 @@ class Orchestrator:
 
     @staticmethod
     def _build_synthesis_prompt(
-        original_message: str, outputs: list[SpecialistOutput]
+        original_message: str,
+        outputs: list[SpecialistOutput],
+        session_state: Optional[SessionState] = None,
     ) -> str:
         sections = [f"## Operator's Question\n\n{original_message}\n"]
 
@@ -444,11 +535,16 @@ class Orchestrator:
                 f"## {output.specialist_name} Analysis\n\n{output.response}\n"
             )
 
+        if session_state:
+            conflict_block = session_state.render_for_synthesis()
+            if conflict_block:
+                sections.append(conflict_block)
+
         sections.append(
             "## Your Task\n\n"
             "Synthesize the specialist analyses above into a single, unified "
-            "briefing for the Operator. Integrate insights, resolve conflicts, "
-            "and provide a clear recommendation."
+            "briefing for the Operator. Integrate insights, surface any detected "
+            "conflicts above, and provide a clear recommendation."
         )
 
         return "\n".join(sections)

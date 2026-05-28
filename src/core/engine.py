@@ -109,6 +109,9 @@ class Engine:
         # Adapter callbacks — adapters register themselves so engine can push responses
         self._response_handlers: dict[str, callable] = {}
 
+        # Space registry reference — set by main.py after construction
+        self.space_registry = None
+
         # Observability
         self.mode_transitions: list[dict] = []
 

@@ -1,0 +1,25 @@
+# Security policy — scope-based authorization for Nexus actions
+#
+# Scope hierarchy:
+#   read  — status queries, monitoring
+#   write — chat, specialist dispatch, autonomous replies
+#   admin — deploy, restart, config changes, memory access
+#
+# Defaults map adapters to their default scope level.
+# Custom actions allow extending beyond the built-in scope mappings.
+
+defaults:
+  # Platform-level defaults (can be overridden per adapter)
+  mattermost: write
+  discord: read  # Push-only, so lower scope
+  telegram: write
+
+# Custom actions — extend beyond built-in scope mappings
+custom_actions:
+  # Example: grant a lower scope for cost reporting
+  cost-query: read
+
+# Future: channel-level overrides
+# channel_overrides:
+#   "dev-bots": write
+#   "status-monitor": read
