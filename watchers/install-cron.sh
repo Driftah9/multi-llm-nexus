@@ -35,6 +35,13 @@ if [ -f "${WATCHER_DIR}/check-disk.sh" ]; then
 "
 fi
 
+# Model lifecycle: first of each month at 09:00
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -f "${SCRIPT_DIR}/scripts/model_check.py" ] && [ -f "${SCRIPT_DIR}/config/model_sources.yaml" ]; then
+    CRON_ENTRIES="${CRON_ENTRIES}0 9 1 * * cd ${SCRIPT_DIR} && python scripts/model_check.py >> /tmp/nexus-model-check.log 2>&1 ${CRON_TAG}
+"
+fi
+
 if [ -n "$CRON_ENTRIES" ]; then
     (crontab -l 2>/dev/null; echo "$CRON_ENTRIES") | crontab -
     echo "Installed watchers:"

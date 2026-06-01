@@ -487,17 +487,42 @@ PROVIDERS: dict[str, ProviderDef] = {
 
     "vllm": ProviderDef(
         type_id="vllm",
-        display_name="vLLM  (self-hosted)",
-        description="High-throughput LLM server. GPU required. OpenAI-compatible.",
-        provider_class="OpenAIProvider",
+        display_name="vLLM  (local, multi-vendor GPU)",
+        description=(
+            "High-throughput LLM inference server. Supports NVIDIA (CUDA), "
+            "AMD (ROCm), and Intel (XPU/SYCL) GPUs from a single runtime. "
+            "OpenAI-compatible API. The universal local inference backend — "
+            "use when hardware is not NVIDIA or when you need multi-GPU tensor "
+            "parallelism without NVLink."
+        ),
+        provider_class="VllmProvider",
         access_modes=["local"],
         env_vars=[],
-        packages=["openai"],
+        packages=["httpx"],
         tool_support="function_call",
         model_discovery="query_api",
         base_url="http://localhost:8000/v1",
-        notes="Set base_url to your vLLM server address.",
-        models={},
+        capabilities=["local", "code", "search"],
+        notes=(
+            "Install: pip install vllm. "
+            "Run: vllm serve <model> --port 8000. "
+            "Intel XPU: add --device xpu. "
+            "AMD ROCm: install vllm with ROCm backend. "
+            "Multi-GPU: add --tensor-parallel-size <N>. "
+            "Unlike ik_llama.cpp (CUDA-only, MoE-optimized), vLLM covers all "
+            "three major GPU vendors. Use ik_llama for NVIDIA MoE workloads "
+            "(deferred expert loading), vLLM for everything else."
+        ),
+        models={
+            "meta-llama/Llama-3.1-8B-Instruct":    TIER_NANO,
+            "meta-llama/Llama-3.2-3B-Instruct":    TIER_NANO,
+            "Qwen/Qwen2.5-7B-Instruct":            TIER_STANDARD,
+            "Qwen/Qwen2.5-14B-Instruct":           TIER_STANDARD,
+            "mistralai/Mistral-7B-Instruct-v0.3":   TIER_STANDARD,
+            "meta-llama/Llama-3.1-70B-Instruct":    TIER_DEEP,
+            "Qwen/Qwen2.5-72B-Instruct":            TIER_DEEP,
+            "meta-llama/Llama-3.1-405B-Instruct":   TIER_DEEP,
+        },
     ),
 
     # ── GitHub Models ──────────────────────────────────────────────────────

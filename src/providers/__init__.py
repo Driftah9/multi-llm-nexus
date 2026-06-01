@@ -2,6 +2,7 @@ from .base import BaseProvider, Message, ProviderResponse, ToolCall, ToolResult
 from .claude_code import ClaudeCodeProvider
 from .openai import OpenAIProvider
 from .ollama import OllamaProvider
+from .vllm import VllmProvider
 from .anthropic import AnthropicProvider
 from .gemini import GeminiProvider
 from .bedrock import BedrockProvider
@@ -28,7 +29,7 @@ PROVIDER_REGISTRY = {
     "cerebras":     OpenAIProvider,
     "azure_openai": OpenAIProvider,
     "lm_studio":    OpenAIProvider,
-    "vllm":         OpenAIProvider,
+    "vllm":         VllmProvider,
 }
 
 

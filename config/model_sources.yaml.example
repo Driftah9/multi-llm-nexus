@@ -1,0 +1,61 @@
+# Multi-LLM Nexus — Model Lifecycle Manager Configuration
+# Copy to config/model_sources.yaml and fill in your values.
+#
+# The lifecycle manager runs monthly, compares installed model digests against
+# upstream registries, and sends a DM via your configured notification protocol
+# if any updates are found. Pulls are never automatic — you review and decide.
+#
+# Run manually: python scripts/model_check.py
+# Force run:    python scripts/model_check.py --force
+# Dry run:      python scripts/model_check.py --dry-run
+
+# ── Source Registries ─────────────────────────────────────────────────────────
+# Each source is a named registry the manager knows how to query.
+# Built-in types: ollama_registry | hf_hub
+# Add new sources here when you start downloading from a new platform.
+
+sources:
+  - id: ollama
+    type: ollama_registry
+    endpoint: http://localhost:11434    # Ollama API endpoint
+
+  - id: huggingface
+    type: hf_hub
+    endpoint: https://huggingface.co   # HuggingFace Hub base URL
+    # hf_token: ${HF_TOKEN}            # Optional — only needed for private/gated models
+
+  # Example: future registry using HF-compatible API
+  # - id: new_platform
+  #   type: hf_hub
+  #   endpoint: https://registry.example.com
+
+# ── Tracked Models ────────────────────────────────────────────────────────────
+# One entry per installed model you want to monitor.
+# The manager reads installed_digest/installed_sha to detect version changes.
+# These values are updated automatically after each check run.
+
+tracked_models:
+  # Ollama-managed models
+  - source: ollama
+    model_id: qwen3          # Name as shown in `ollama list`
+    quant: null              # Ollama manages quantization — leave null
+    installed_digest: ""     # Auto-populated on first run
+
+  - source: ollama
+    model_id: gemma3
+    quant: null
+    installed_digest: ""
+
+  # HuggingFace direct downloads (GGUF)
+  # - source: huggingface
+  #   model_id: bartowski/Qwen3-8B-GGUF    # HuggingFace repo ID
+  #   quant: Q4_K_M                         # Quant you downloaded — must exist in new versions too
+  #   installed_sha: ""                      # Auto-populated on first run
+
+# ── Notification ──────────────────────────────────────────────────────────────
+# Routes through the Notifier in src/core/notify.py.
+# Destination is always DM to the operator's configured protocol.
+# Set in config/adapters.yaml under the notify: section.
+notify:
+  destination: dm    # dm | channel
+  # channel: model-updates   # Only used if destination: channel
