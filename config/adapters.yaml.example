@@ -13,13 +13,15 @@ system_prompt: |
   You are Nexus, a capable AI assistant. You help with tasks, answer questions,
   and maintain context across a conversation. You are direct and concise.
 
-# Map channel names to project directories (Mattermost-specific but harmless elsewhere)
+# Map channel/context names to directories on disk.
+# Name these whatever fits your domain — projects, experiments, clients, etc.
 channel_map:
-  general: /home/claude/projects/general
-  # my-project: /home/claude/projects/my-project
+  general: ~/work/general
+  # my-project: ~/work/my-project
 
-# Base directory for project channel mapping
-projects_dir: /home/claude/projects
+# Base working directory — where Nexus looks for channel-mapped folders.
+# Defaults to the service account's home directory if not set.
+workdir: ~/work
 
 # ── Mattermost ────────────────────────────────────────────────────────────────
 mattermost:

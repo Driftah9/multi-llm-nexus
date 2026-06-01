@@ -61,7 +61,7 @@ class AnthropicProvider(BaseProvider):
             "cache_read": getattr(response.usage, "cache_read_input_tokens", 0),
             "cache_write": getattr(response.usage, "cache_creation_input_tokens", 0),
         }
-        return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response)
+        return ProviderResponse(content=content, tool_calls=tool_calls, usage=usage, raw=response, model=response.model)
 
     def _build_system(self, system: str) -> list[dict] | str:
         if not system:

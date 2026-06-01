@@ -167,29 +167,38 @@ class ProviderChain:
         invoke_fn is a coroutine that takes (provider) and returns a result.
         on_attempt is an optional async callback(entry: ProviderChainEntry) called
         before each attempt — used for heartbeat provider-change notifications.
-        Returns (success, result, provider_used, error_message)
+        Returns (success, result, provider_used, fallback_occurred, error_message)
+
+        fallback_occurred is True if a lower-priority provider handled the request.
+        The caller may use this to tag the response (e.g. "[Offline fallback]").
         """
         attempts = 0
         last_error = None
+        first_selected: Optional[ProviderChainEntry] = None
 
         while attempts < min(len(self.entries), self.config.retry_attempts):
             provider = await self.select_provider(tier=tier)
             if not provider:
-                return False, None, None, "No available providers"
+                return False, None, None, False, "No available providers"
 
-            if on_attempt:
-                entry = self._find_entry(provider)
-                if entry:
-                    try:
-                        await on_attempt(entry)
-                    except Exception:
-                        pass
+            entry = self._find_entry(provider)
+            if attempts == 0 and entry:
+                first_selected = entry
+
+            if on_attempt and entry:
+                try:
+                    await on_attempt(entry)
+                except Exception:
+                    pass
 
             try:
                 result = await invoke_fn(provider)
                 # Mark success
                 await self.record_success(provider)
-                return True, result, provider, None
+
+                # Check if we fell back: used provider is lower priority than first attempt
+                fallback = first_selected and entry and entry.priority > first_selected.priority
+                return True, result, provider, fallback, None
 
             except Exception as e:
                 last_error = str(e)
@@ -202,7 +211,7 @@ class ProviderChain:
                 if attempts < self.config.retry_attempts:
                     await asyncio.sleep(self.config.retry_delay)
 
-        return False, None, None, last_error
+        return False, None, None, False, last_error
 
     def _find_entry(self, provider: BaseProvider) -> Optional[ProviderChainEntry]:
         """Find chain entry for a given provider instance."""

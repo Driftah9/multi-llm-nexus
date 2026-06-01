@@ -4,22 +4,22 @@
 
 Multi-LLM-Nexus is a self-hosted AI agent platform. LLM-agnostic by design — any provider can be the primary, secondary, or specialist. Adapters connect to communication platforms. The core engine runs the tick cycle, session management, triage, specialist orchestration, and self-improvement loop.
 
-This is the OSS evolution of claude-brain (production instance at 10.0.0.7). The key difference: claude-brain is Claude-specific. Nexus abstracts the LLM into a provider layer so any model can run any role.
+This is the OSS evolution of claude-brain. The key difference: claude-brain is Claude-specific. Nexus abstracts the LLM into a provider layer so any model can run any role.
 
 **Core Principle:** Every refinement is designed for ALL operators, not the deploying user. Operator-specific data (compliance rules, workspace names, channel mappings) lives in config files only. Core code is agnostic.
 
 ## Project Path
 
-`/home/claude/projects/multi-llm-nexus/`
+Runs from the Nexus service account's home directory (e.g. `/home/nexus/multi-llm-nexus/`).
 
-## Source Reference
+## Source Lineage
 
-The production claude-brain implementation lives at:
-- `/home/claude/projects/mattermost-daemon/` — production Mattermost adapter + engine
-- `/home/claude/projects/claude-daemon/` — Telegram/Discord adapter
-- `/home/claude/projects/claude-brain-github/` — previous OSS snapshot (2026-04-27)
+Derived from the claude-brain production stack:
+- `mattermost-daemon` — production Mattermost adapter + engine
+- `claude-daemon` — Telegram/Discord adapter
+- `claude-brain-github` — previous OSS snapshot (2026-04-27)
 
-Draw from these when implementing. Do not copy VM-specific config, hardcoded IPs, or production credentials.
+Draw from design patterns. Do not copy VM-specific config, hardcoded IPs, or production credentials.
 
 ## Architecture Layers
 
@@ -189,15 +189,16 @@ The display shows WHAT is active, not HOW it's connected. Connection details are
 2. **No hardcoded platform** — everything goes through adapters
 3. **No operator-specific data in core** — SSDI rules, company names, channel lists belong in operator config
 4. **Public-safe** — no real credentials, IPs, or VM specifics in any file
-5. **Ollama = zero-cost local tier** — anyone can run without API keys
-6. **OpenAI-compatible endpoint** — one provider covers OpenAI, Azure, Groq, LM Studio, vLLM
-7. **Specialists are stateless** — ephemeral one-shot queries, no history accumulation
-8. **Bypass gracefully** — if no workspace match or all specialists fail, fall through to standard path
-9. **Heartbeat is mechanical** — status display uses zero LLM tokens; all state tracking is asyncio bookkeeping
+5. **No hardcoded paths or domain language** — use `Path.home()` or config values; never assume a username, home directory, or what the operator calls their work folders
+6. **Ollama = zero-cost local tier** — anyone can run without API keys
+7. **OpenAI-compatible endpoint** — one provider covers OpenAI, Azure, Groq, LM Studio, vLLM
+8. **Specialists are stateless** — ephemeral one-shot queries, no history accumulation
+9. **Bypass gracefully** — if no workspace match or all specialists fail, fall through to standard path
+10. **Heartbeat is mechanical** — status display uses zero LLM tokens; all state tracking is asyncio bookkeeping
 
-## Current Status (2026-05-11)
+## Current Status (v0.6.0 — 2026-06-01)
 
-Providers layer complete (20+ providers). Core engine + router + triage + behaviors + bridge all complete.
+Providers layer complete (22 providers). Core engine + router + triage + behaviors + bridge all complete.
 Orchestrator + specialist loader built with real-time heartbeat integration. Session class fixed.
 Mattermost adapter fully implemented. Discord + Telegram adapters implemented.
 Config examples for providers, adapters, workspaces, and 4 specialist profiles provided.
@@ -207,16 +208,16 @@ Provider chain entries now carry `display_prefix`, `model_display`, `effort_leve
 Bridge fires `on_provider_change` callback during failover. Orchestrator tracks agent list in real-time
 with decrement as specialists complete.
 
-Validated in production on claude-brain (10.0.0.7) via mattermost-daemon testbed.
+**Self-eval layer** added: `skill_metrics.py`, `session_state.py`, `triage_validator.py`, `session_summary.py`.
+`!specialists` and `!spaces` commands implemented. RAG store + memory loader + session store ported.
+ProviderChain `try_with_fallback()` returns fallback_occurred flag for response tagging.
 
-GitHub: git@github.com:Driftah9/multi-llm-nexus.git (private). v0.1.0 initial commit (55c62d0).
-Repo is private — set manually by operator after push.
+GitHub: git@github.com:Driftah9/multi-llm-nexus.git
 
 ## What's Next
 
-- `src/setup/wizard.py` — interactive install wizard needs full buildout
 - Slack + Matrix adapters
-- `!specialists` command — list active specialists and workspace assignments
-- LLM-based routing mode (vs. keyword-only) for workspaces
+- Triage accuracy report script — reads validator DB, surfaces misclassification patterns
 - Self-improvement loop (eval → candidate queue → operator approval)
 - LLM Watcher integration — standalone health monitoring service with state announcements
+- Live thread context fetching in MM adapter (last 20 posts → orchestrator dispatch)

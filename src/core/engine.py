@@ -278,7 +278,7 @@ class Engine:
             channel_id=inbound.channel_id,
             provider_name=self.router.default,
         )
-        provider = self.router.route(inbound.content, triage_result.task_type)
+        provider = self.router.route(inbound.content, task_type=triage_result.task_type, tier=None)
 
         from ..providers.base import Message
         messages = [Message(role="user", content=inbound.content)]

@@ -73,9 +73,13 @@ class ClaudeCodeProvider(BaseProvider):
                 # --output-format json returns array of result objects
                 for item in reversed(data):
                     if item.get("type") == "result":
-                        return ProviderResponse(content=item.get("result", ""), raw=data)
+                        return ProviderResponse(
+                            content=item.get("result", ""),
+                            raw=data,
+                            model=item.get("model", ""),
+                        )
             content = data.get("result", raw)
-            return ProviderResponse(content=content, raw=data)
+            return ProviderResponse(content=content, raw=data, model=data.get("model", ""))
         except (json.JSONDecodeError, AttributeError):
             return ProviderResponse(content=raw.strip())
 

@@ -179,6 +179,12 @@ routing:
   default: primary          # fallback provider for unmatched messages
   triage: triage            # provider used to classify every incoming message
 
+  # Local LLM offloading — if enabled and a local provider exists,
+  # routes nano-tier tasks (simple lookups, status checks, etc.) to the local LLM.
+  # Saves token cost for lightweight tasks while reserving expensive providers for complex work.
+  local_offload: false      # set to true to enable local LLM offloading
+  local: ollama             # which provider key to use for local tasks
+
   # Pattern matching — first match wins. Uses Python regex, case-insensitive.
   patterns:
     - match: "code|debug|fix|script|implement|refactor"

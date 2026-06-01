@@ -33,19 +33,19 @@ Most people evaluating Nexus have already looked at Hermes (Nous Research) or Op
 | **Primary runtime** | Python daemon on your hardware | Python daemon, local or VPS | Node.js daemon, local or VPS |
 | **Installation** | `git clone` + `./setup.sh` wizard | One-command curl installer | One-command curl or npm |
 | **Platform adapters** | Mattermost, Discord, Telegram | 21 platforms (Telegram, Discord, Slack, WhatsApp, Signal, Mattermost, Matrix, more) | 20+ platforms including iMessage, Line, Zalo |
-| **LLM providers** | 20 direct providers + any Ollama/OpenAI-compat endpoint | 30 providers, OpenRouter as primary aggregator | Provider-agnostic via config |
+| **LLM providers** | 22 direct providers + any Ollama/OpenAI-compat endpoint | 30 providers, OpenRouter as primary aggregator | Provider-agnostic via config |
 | **Memory model** | Typed files (user/feedback/project/reference), structured index, operator-maintained | Two flat files (USER.md 1,375 chars, MEMORY.md 2,200 chars), hard char limits, agent-curated | Two flat files, similar to Hermes |
 | **Memory plugins** | No plugin system (by design) | 7 plugins: Honcho, Holographic, mem0, hindsight, and others | Honcho-compatible (less integrated) |
 | **Cross-session recall** | Planned (ChromaDB RAG, not deployed) | FTS5 keyword search on session history | Session search via flat file |
 | **Skill format** | SKILL.md with YAML frontmatter (v0.4) | SKILL.md with YAML frontmatter | SKILL.md with YAML frontmatter |
-| **Skill creation** | Measurement → metrics → candidate → operator approval | LLM-prompted: agent creates skills autonomously during sessions | Marketplace (ClawHub) + manual |
-| **Skill metrics** | Runtime SQLite collection → self-eval report | Usage tracking (skill_usage.py), not fed back to refinement | No runtime metrics |
+| **Skill creation** | Measurement → metrics → candidate → operator approval *(measurement + gating built; report generator planned)* | LLM-prompted: agent creates skills autonomously during sessions | Marketplace (ClawHub) + manual |
+| **Skill metrics** | Runtime SQLite collection → self-eval report *(SQLite collector built; report generator not yet implemented)* | Usage tracking (skill_usage.py), not fed back to refinement | No runtime metrics |
 | **Self-improvement loop** | Bi-weekly: behavioral review → research → candidate queue → approval | Curator (background, 7-day cycle): lifecycle management, not content refinement | None |
 | **Operator/core separation** | Explicit: workspace config vs. core logic | None: single config per deployment | Partial: owner plugin vs. core SDK |
 | **Cron/scheduling** | External scripts → MM notification | Built-in, per-job profiles, platform delivery | Built-in |
 | **Subagents** | Specialist dispatch (parallel) | Full AIAgent copies (depth 1 default, cap 3) | ACP spawn system |
 | **Approval gate** | All candidates require operator approval before deployment | Autonomous: agent creates/edits skills without approval | Not applicable |
-| **Config model** | YAML — providers.yaml, adapters.yaml, spaces.yml | Single config.yaml + .env per profile | YAML + .env |
+| **Config model** | YAML — providers.yaml, adapters.yaml, workspaces.yaml | Single config.yaml + .env per profile | YAML + .env |
 | **Codebase scale** | Moderate — tighter files | Large (cli.py 660KB, mid-refactor) | Moderate — strict SDK boundaries |
 | **Tests** | Not measured | ~17,000 tests across ~900 files | Not measured |
 | **License** | MIT | MIT | MIT |
@@ -93,7 +93,7 @@ If you want a platform where every architectural decision is auditable, operator
 | Feature | **Nexus** | Open WebUI | AnythingLLM | Dify | CrewAI / LangGraph |
 |---|---|---|---|---|---|
 | Self-hosted | ✅ | ✅ | ✅ | ✅ (or cloud) | ✅ (framework) |
-| Any LLM provider | ✅ 20 providers | ✅ via Ollama/API | Partial | ✅ | ✅ (code) |
+| Any LLM provider | ✅ 22 providers | ✅ via Ollama/API | Partial | ✅ | ✅ (code) |
 | Persistent daemon | ✅ Always-on | ❌ Web app | ❌ Web app | ❌ Web app | ❌ Library |
 | Mattermost adapter | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Discord adapter | ✅ | ❌ | ❌ | ❌ | ❌ |

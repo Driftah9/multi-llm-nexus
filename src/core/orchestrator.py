@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -24,8 +25,20 @@ from .session_state import SessionState, extract_claims
 
 if TYPE_CHECKING:
     from .bridge import NexusBridge, BridgeResult
+    from .session_state_store import SessionStateStore
 
 logger = logging.getLogger("nexus.orchestrator")
+
+# Rolling context window: how many past Q→A pairs injected into specialist prompts
+CONTEXT_WINDOW_SIZE = 4
+
+# Meta-questions about context/history — bypass orchestrator, let regular session handle
+META_KEYWORDS = [
+    "do you have context", "no context", "conversation so far", "what we discussed",
+    "what did we", "recap of", "remember what", "you forgot", "you don't remember",
+    "history of", "what was said", "context of our", "previous messages",
+    "clear context", "reset context", "start over", "new session",
+]
 
 
 @dataclass
@@ -59,7 +72,10 @@ class WorkspaceConfig:
     default_specialists: list[str]
     specialist_tier: str = "standard"
     synthesis_tier: str = "standard"
-    routing_mode: str = "llm"  # "llm" (default) or "keyword"
+    routing_mode: str = "llm"      # "llm" (default) or "keyword"
+    memory_files: list[str] = field(default_factory=list)  # paths to context docs
+    rules_files: list[str] = field(default_factory=list)   # paths to hard-rule docs
+    max_specialists: int = 0       # 0 = unlimited
 
 
 class Orchestrator:
@@ -80,14 +96,18 @@ class Orchestrator:
 
     def __init__(
         self,
-        bridge: NexusBridge,
+        bridge: "NexusBridge",
         specialist_loader: SpecialistLoader,
         workspaces_config: dict,
+        session_state_store: Optional["SessionStateStore"] = None,
     ):
         self.bridge = bridge
         self.specialists = specialist_loader
+        self.session_state_store = session_state_store
         self.workspaces: dict[str, WorkspaceConfig] = {}
         self._context_map: dict[str, str] = {}
+        # Rolling context window per context: deque of (user_msg, assistant_response) tuples
+        self._context_windows: dict[str, deque] = {}
         self._load_workspaces(workspaces_config)
 
     def _load_workspaces(self, config: dict) -> None:
@@ -107,6 +127,9 @@ class Orchestrator:
                 specialist_tier=ws_data.get("specialist_tier", "standard"),
                 synthesis_tier=ws_data.get("synthesis_tier", "standard"),
                 routing_mode=ws_data.get("routing_mode", "llm"),
+                memory_files=ws_data.get("memory_files", []),
+                rules_files=ws_data.get("rules_files", []),
+                max_specialists=ws_data.get("max_specialists", 0),
             )
             self.workspaces[ws_name] = ws
 
@@ -170,12 +193,26 @@ class Orchestrator:
         if not workspace or not workspace.orchestrator:
             return OrchestratorResult(bypassed=True)
 
-        # Create or use existing session state for claim tracking
-        state = session_state or SessionState(
-            session_key=session_key,
-            channel_name=context,
-            workspace_name=workspace.name,
-        )
+        # Meta-questions about context/history bypass the orchestrator — let the
+        # regular session handle them; specialists don't have session history.
+        msg_lower = message.lower()
+        if any(kw in msg_lower for kw in META_KEYWORDS):
+            logger.info(f"Meta-question detected in {context!r} — bypassing orchestrator")
+            return OrchestratorResult(bypassed=True)
+
+        # Load or create SessionState — check store first, then caller-supplied, then fresh
+        if self.session_state_store and session_key:
+            state = self.session_state_store.get(session_key) or session_state or SessionState(
+                session_key=session_key,
+                channel_name=context,
+                workspace_name=workspace.name,
+            )
+        else:
+            state = session_state or SessionState(
+                session_key=session_key,
+                channel_name=context,
+                workspace_name=workspace.name,
+            )
 
         try:
             specialist_ids = await asyncio.wait_for(
@@ -188,6 +225,15 @@ class Orchestrator:
         if not specialist_ids:
             logger.debug(f"No routing match in {workspace.name} — bypassing orchestrator")
             return OrchestratorResult(bypassed=True)
+
+        # Apply max_specialists cap — prefer default_specialists, then alphabetical
+        cap = workspace.max_specialists
+        if cap and len(specialist_ids) > cap:
+            defaults = set(workspace.default_specialists)
+            prioritized = [s for s in specialist_ids if isinstance(s, str) and s in defaults]
+            rest = [s for s in specialist_ids if s not in prioritized]
+            specialist_ids = (prioritized + rest)[:cap]
+            logger.info(f"Capped to {cap} specialists: {specialist_ids}")
 
         profiles = self._resolve_profiles(specialist_ids)
         if not profiles:
@@ -205,8 +251,11 @@ class Orchestrator:
             )
             await heartbeat.set_agents([p.name for p in profiles])
 
+        # Build conversation context — live context preferred, rolling window as fallback
+        conv_context = self._build_conv_context(context, operator_context, live_context)
+
         outputs = await self._invoke_specialists(
-            profiles, message, session_key, workspace, operator_context,
+            profiles, message, session_key, workspace, conv_context,
             heartbeat, live_context, state
         )
 
@@ -222,9 +271,14 @@ class Orchestrator:
         if len(outputs) > 1:
             state.detect_conflicts()
 
+        # Persist updated session state
+        if self.session_state_store and session_key:
+            await self.session_state_store.set(session_key, state)
+
         if len(outputs) == 1:
             if heartbeat:
                 await heartbeat.set_agents([])
+            self._update_context_window(context, message, outputs[0].response)
             return OrchestratorResult(
                 response=outputs[0].response,
                 specialists_used=[outputs[0].specialist_id],
@@ -242,6 +296,7 @@ class Orchestrator:
             message, outputs, session_key, workspace, operator_context, state
         )
 
+        self._update_context_window(context, message, synthesized.text)
         total_cost = sum(o.cost_usd for o in outputs) + synthesized.cost_usd
         return OrchestratorResult(
             response=synthesized.text,
@@ -351,6 +406,82 @@ class Orchestrator:
         available = set(workspace.specialists)
         return [s for s in matched if s in available]
 
+    def _build_conv_context(
+        self,
+        context: str,
+        operator_context: str = "",
+        live_context: Optional[str] = None,
+    ) -> str:
+        """
+        Build conversation context for specialist prompts.
+        Live context (adapter-fetched) is ground truth; rolling window is fallback.
+        """
+        parts = []
+
+        if operator_context:
+            parts.append(f"## Operator Context\n\n{operator_context[:800]}")
+
+        if live_context:
+            parts.append(live_context)
+        else:
+            # Rolling window fallback when adapter didn't provide live context
+            window = self._context_windows.get(context)
+            if window:
+                exchanges = []
+                for q, a in window:
+                    exchanges.append(f"**User:** {q}\n**Assistant (summary):** {a[:600]}")
+                parts.append("## Recent Exchanges\n\n" + "\n\n---\n\n".join(exchanges))
+
+        return "\n\n".join(parts) if parts else ""
+
+    def _update_context_window(self, context: str, question: str, answer: str) -> None:
+        """Append latest Q→A pair to the rolling context window for this context."""
+        if context not in self._context_windows:
+            self._context_windows[context] = deque(maxlen=CONTEXT_WINDOW_SIZE)
+        self._context_windows[context].append((question[:400], answer[:600]))
+
+    def clear_context_window(self, context: str) -> None:
+        """Clear rolling context window on session reset for this context."""
+        self._context_windows.pop(context, None)
+
+    def _load_memory(self, workspace: WorkspaceConfig) -> str:
+        """Load workspace memory files and return as combined context block."""
+        parts = []
+        for path_str in workspace.memory_files:
+            p = Path(path_str)
+            if p.exists():
+                try:
+                    content = p.read_text(encoding="utf-8").strip()
+                    if content:
+                        parts.append(f"## Loaded Context: {p.stem}\n\n{content}")
+                except OSError as e:
+                    logger.warning(f"Could not read memory file {p}: {e}")
+        return "\n\n".join(parts)
+
+    def _load_rules(self, workspace: WorkspaceConfig) -> str:
+        """Load workspace rules files (frontmatter stripped) — hard rules for every specialist."""
+        parts = []
+        for path_str in workspace.rules_files:
+            p = Path(path_str)
+            if p.exists():
+                try:
+                    raw = p.read_text(encoding="utf-8")
+                    body = self._strip_frontmatter(raw)
+                    if body:
+                        parts.append(body)
+                except OSError as e:
+                    logger.warning(f"Could not read rules file {p}: {e}")
+        return "\n\n---\n\n".join(parts)
+
+    @staticmethod
+    def _strip_frontmatter(text: str) -> str:
+        """Strip YAML frontmatter (--- ... ---) from markdown, return body only."""
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            if len(parts) >= 3:
+                return parts[2].strip()
+        return text.strip()
+
     def _resolve_profiles(self, specialist_ids: list) -> list[SpecialistProfile]:
         """Resolve a mix of known IDs (str) and dynamic specs (dict) into profiles."""
         profiles = []
@@ -456,6 +587,15 @@ class Orchestrator:
         session_state: Optional[SessionState] = None,
     ) -> str:
         parts = [profile.system_prompt]
+
+        # Inject workspace memory and rules if defined
+        memory = self._load_memory(workspace)
+        if memory:
+            parts.append(f"\n\n## Active Project Context\n\n{memory}")
+
+        rules = self._load_rules(workspace)
+        if rules:
+            parts.append(f"\n\n## Hard Rules (always enforced)\n\n{rules}")
 
         if operator_context:
             parts.append(f"\n\n## Context\n{operator_context}")

@@ -58,7 +58,7 @@ class MattermostAdapter:
         self.bot_name = config.get("bot_name", "Nexus")
         self.allowed_user: Optional[str] = mm.get("allowed_user")
         self.channel_map: dict = config.get("channel_map", {})
-        self.projects_dir = Path(config.get("projects_dir", "/home/claude/projects"))
+        self.workdir = Path(config.get("workdir", str(Path.home()))).expanduser()
 
         self.api = MattermostAPI(self.server_url, self.token)
         self.commands = CommandRegistry("mattermost")

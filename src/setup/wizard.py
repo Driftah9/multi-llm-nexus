@@ -35,6 +35,7 @@ from ..providers.registry import (
     PROVIDERS, TIER_NANO, TIER_STANDARD, TIER_DEEP,
     get_models_for_tier, get_tier, infer_tier, recommended_triage_model,
 )
+from .hardware_detect import detect_hardware, hardware_report
 
 
 # ─────────────────────────────────────────────
@@ -998,6 +999,69 @@ def _write_env(configured: dict[str, dict]) -> Path:
 
 
 # ─────────────────────────────────────────────
+# Local LLM setup flow
+# ─────────────────────────────────────────────
+
+async def _setup_local_llm() -> Optional[str]:
+    """
+    Offer to set up a local LLM (Ollama) based on hardware detection.
+    Returns the provider key ("ollama") if set up, None otherwise.
+    """
+    header("Hardware Detection & Local LLM")
+    print(f"  {dim('Detecting hardware...')}", end=" ", flush=True)
+    hw = await detect_hardware()
+    print(green("done"))
+    print()
+    print(hardware_report(hw))
+    print()
+
+    if not hw.recommended_local:
+        if not ask_yn("  Still want to set up Ollama for CPU inference?"):
+            return None
+        print(dim("  (Warning: inference will be very slow. Recommended for triage/embeddings only.)"))
+        print()
+
+    if not ask_yn("  Set up Ollama for this system?", default=hw.recommended_local):
+        return None
+
+    # Check if Ollama is already installed
+    ollama_path = shutil.which("ollama")
+    if ollama_path:
+        print(f"  {check_mark(True)} Ollama already installed at {dim(ollama_path)}")
+        running = scan.services.get("Ollama", False) if hasattr(_setup_local_llm, "_scan") else await _probe_service("http://localhost:11434")
+        if running:
+            print(f"  {check_mark(True)} Ollama is running")
+        else:
+            print(f"  {yellow('⚠')} Ollama installed but not running")
+            print(f"     Start with: {cyan('ollama serve')}")
+    else:
+        print(f"  {dim('Ollama not found. Install from https://ollama.ai')}")
+        if not ask_yn("  Open ollama.ai in your browser?", default=True):
+            print(f"  After installing, run: {cyan('ollama serve')}")
+
+    # Model selection
+    print()
+    models = await _query_ollama_models("http://localhost:11434")
+    if models:
+        print(f"  {check_mark(True)} Found {len(models)} model(s) installed:")
+        for m in models[:5]:
+            print(f"     - {m}")
+        if len(models) > 5:
+            print(f"     ... and {len(models) - 5} more")
+
+        if ask_yn("  Use a different model?", default=False):
+            model = ask(f"  Model name (or press Enter to accept default)", default=hw.recommended_model or "phi4-mini")
+            return "ollama"
+        return "ollama"
+    else:
+        recommended = hw.recommended_model or "phi4-mini"
+        print(f"  {yellow('ℹ')} No models installed yet")
+        print(f"     Recommended: {cyan(recommended)}")
+        print(f"     Install with: {cyan(f'ollama pull {recommended}')}")
+        return "ollama"
+
+
+# ─────────────────────────────────────────────
 # Main wizard flow
 # ─────────────────────────────────────────────
 
@@ -1022,6 +1086,9 @@ async def run() -> None:
     if not ask_yn("\n  Continue to provider setup?"):
         return
 
+    # ── Hardware detection & local LLM setup ──────────────────────────────
+    local_llm_key = await _setup_local_llm()
+
     # ── Step 1: Provider selection ──────────────────────────────────────
     header("Step 1 — Select Your Providers")
     print(dim("  Select all providers you have access to."))
@@ -1031,6 +1098,10 @@ async def run() -> None:
     cloud_keys = ask_multiselect("Cloud providers:", CLOUD_PROVIDERS)
     infra_keys = ask_multiselect("Cloud infrastructure (AWS/Azure/GCP):", CLOUD_INFRA_PROVIDERS)
     local_keys = ask_multiselect("Local / self-hosted:", LOCAL_PROVIDERS)
+
+    # Add local LLM to selection if user opted in
+    if local_llm_key and local_llm_key not in local_keys:
+        local_keys.append(local_llm_key)
 
     all_keys = cloud_keys + infra_keys + local_keys
     if not all_keys:

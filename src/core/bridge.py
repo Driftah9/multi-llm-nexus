@@ -231,7 +231,7 @@ class NexusBridge:
         ephemeral: bool,
     ) -> BridgeResult:
         """Invoke using Router (single provider, legacy mode)."""
-        provider = self.router.route(prompt, task_type=tier or task_type)
+        provider = self.router.route(prompt, task_type=task_type, tier=tier)
         provider_type = type(provider).__name__.lower().replace("provider", "")
 
         try:

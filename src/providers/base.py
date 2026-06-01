@@ -32,6 +32,7 @@ class ProviderResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict = field(default_factory=dict)
     raw: Any = None
+    model: str = ""
 
 
 class BaseProvider(ABC):

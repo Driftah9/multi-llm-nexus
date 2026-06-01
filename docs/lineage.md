@@ -73,7 +73,7 @@ The following components do not derive from any external project. They were desi
 
 **Operator/core separation** — The explicit distinction between what belongs to the platform (routing, session management, provider abstraction) and what belongs to the operator (workspace config, specialist profiles, behavioral rules, memory content). Nexus enforces this at the architecture level. Other tools in this space mix the two.
 
-**Metrics-first skill evolution** — The hypothesis that skills should be measured before they are formalized, and that deployment data should inform refinement candidates before they reach the operator. Hermes generates skills autonomously. Nexus collects runtime metrics (SQLite), surfaces findings to a report (`skill_metrics_report.py`), and stages candidates for operator approval. This is the inverse of the Hermes approach — measure first, formalize second.
+**Metrics-first skill evolution** — The hypothesis that skills should be measured before they are formalized, and that deployment data should inform refinement candidates before they reach the operator. Hermes generates skills autonomously. Nexus collects runtime metrics (SQLite via `skill_metrics.py`), stages candidates for operator approval, and will surface findings via a report generator (planned — not yet implemented). This is the inverse of the Hermes approach — measure first, formalize second.
 
 **Cognitive profile** — An explicit, auditable, human-readable description of how the operator thinks, signals intent, and makes decisions. This is not a machine learning model. It is a markdown file that gets updated when something is learned about the operator. It can be read, corrected, and disagreed with. No black box.
 

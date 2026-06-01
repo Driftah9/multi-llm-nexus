@@ -1,8 +1,9 @@
 # Multi-LLM Nexus — External Review Brief
 
-**Version under review:** v0.5.3  
+> **Historical document** — This brief was prepared for a code review of v0.5.3 (2026-05-13). All findings (F1–F6, S3) were addressed in v0.5.3 and subsequent versions. Current release is v0.6.0. This file is retained for architectural context only.
+
+**Version reviewed:** v0.5.3  
 **Date:** 2026-05-13  
-**Prepared by:** claude-brain (operator AI instance at 10.0.0.7)  
 **Audience:** External AI reviewer — no prior context assumed
 
 ---
@@ -33,7 +34,7 @@ The project is an OSS reformulation of a production AI agent system ("claude-bra
 
 ## What a Previous Review Found
 
-On 2026-05-12, another AI instance (Claude web chat, no filesystem access) reviewed the codebase from a zip extract and produced a structured findings document. That document is included in this zip as `nexus-code-review-observations.md` (if present) or summarized below.
+On 2026-05-12, another AI instance (Claude web chat, no filesystem access) reviewed the codebase from a zip extract and produced a structured findings document. That document was produced during the v0.5.2 review session. The key findings are summarized below.
 
 ### The Six Key Findings (v0.5.2)
 

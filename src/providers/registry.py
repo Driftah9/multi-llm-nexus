@@ -146,7 +146,7 @@ PROVIDERS: dict[str, ProviderDef] = {
             "gemini-1.5-flash-8b":       TIER_NANO,
             "gemini-1.5-pro":            TIER_STANDARD,
             "gemini-2.0-pro-exp":        TIER_STANDARD,
-            "gemini-ultra":              TIER_DEEP,
+            "gemini-2.0-flash-thinking-exp": TIER_DEEP,
         },
     ),
 
@@ -165,7 +165,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         models={
             "gemini-1.5-flash":  TIER_NANO,
             "gemini-1.5-pro":    TIER_STANDARD,
-            "gemini-ultra":      TIER_DEEP,
+            "gemini-2.0-flash-thinking-exp": TIER_DEEP,
         },
     ),
 
@@ -399,7 +399,9 @@ PROVIDERS: dict[str, ProviderDef] = {
         packages=["boto3"],
         tool_support="native",
         model_discovery="query_api",
-        notes="AWS_PROFILE also accepted for named profiles. Billing via AWS account.",
+        notes="AWS_PROFILE also accepted for named profiles. Billing via AWS account. "
+              "Bedrock model IDs include version suffixes that change with model updates — "
+              "verify current IDs at docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html.",
         models={
             "anthropic.claude-3-haiku-20240307-v1:0":     TIER_NANO,
             "anthropic.claude-3-5-sonnet-20241022-v2:0":  TIER_STANDARD,
@@ -445,7 +447,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="local_query",
         capabilities=["local"],
         notes="Install at ollama.ai. Run `ollama pull <model>` before use. "
-              "phi4-mini (~1GB) is the recommended nano/triage model.",
+              "phi4-mini (~3.8B, ~2.5GB RAM) is the recommended nano/triage model.",
         models={
             "phi4-mini":       TIER_NANO,
             "llama3.2:1b":     TIER_NANO,

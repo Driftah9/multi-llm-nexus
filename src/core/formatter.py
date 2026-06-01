@@ -1,5 +1,5 @@
 """
-Platform-aware output formatting for claude-brain.
+Platform-aware output formatting for Multi-LLM-Nexus.
 
 Same content, different rendering per platform. Each platform has
 different markdown flavors, message size limits, and rich features.

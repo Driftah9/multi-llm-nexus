@@ -1,0 +1,31 @@
+{
+  "description": "Nexus baseline — fresh deployment with Sonnet 4.6 rates",
+  "fix_deployed_at": "2026-06-01T00:00:00Z",
+  "baseline": {
+    "period": "Initial baseline",
+    "as_of": "2026-06-01T00:00:00Z",
+    "tokens": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "message_count": 0
+    },
+    "cost_usd_at_sonnet_rates": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0,
+      "cache_write": 0.0,
+      "total": 0.0
+    },
+    "notes": "Baseline initialized on deployment. Operator can populate with --rates-* flags. All metrics configurable via CLI or environment variables.",
+    "normalized": {
+      "cost_per_msg": 0.0,
+      "cache_write_per_msg": 0,
+      "cache_read_per_msg": 0,
+      "output_per_msg": 0,
+      "cache_efficiency_ratio": 0.0
+    }
+  },
+  "last_week": null
+}
