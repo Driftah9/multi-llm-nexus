@@ -17,6 +17,7 @@ There are roughly five categories of tools that overlap with what Nexus does:
 | **LLM app platforms** | Dify, Flowise, LangFlow |
 | **Agent frameworks** | LangChain / LangGraph, CrewAI, AutoGen (Microsoft) |
 | **Autonomous agent runners** | AutoGPT, SuperAGI, AgentGPT |
+| **Distributed inference networks** | Hyperspace Pods |
 
 The agent harness category — Hermes and OpenClaw — is where most people comparing Nexus will land. That comparison gets its own section first.
 
@@ -85,6 +86,36 @@ Most people evaluating Nexus have already looked at Hermes (Nous Research) or Op
 If you want the fastest path to a working agent, well-documented onboarding, and the largest community: **use Hermes**.
 
 If you want a platform where every architectural decision is auditable, operator approval is required before anything changes, and the separation between "what the platform does" and "what the operator configured" is explicit: **Nexus is worth the additional setup**.
+
+---
+
+## Hyperspace Pods: The Distributed Inference Comparison
+
+Hyperspace Pods is the only other distributed inference system in production at the scale Nexus Mesh targets. As of early 2026: 2M+ autonomous nodes, libp2p peer discovery, tensor/pipeline parallelism for sharding large models across machines.
+
+| Dimension | **Nexus Mesh** | **Hyperspace Pods** |
+|---|---|---|
+| **Core problem solved** | Run many different models in parallel; aggregate reasoning | Run one model that doesn't fit in a single GPU across multiple machines |
+| **Parallelism model** | Independent models, independent reasoning chains | Pipeline parallelism — activations stream between layer slices on different nodes |
+| **Node relationship** | Sovereign — each node has its own private environment | Peer slice — each node holds part of the same model, useless without the others |
+| **Data sovereignty** | Local context never leaves the node | Activation streaming crosses node boundaries (inference state is distributed) |
+| **Deployment model** | Operator-controlled daemon, explicit peer trust | Autonomous node network, join the swarm |
+| **Trust model** | Mode A (anonymous donation) or Mode B (named peer with hardware binding) | Network-level (libp2p, no operator-level peer trust model described) |
+| **VRAM requirement** | Each node runs its own models independently | Minimum VRAM determined by the largest layer slice required |
+| **Result** | Composite reasoning from specialized models | Single large model output, distributed across hardware |
+| **Self-hosted control** | Full (operator runs all mesh logic) | Partial (joining network, not controlling it) |
+| **Status** | Design phase, 2026 | Deployed production, 2M+ nodes |
+
+### What Hyperspace Proves
+
+Hyperspace validates that consumer hardware nodes can collectively serve inference workloads that exceed any single node's capacity. The 2M-node scale is not a demo — it's a working production network running research workloads. This is the strongest external validation that the distributed inference premise is sound.
+
+### Why the Approaches Are Complementary, Not Competing
+
+Hyperspace answers: "I have two 16GB cards and want to run DeepSeek-R1 671B."
+Nexus Mesh answers: "I have a code specialist, a reasoning specialist, and a domain specialist — run all three in parallel and combine their outputs."
+
+These are different problems. Mode B's VRAM pooling extension (E1, documented in `07-evolution.md`) covers the Hyperspace use case too — two trusted peers co-hosting a model neither fits alone. But this is an optional post-Phase-3 extension in Nexus, not the primary design. The primary design is diverse parallel reasoning, which Hyperspace's architecture doesn't address.
 
 ---
 

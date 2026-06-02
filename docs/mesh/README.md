@@ -12,6 +12,7 @@ Nexus Mesh is an optional extension that connects independent Nexus deployments 
 | [04-protocol.md](04-protocol.md) | Peer discovery, task descriptors, capability tags, ratio enforcement, reputation, trust revocation |
 | [05-implementation.md](05-implementation.md) | Build-out roadmap (5 phases), security validation practices, stress testing requirements |
 | [06-scaffold.md](06-scaffold.md) | Phase 1 concrete starting point: file structure, core modules, unit tests, checklist |
+| [07-evolution.md](07-evolution.md) | Optional extensions: VRAM pooling grants (E1), provider delegation (E2), collective fine-tuning (E3), compute bartering (E4), phone-cluster integration (E5) |
 
 ## Quick Orientation
 

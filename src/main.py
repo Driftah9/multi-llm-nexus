@@ -155,6 +155,16 @@ def _build_adapters(
         except Exception as e:
             logger.error(f"Telegram adapter failed: {e}")
 
+    if "openai_api" in adapters_config and adapters_config["openai_api"].get("enabled", False):
+        try:
+            from .adapters.openai_api.adapter import OpenAIApiAdapter
+            cfg = adapters_config["openai_api"]
+            adapter = OpenAIApiAdapter(bridge, cfg)
+            adapters.append(adapter)
+            logger.info(f"OpenAI API adapter loaded on port {cfg.get('port', 8080)}")
+        except Exception as e:
+            logger.error(f"OpenAI API adapter failed: {e}")
+
     return adapters
 
 

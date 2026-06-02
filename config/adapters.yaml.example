@@ -66,3 +66,27 @@ matrix:
   user_id: "@yourbot:matrix.org"
   access_token: ${MATRIX_ACCESS_TOKEN}
   rooms: []                             # Room IDs to join and monitor
+
+# ── OpenAI-compatible HTTP API ────────────────────────────────────────────────
+# Exposes /v1/chat/completions and /v1/models so any OpenAI-compatible tool
+# (VS Code Continue.dev, Cursor, Open WebUI, etc.) can use Nexus as its
+# AI provider. Routing, failover, and specialist dispatch are transparent.
+#
+# Model names → Nexus tiers:
+#   nexus           auto-routed (triage decides)
+#   nexus-nano      TIER_NANO  (fast / cheap)
+#   nexus-standard  TIER_STANDARD
+#   nexus-deep      TIER_DEEP  (most capable)
+#
+# In Continue.dev config (replace <nexus-host> with the IP of the machine
+# running Nexus — e.g. 10.0.0.7 if Nexus is on a separate VM):
+#   { "provider": "openai", "model": "nexus",
+#     "apiBase": "http://<nexus-host>:8080/v1", "apiKey": "nexus" }
+#
+# If VS Code and Nexus are on different machines, set host: 0.0.0.0
+# so the adapter binds on all interfaces (not just loopback).
+openai_api:
+  enabled: false
+  host: 0.0.0.0     # 0.0.0.0 = LAN-accessible | 127.0.0.1 = local only
+  port: 8080
+  api_key: ""        # Optional Bearer token. Leave blank to disable auth.

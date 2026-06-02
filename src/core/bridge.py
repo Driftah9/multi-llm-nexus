@@ -204,7 +204,7 @@ class NexusBridge:
                     effort,
                 )
 
-        success, result, provider, error = await self.chain.try_with_fallback(
+        success, result, provider, _fallback, error = await self.chain.try_with_fallback(
             try_provider, tier=tier, on_attempt=_on_attempt
         )
 

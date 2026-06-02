@@ -62,6 +62,13 @@ Tor relays traffic between layers with no single relay seeing the full picture. 
 
 **Applied to mesh**: Mesh nodes process tasks in isolation. A node processing a mesh request sees only the inference payload — never who originated it, what their private context is, or what the result will be used for.
 
+### Hyperspace Pods (Deployed Validation)
+Hyperspace is a production distributed inference network with 2M+ autonomous nodes as of early 2026. Uses libp2p for peer discovery and tensor/pipeline parallelism to shard single large models across machines that could not fit them individually. 660+ autonomous agents running 27,000+ experiments validated the model at scale.
+
+**Applied to mesh**: Proves the core premise — idle compute across distributed consumer hardware aggregates into meaningful inference capacity. Hyperspace is the clearest existing validation that mesh-style distributed inference works outside of academic settings.
+
+**Where Nexus Mesh diverges**: Hyperspace solves one problem: run one model that doesn't fit in a single machine's VRAM. Each node carries a slice of the same model; activations stream between layers. Nexus Mesh solves a different problem: run many different models across independent nodes and combine their reasoning. Mode B (Trusted Sandbox) enables diverse specialized reasoners executing in parallel — a code-specialist, a reasoning-specialist, and a domain-specialist reasoning independently on the same problem. That produces composite intelligence a single large model cannot replicate. Mode B's VRAM pooling extension (E1) also covers Hyperspace's use case — if two trusted peers want to co-host a model neither fits alone, they can. The difference is that for Nexus Mesh this is an optional evolution, not the primary design.
+
 ---
 
 ## Two Distinct Mesh Modes
