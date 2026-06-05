@@ -34,7 +34,7 @@ Two nodes can find each other and exchange tasks.
 
 | Task | Description | Dependencies |
 |---|---|---|
-| Hardware-bound identity generation | Derive node identity from hardware fingerprint (CPU ID, MAC, TPM if available) | ONS identity layer or standalone implementation |
+| Hardware-bound identity generation | Derive node identity from hardware fingerprint (CPU ID, MAC, TPM if available) | Standalone `nexus_identity` module (`sha256(cpu_id + mb_uuid + disk_serial)`) |
 | DHT implementation | Kademlia-based distributed hash table for peer discovery | Existing library (e.g., `kademlia` Python package, or custom in Go) |
 | Node capability profile | Nodes announce models, VRAM, availability to DHT on startup | Inference engine introspection (model list, VRAM query) |
 | LAN broadcast discovery | mDNS or UDP broadcast for local network peer discovery (preferred over WAN) | Standard networking |
@@ -57,36 +57,48 @@ Full trust model with both mesh modes operational.
 |---|---|---|
 | Reputation scoring | Track per-node quality metrics (+/- signals from 04-protocol.md) | Phase 2 ratio tracking extended |
 | Reputation-weighted routing | Coordinator prefers high-reputation nodes; excludes below threshold | Routing algorithm update |
-| Trust revocation | Peer-submitted revocation claims propagated via ONS/DHT | ONS revocation or standalone |
+| Trust revocation | Peer-submitted revocation claims propagated via libp2p GossipSub | libp2p pubsub |
 | Nonce + timestamp validation | Reject replay attacks (stale/duplicate task descriptors) | Clock sync (NTP), nonce registry |
 | Mode B: Invite tokens | Generate scoped, time-limited invite tokens for trusted peer access | Cryptographic token generation |
 | Mode B: Sandbox workspaces | Named shared workspaces between trusted peers with scoped permissions | Sandbox extension — shared context store |
 | Mode B: Provider sharing | Trusted peer can route inference through your local models via sandbox | Reverse proxy or API delegation |
 | Ratio decay | Weekly 10% decay toward 1.0 to prevent ratio hoarding | Scheduled background task |
 
-**Deliverable**: Full two-mode mesh with trust model, reputation, and revocation.
+**Deliverable**: Full Mode A + Mode B mesh with trust model, reputation, and revocation.
 
 **Estimated effort**: 4-6 weeks. Security-critical — requires careful design review.
 
 ---
 
-### Phase 4 — Scale, Redundancy & WAN
+### Phase 4 — Mode R: Research Queue + WAN
 
-Mesh operates across the internet, not just LAN.
+Two parallel workstreams: Mode R deferred execution, and WAN reliability.
+
+**4a — Mode R (Deferred Research Queue)**
+
+| Task | Description | Dependencies |
+|---|---|---|
+| Persistent deferred queue | Task queue that survives restarts, accepts `priority: deferred` tasks | SQLite or embedded queue |
+| Idle window dispatcher | Coordinator monitors node availability windows, dispatches queued tasks when nodes go idle | Phase 2 heartbeat + availability |
+| Multi-node dispatch | Send same research task to N nodes simultaneously | Phase 2 task dispatch extended |
+| Result collection | Accumulate partial results as nodes complete, handle timeouts | Result storage + timeout handler |
+| Synthesis engine | When N results received: run reasoning pass to synthesize N chains into one output | Reasoning-capable local model |
+| Research task config | `mesh.modes.research` config block, per-node acceptance settings | Config validation |
+
+**4b — WAN Hardening**
 
 | Task | Description | Dependencies |
 |---|---|---|
 | WAN DHT bootstrapping | Seed node list for internet-wide mesh discovery | Public seed infrastructure or relay |
-| NAT traversal | Hole punching or relay for nodes behind NAT/firewalls | STUN/TURN or ONS relay layer |
+| NAT traversal | Hole punching or relay for nodes behind NAT/firewalls | libp2p Circuit Relay v2 |
 | End-to-end encryption | All task payloads and results encrypted in transit (not just signed) | TLS or NaCl box encryption |
-| Redundant computation | Same task dispatched to N nodes, results compared (BOINC model) | Phase 2 dispatch extended |
 | Multi-region routing | Prefer geographically close peers for latency | GeoIP or measured RTT |
 | Bandwidth-aware routing | Don't assign large tasks to bandwidth-constrained nodes | Advertised bandwidth in capability profile |
 | Graceful degradation | Handle partial mesh failure without error cascading | Circuit breaker per node |
 
-**Deliverable**: Production-ready mesh operating across WAN with redundancy and encryption.
+**Deliverable**: Production-ready mesh with Mode R research capability operating across WAN.
 
-**Estimated effort**: 6-10 weeks. NAT traversal and WAN reliability are the hardest problems.
+**Estimated effort**: 6-10 weeks. NAT traversal and WAN reliability are the hardest problems. Mode R queue is simpler — can ship independently of WAN hardening.
 
 ---
 
@@ -111,15 +123,18 @@ Mesh is invisible to the end user — it just works.
 
 ### Build-Out Summary
 
-| Phase | What | Effort | Cumulative |
-|---|---|---|---|
-| Phase 1 | Sandbox isolation, resource governance | 2-4 weeks | 2-4 weeks |
-| Phase 2 | Peer discovery, task exchange, ratio | 4-6 weeks | 6-10 weeks |
-| Phase 3 | Trust, reputation, Mode B | 4-6 weeks | 10-16 weeks |
-| Phase 4 | WAN, redundancy, encryption | 6-10 weeks | 16-26 weeks |
-| Phase 5 | Integration, UX, dashboard | 2-4 weeks | 18-30 weeks |
+| Phase | What | Modes Delivered | Effort | Cumulative |
+|---|---|---|---|---|
+| Phase 1 | Sandbox isolation, resource governance | Foundation | 2-4 weeks | 2-4 weeks |
+| Phase 2 | Peer discovery, task exchange, ratio | Mode A | 4-6 weeks | 6-10 weeks |
+| Phase 3 | Trust, reputation, Mode B | Mode B | 4-6 weeks | 10-16 weeks |
+| Phase 4 | Mode R queue + WAN hardening | Mode R | 6-10 weeks | 16-26 weeks |
+| Phase 5 | Integration, UX, dashboard | All modes | 2-4 weeks | 18-30 weeks |
+| **Phase 6** | **Mode 0: Local pool (exo-style layer sharding)** | **Mode 0** | **8-14 weeks** | **Optional** |
 
-**Total estimated build: 18-30 weeks (4.5-7.5 months) for a solo developer.**
+**Total estimated build (Phases 1-5): 18-30 weeks for a solo developer.**
+
+Phase 6 (Mode 0) is optional — for research-scale deployments with multiple local machines. It adds exo-style pipeline parallelism under Nexus orchestration. Implementation reference: exo (github.com/exo-explore/exo).
 
 With parallel development or multiple contributors, phases 3 and 4 can overlap with integration work, compressing the timeline.
 

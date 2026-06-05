@@ -90,3 +90,59 @@ openai_api:
   host: 0.0.0.0     # 0.0.0.0 = LAN-accessible | 127.0.0.1 = local only
   port: 8080
   api_key: ""        # Optional Bearer token. Leave blank to disable auth.
+
+# ── User Gate — Per-adapter access control ────────────────────────────────────
+# Applies to any adapter that has multi-user exposure (Discord, Telegram, etc).
+# The gate runs BEFORE any LLM call — zero token cost for denied messages.
+#
+# Two-stage check:
+#   Stage 1: ACL lookup + regex hard-deny (instant, 0 cost)
+#   Stage 2: Local LLM intent classification (nano tier, ~50ms, 0 cloud cost)
+#
+# Intent categories for allow/deny:
+#   chat            — general conversation, questions
+#   research        — search, look up, explain topics
+#   code            — write/debug/review code
+#   system          — server/service status queries
+#   admin           — deploy, restart, config changes
+#   file_access     — read files, list directories
+#   code_execution  — run scripts, shell access
+#
+# default_user_scope: deny  → unknown users are silently dropped
+# default_user_scope: allow → unknown users pass Stage 2 intent checks
+#
+# scope: all → operator access, bypasses all checks instantly
+# allow: [list] → only these intents allowed (whitelist)
+# deny: [list]  → these intents blocked (blacklist)
+# Both can be combined: deny takes priority over allow.
+#
+# Example — Discord with multi-user access:
+# discord:
+#   enabled: true
+#   token: ${DISCORD_BOT_TOKEN}
+#   channel_id: 123456789012345678
+#   default_user_scope: deny
+#   rate_limit:
+#     window_seconds: 60
+#     max_messages: 10
+#   users:
+#     "151160889318309889":        # operator — unrestricted
+#       scope: all
+#     "987654321000000000":        # trusted user — research only
+#       allow: [research, chat]
+#       deny: [system, admin, file_access, code_execution]
+#       rate_limit:
+#         window_seconds: 60
+#         max_messages: 5
+#
+# Mattermost (single-user or trusted team — gate disabled by default):
+# mattermost:
+#   enabled: true
+#   token: ${MATTERMOST_BOT_TOKEN}
+#   url: http://localhost:8065/api/v4
+#   team: main
+#   allowed_user: ${MATTERMOST_ALLOWED_USER}
+#   default_user_scope: allow      # MM is already filtered by allowed_user
+#   users:
+#     "${MATTERMOST_ALLOWED_USER}":
+#       scope: all

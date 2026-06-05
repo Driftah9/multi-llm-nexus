@@ -136,7 +136,10 @@ def _build_adapters(
     if "discord" in adapters_config and adapters_config["discord"].get("enabled", True):
         try:
             from .adapters.discord.adapter import DiscordAdapter
-            adapter = DiscordAdapter(adapters_config, bridge, sessions, behavior)
+            adapter = DiscordAdapter(adapters_config, bridge, sessions, behavior,
+                                     triage_validator=triage_validator,
+                                     summary_store=summary_store,
+                                     triage_provider=triage_provider)
             adapter.engine = engine
             engine.register_response_handler("discord", adapter.deliver)
             adapters.append(adapter)
@@ -147,7 +150,10 @@ def _build_adapters(
     if "telegram" in adapters_config and adapters_config["telegram"].get("enabled", True):
         try:
             from .adapters.telegram.adapter import TelegramAdapter
-            adapter = TelegramAdapter(adapters_config, bridge, sessions, behavior)
+            adapter = TelegramAdapter(adapters_config, bridge, sessions, behavior,
+                                      triage_validator=triage_validator,
+                                      summary_store=summary_store,
+                                      triage_provider=triage_provider)
             adapter.engine = engine
             engine.register_response_handler("telegram", adapter.deliver)
             adapters.append(adapter)
@@ -192,6 +198,7 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     from .core.triage import Triage
     from .core.engine import Engine
     from .core.pool_manager import PoolManager
+    from .core.pool_router import PoolRouter
     from .core.provider_chain import set_pool_manager
     from .core.provider_quota import ProviderQuotaManager
     from .core.spaces import SpaceRegistry
@@ -226,16 +233,61 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
         quota_manager.register_from_config(name, cfg)
     logger.info(f"Quota manager: {len(providers_defs)} provider(s) registered")
 
+    # Build pool manager: always create from providers config for rate tracking.
+    # GPU pool topology (pools.yaml) is optional and layered on top.
+    pool_manager = PoolManager.from_providers(providers_defs)
+
+    # Load tier_pools from providers.yaml if defined
+    tier_pools_config = providers_config_raw.get("tier_pools", {})
+    pool_router = None
+    if tier_pools_config:
+        pool_manager.load_tier_pools(tier_pools_config)
+        pool_router = PoolRouter(
+            providers=providers,
+            pool_manager=pool_manager,
+            routing_config=routing_config,
+        )
+        logger.info(
+            f"Pool routing active: {len(tier_pools_config)} tier pool(s) — "
+            f"cost-class priority routing enabled"
+        )
+    else:
+        logger.info("No tier_pools in providers.yaml — using legacy router/chain mode")
+
+    # Overlay GPU pool topology if pools.yaml exists
+    gpu_pools_path = config_dir / "pools.yaml"
+    if gpu_pools_path.exists():
+        import yaml as _yaml
+        try:
+            gpu_data = _yaml.safe_load(gpu_pools_path.read_text()) or {}
+            pool_manager_gpu = PoolManager(gpu_data, providers_defs)
+            # Merge GPU pool health into the main pool_manager
+            pool_manager.pools.update(pool_manager_gpu.pools)
+            pool_manager.health.update(pool_manager_gpu.health)
+            pool_manager._response_times.update(pool_manager_gpu._response_times)
+            set_pool_manager(pool_manager)
+            logger.info(f"GPU pool topology loaded: {len(pool_manager.pools)} pool(s)")
+        except Exception as e:
+            logger.warning(f"pools.yaml load failed: {e}")
+    else:
+        logger.info("No pools.yaml — GPU pool routing inactive")
+
     bridge = NexusBridge(
         router=router,
         chain=chain,
         sessions=sessions,
         system_prompt=adapters_config.get("system_prompt", ""),
         quota_manager=quota_manager,
+        pool_router=pool_router,
+        pool_manager=pool_manager,
     )
 
-    triage_provider_name = routing_config.get("triage")
-    triage_provider = providers.get(triage_provider_name) if triage_provider_name else None
+    # Triage provider: prefer triage_pool nano selection, fall back to config key
+    triage_provider_name = routing_config.get("triage") or routing_config.get("triage_pool")
+    if pool_router and not triage_provider_name:
+        triage_provider = pool_router.select_triage_provider()
+    else:
+        triage_provider = providers.get(triage_provider_name) if triage_provider_name else None
     triage = Triage(provider=triage_provider)
     behavior = NexusBehavior(config_dir=str(config_dir), triage_provider=triage_provider)
 
@@ -306,14 +358,6 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     if not adapters:
         logger.warning("No adapters configured — Nexus will start but has no platform connections")
 
-    # Load pool topology (optional — only present on multi-GPU servers)
-    pool_manager = PoolManager.from_file(config_dir / "pools.yaml")
-    if pool_manager:
-        set_pool_manager(pool_manager)
-        logger.info(f"GPU pool topology loaded: {len(pool_manager.pools)} pool(s)")
-    else:
-        logger.info("No pools.yaml — running without pool-aware routing")
-
     default_provider = router.providers.get(routing_config.get("default", "primary"))
     logger.info(f"Primary provider: {default_provider}")
     logger.info(f"Triage provider: {triage_provider or '(keyword heuristics)'}")
@@ -332,8 +376,8 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
 
     # Run engine + adapters + pool monitor concurrently
     tasks = [asyncio.create_task(engine.start(), name="engine")]
-    if pool_manager:
-        tasks.append(asyncio.create_task(pool_manager.start(), name="pool_manager"))
+    # pool_manager.start() only polls if there are pooled GPU providers with metrics_url
+    tasks.append(asyncio.create_task(pool_manager.start(), name="pool_manager"))
     for adapter in adapters:
         tasks.append(asyncio.create_task(adapter.run(), name=adapter.__class__.__name__))
 

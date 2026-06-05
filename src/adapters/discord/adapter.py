@@ -1,9 +1,8 @@
 """
 Discord adapter — REST API polling.
 
-Refactored from claude-brain for provider-agnostic operation.
-Push-only platforms (alerts, builds) use Discord; this adapter
-handles interactive responses when Discord is the primary interface.
+Inherits all message handling, triage, and command logic from AdapterBase.
+Only implements Discord-specific: REST polling and message sending.
 """
 from __future__ import annotations
 
@@ -14,11 +13,9 @@ import urllib.error
 import urllib.request
 from typing import Optional, Set
 
-from ...core.behaviors import NexusBehavior, tier_label
+from ..adapter_base import AdapterBase
+from ...core.behaviors import NexusBehavior
 from ...core.bridge import NexusBridge
-from ...core.commands import CommandRegistry
-from ...core.debounce import InboundDebouncer
-from ...core.formatter import PlatformFormatter
 from ...core.session import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -26,20 +23,47 @@ logger = logging.getLogger(__name__)
 DISCORD_API = "https://discord.com/api/v10"
 
 
-class DiscordAdapter:
+class DiscordAdapter(AdapterBase):
     """
     Discord adapter using REST polling.
 
-    Monitors a channel for new messages, routes them through the
-    provider bridge, and posts responses back.
+    Inherits from AdapterBase:
+      - Triage (5-dimension message classification)
+      - Session management
+      - Command dispatch
+      - Bridge invocation with pool routing
+
+    Implements Discord-specific:
+      - REST polling for new messages
+      - Message posting and editing
     """
 
-    def __init__(self, config: dict, bridge: NexusBridge, sessions: SessionStore,
-                 behavior: NexusBehavior):
-        self.config = config
-        self.bridge = bridge
-        self.sessions = sessions
-        self.behavior = behavior
+    PLATFORM_PROPS = {
+        "platform_name": "discord",
+        "max_chars": 2000,
+        "markdown_support": "full",
+        "debounce_ms": 500,
+    }
+
+    def __init__(
+        self,
+        config: dict,
+        bridge: NexusBridge,
+        sessions: SessionStore,
+        behavior: NexusBehavior,
+        triage_validator=None,
+        summary_store=None,
+        triage_provider=None,
+    ):
+        super().__init__(
+            config,
+            bridge,
+            sessions,
+            behavior,
+            triage_validator,
+            summary_store,
+            triage_provider,
+        )
 
         dc = config.get("discord", config)
         self.token = dc.get("token", "")
@@ -47,13 +71,6 @@ class DiscordAdapter:
         self.allowed_users: Set[int] = set(dc.get("allowed_users", []))
         self.poll_interval: int = dc.get("poll_interval", 10)
         self.last_message_id: Optional[str] = None
-
-        self.commands = CommandRegistry("discord")
-        self.fmt = PlatformFormatter("discord")
-        self.debouncer = InboundDebouncer(
-            window_ms=dc.get("debounce_window_ms", 500)
-        )
-        self._stop = asyncio.Event()
 
     def _headers(self) -> dict:
         return {
@@ -69,24 +86,36 @@ class DiscordAdapter:
 
     def _post(self, path: str, data: dict) -> dict:
         body = json.dumps(data).encode()
-        req = urllib.request.Request(f"{DISCORD_API}{path}", data=body, headers=self._headers(), method="POST")
+        req = urllib.request.Request(
+            f"{DISCORD_API}{path}",
+            data=body,
+            headers=self._headers(),
+            method="POST",
+        )
         with urllib.request.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read())
 
     def _patch(self, path: str, data: dict) -> dict:
         body = json.dumps(data).encode()
-        req = urllib.request.Request(f"{DISCORD_API}{path}", data=body, headers=self._headers(), method="PATCH")
+        req = urllib.request.Request(
+            f"{DISCORD_API}{path}",
+            data=body,
+            headers=self._headers(),
+            method="PATCH",
+        )
         with urllib.request.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read())
 
     async def run(self) -> None:
+        """Connect and listen for new messages."""
         if not self.token or not self.channel_id:
             logger.warning("Discord not configured — adapter disabled")
             return
 
         try:
             msgs = await asyncio.to_thread(
-                self._get, f"/channels/{self.channel_id}/messages?limit=1"
+                self._get,
+                f"/channels/{self.channel_id}/messages?limit=1",
             )
             self.last_message_id = msgs[0]["id"] if msgs else "0"
         except Exception as e:
@@ -112,15 +141,13 @@ class DiscordAdapter:
 
             await asyncio.sleep(self.poll_interval)
 
-    async def stop(self) -> None:
-        self._stop.set()
-
     async def _poll(self) -> None:
+        """Poll for new messages."""
         if not self.last_message_id:
             return
         msgs = await asyncio.to_thread(
             self._get,
-            f"/channels/{self.channel_id}/messages?after={self.last_message_id}&limit=50"
+            f"/channels/{self.channel_id}/messages?after={self.last_message_id}&limit=50",
         )
         if not msgs:
             return
@@ -134,9 +161,10 @@ class DiscordAdapter:
                 continue
             if self.allowed_users and int(author.get("id", 0)) not in self.allowed_users:
                 continue
-            asyncio.create_task(self._handle(msg))
+            asyncio.create_task(self._on_message(msg))
 
-    async def _handle(self, msg: dict) -> None:
+    async def _on_message(self, msg: dict) -> None:
+        """Handle an incoming Discord message."""
         text = msg.get("content", "").strip()
         if not text:
             return
@@ -150,111 +178,64 @@ class DiscordAdapter:
 
         session_key = f"dc_{self.channel_id}"
 
-        if self.commands.is_command(text):
-            await self._handle_command(text, msg, session_key)
-            return
+        # Delegate to base class message handler
+        await self.handle_incoming(
+            text=text,
+            channel_id=self.channel_id,
+            channel_name=self.channel_id,
+            user_id=user_id,
+            post_id=msg.get("id"),
+            session_key=session_key,
+        )
 
-        await self.sessions.mark_active(session_key)
-        triage = await self.behavior.route_message(text, session_key, "discord")
-        tier_display = tier_label(triage.tier)
+    # ── Platform overrides ────────────────────────────────────────────────
 
+    async def send(self, channel_id: str, text: str, reply_to: Optional[str] = None) -> None:
+        """Post a message to Discord."""
         try:
-            ack = await asyncio.to_thread(
+            data = {"content": text}
+            if reply_to:
+                data["message_reference"] = {"message_id": reply_to}
+            await asyncio.to_thread(
                 self._post,
-                f"/channels/{self.channel_id}/messages",
-                {"content": f"_thinking ({tier_display})..._",
-                 "message_reference": {"message_id": msg["id"]}},
+                f"/channels/{channel_id}/messages",
+                data,
             )
         except Exception as e:
-            logger.error(f"Discord ack failed: {e}")
-            return
+            logger.error(f"Discord send failed: {e}")
 
-        prompt = f"[Platform: Discord | Channel: {self.channel_id}]\n{text}"
-
+    async def _send_placeholder(
+        self, channel_id: str, tier_display: str, reply_to: Optional[str] = None
+    ) -> str:
+        """Post thinking placeholder."""
         try:
-            result = await self.bridge.invoke(
-                prompt=prompt,
-                session_key=session_key,
-                tier=triage.tier,
-                task_type=triage.provider_key,
+            data = {"content": f"_thinking ({tier_display})..._"}
+            if reply_to:
+                data["message_reference"] = {"message_id": reply_to}
+            msg = await asyncio.to_thread(
+                self._post,
+                f"/channels/{channel_id}/messages",
+                data,
             )
-        except Exception as e:
-            logger.error(f"Discord invoke error: {e}")
-            try:
-                await asyncio.to_thread(
-                    self._patch,
-                    f"/channels/{self.channel_id}/messages/{ack['id']}",
-                    {"content": "_(error processing your request)_"},
-                )
-            except Exception:
-                pass
-            return
+            return msg.get("id", "")
+        except Exception:
+            return ""
 
-        response = result.text or "_(no response)_"
-        chunks = self.fmt.format_response(response)
-
+    async def _update_placeholder(self, placeholder_id: str, text: str,
+                                 channel_id: Optional[str] = None) -> None:
+        """Update thinking placeholder."""
         try:
+            ch_id = channel_id or self.channel_id
             await asyncio.to_thread(
                 self._patch,
-                f"/channels/{self.channel_id}/messages/{ack['id']}",
-                {"content": chunks[0]},
+                f"/channels/{ch_id}/messages/{placeholder_id}",
+                {"content": text},
             )
         except Exception:
             pass
 
-        for chunk in chunks[1:]:
-            await asyncio.sleep(0.5)
-            try:
-                await asyncio.to_thread(
-                    self._post,
-                    f"/channels/{self.channel_id}/messages",
-                    {"content": chunk},
-                )
-            except Exception:
-                pass
-
-    async def _handle_command(self, text: str, msg: dict, session_key: str) -> None:
-        cmd, args = self.commands.parse(text)
-        if not cmd:
-            return
-
-        reply = lambda content: asyncio.to_thread(
-            self._post,
-            f"/channels/{self.channel_id}/messages",
-            {"content": content, "message_reference": {"message_id": msg["id"]}},
-        )
-
-        if cmd.behavioral:
-            event = self.behavior.handle_command(text, session_key, "discord")
-            if event:
-                await reply(f"_{event.detail}_")
-            return
-
-        name = cmd.name
-
-        if name in ("new", "reset"):
-            self.bridge.clear_session(session_key)
-            await self.sessions.clear(session_key)
-            await reply("Session cleared.")
-
-        elif name == "status":
-            status = self.behavior.get_status()
-            hist = self.bridge.get_history_length(session_key)
-            await reply(
-                f"Tier: {tier_label(status.get('tier_override') or 'standard')}"
-                + (" (auto)" if status["auto_triage"] else " (locked)") + "\n"
-                f"History: {hist} messages"
-            )
-
-        elif name == "providers":
-            names = list(self.bridge.router.providers.keys())
-            await reply("Providers: " + ", ".join(f"`{n}`" for n in names))
-
-        elif name == "help":
-            await reply(self.commands.help_text())
-
     async def deliver(self, outbound) -> None:
-        """Engine callback — post an autonomously-generated response to a channel."""
+        """Engine callback — post autonomously-generated response."""
         chunks = self.fmt.format_response(outbound.content)
         channel = outbound.channel_id or self.channel_id
         for chunk in chunks:

@@ -6,77 +6,84 @@ These are not required for initial mesh deployment but represent natural extensi
 
 ---
 
-## E1: VRAM Pooling Grants (Post-Phase 3)
+## E1: Mode 0 — Local Pool / VRAM Pooling (Phase 6, Optional)
 
-### Problem It Solves
+### What It Is
 
-Mode B already enables specialized peer collaboration — diverse reasoners producing independent chains in parallel. But there are use cases where two peers want to run a single model that neither could fit alone:
+Mode 0 extends Nexus to orchestrate multiple machines on your own LAN as a single inference pool. Instead of each machine running only the models it can fit, layers of a large model are distributed across machines — enabling models that no single machine could load.
 
-- Peer A: V100 16GB + code-specific models
-- Peer B: V100 16GB + reasoning models
-- Shared need: DeepSeek-R1 671B (needs 32GB+ in optimal precision)
+**Reference implementation**: exo (github.com/exo-explore/exo) implements this exact pattern. Mode 0 adds Nexus orchestration on top.
 
-Current Mode B doesn't support this. Each peer can delegate inference to the other, but only for models the peer already loads locally.
+### The Bandwidth Constraint
+
+This mode is **LAN-only by design**. Activation streaming between layers requires high bandwidth:
+
+| Model | Activation size per pass | LAN (1 Gbps) overhead | WAN (50 Mbps) overhead |
+|---|---|---|---|
+| 70B | ~200-500 MB | 1.6-4s | 32-80s |
+| 671B (R1) | ~500MB-1GB | 4-8s | 80-160s |
+
+LAN: adds seconds. WAN: adds minutes per pass — unusable for interactive inference. Mode 0 stays on LAN.
 
 ### Design
 
-Extend the Mode B trust relationship to include **scoped VRAM sharing**:
-
 ```yaml
-mode_b_sandbox:
-  name: "research-collab"
-  peers:
-    - id: peer-hardware-id-123
-      permissions: ["inference", "vram_loan"]  # New permission
-  
-  vram_loan:
+mesh:
+  mode_0:
     enabled: true
-    max_gb: 16                  # Loan up to 16GB from this peer
-    auto_return: true           # Return immediately after task completes
-    # Peer's declaration: "You can use up to 16GB of my VRAM for collaboratively-owned models"
+    machines:
+      - host: 10.0.0.7
+        vram_gb: 16
+        role: hub          # Nexus coordinator
+      - host: 10.0.0.8
+        vram_gb: 16
+        role: worker
+      - host: 10.0.0.9
+        vram_gb: 16
+        role: worker
+    
+    layer_allocation: proportional   # Assign layers proportionally by VRAM
+    parallelism: pipeline            # Sequential layer execution (pipeline)
+    transport: libp2p_noise          # Encrypted activation streaming
 ```
 
 ### Execution Model
 
-1. **Joint Model Registration**: Both peers agree on a model to co-host
-2. **Layer Distribution**: Layers sharded across peers (similar to how Hyperspace Pods does it)
-3. **Pipeline Parallelism**: Activations streamed between peers via ONS encrypted transport
-4. **Task Routing**: When either peer needs the model, it's already partially loaded on both
-5. **Trust Isolation**: Only the explicitly-agreed model is shared; all other models remain private
-6. **Ratio Accounting**: Compute contribution is tracked per peer (who did more work?)
-
-### Example: Collaborative Research
+1. **Layer allocation**: Nexus assigns layers proportionally by each machine's available VRAM
+2. **Pipeline parallelism**: Activation tensors stream from machine to machine in layer order
+3. **Nexus as hub**: Your Nexus instance coordinates routing, tracks which machine holds which layers
+4. **Mode B extension**: LAN-connected trusted peers with explicit grants can participate in the same pool
 
 ```
-Peer A (reasoning specialist):     Peer B (code specialist):
-- DeepSeek-R1 layers 0-43         - DeepSeek-R1 layers 44-80
-- Qwen-Coder 32B (local only)     - Custom RAG stack (local only)
-- Phi-2 (local only)              - Piper TTS (local only)
+Your Nexus (hub, 10.0.0.7):
+  - DeepSeek-R1 671B layers 0-43    (16GB)
+
+Worker machine (10.0.0.8):
+  - DeepSeek-R1 671B layers 44-80   (16GB)
+  
+Activation flow: layer 43 output → stream to 10.0.0.8 → layer 44 input
 ```
 
-Both peers can now run the full 671B model, but each carries only half the VRAM cost. Activations stream across their dedicated encrypted link. All other models remain private — no data sovereignty violation.
+### When This Makes Sense
 
-### Advantages Over Hyperspace Pods Model
+- Research-scale deployments with 3+ local machines
+- Organizations that need to run 70B+ models that don't fit on a single node
+- Situations where WAN latency for Mode R is acceptable but local inference speed matters
 
-- **Voluntary**, not mandatory. Peers opt into specific models.
-- **Scoped**, not global. Each peer controls what gets shared.
-- **Revocable**. Either peer can withdraw immediately.
-- **Ratio-tracked**. Compute contributions are metered and decay-adjusted.
-- **Private-by-default**. Only the agreed model is shared; all context remains local.
+### When Mode R Is a Better Fit
 
-### Disadvantages
+If the workload is async and latency-insensitive, Mode R (deferred queue over WAN) achieves multi-model diversity without the LAN hardware requirement. Mode 0 produces one model's output faster. Mode R produces many models' outputs independently.
 
-- **Latency overhead**: Pipeline parallelism slower than local execution (activation streaming adds latency per layer).
-- **Bandwidth cost**: Each layer boundary requires activation streaming (typically 100MB–1GB per forward pass, depending on model).
-- **Complexity**: Implementation requires careful management of partially-loaded models, failure recovery, and state synchronization.
+**Mode 0 = run one big model across your machines.**
+**Mode R = run many models across the network, combine results.**
 
 ### Suggested Timeline
 
-**Post-Phase 3** (Trust and Mode B fully operational). Requires:
-- Mode B sandbox isolation proven
-- ONS encrypted transport layer proven
-- Ratio accounting infrastructure in place
-- Security review of shared-model state (ensure isolation still holds)
+**Phase 6** — after Phases 1-5 are operational and validated. Requires:
+- Mode B sandbox isolation proven (Phase 3)
+- libp2p encrypted transport operational (Phase 4)
+- Ratio accounting in place (Phase 2-3)
+- 3+ local machines available for testing
 
 ---
 

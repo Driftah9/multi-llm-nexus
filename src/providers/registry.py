@@ -49,6 +49,13 @@ class ProviderDef:
     capabilities: list[str] = field(default_factory=list)  # capability tags for smart routing:
                                                             #   code, search, reasoning, rag,
                                                             #   vision, local, eu_residency
+    cost_class: str = ""                                    # pool routing cost class:
+                                                            #   "local"            — on-hardware, electricity only
+                                                            #   "free_limited"     — rate-limited free tier
+                                                            #   "paid_subscription"— token cost or subscription
+                                                            # Empty = inferred from access_modes at runtime
+                                                            #   code, search, reasoning, rag,
+                                                            #   vision, local, eu_residency
                                                             # Empty = general purpose (tier-only routing applies)
                                                             # Populated: capability-router can prefer this provider
                                                             # when triage detects a matching task type.
@@ -72,6 +79,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         packages=[],
         tool_support="mcp",
         model_discovery="static",
+        cost_class="paid_subscription",
         notes="Requires `claude` CLI on PATH and valid auth (claude login). "
               "MCP servers (HA, Playwright, Obsidian, etc.) attach here, not to API providers.",
         models={
@@ -91,6 +99,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         packages=["anthropic"],
         tool_support="native",
         model_discovery="static",
+        cost_class="paid_subscription",
         notes="Prompt caching is enabled by default — saves cost on long system prompts.",
         models={
             "claude-haiku-4-5-20251001": TIER_NANO,
@@ -112,6 +121,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="function_call",
         model_discovery="query_api",
         notes="ChatGPT Plus subscription does NOT give API access — a separate API key is required.",
+        cost_class="paid_subscription",
         models={
             "gpt-4o-mini":          TIER_NANO,
             "gpt-4o-mini-2024-07-18": TIER_NANO,
@@ -139,6 +149,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="query_api",
         free_tier=True,
         notes="Get a free key at aistudio.google.com — no billing required for Flash.",
+        cost_class="free_limited",
         models={
             "gemini-2.0-flash":          TIER_NANO,
             "gemini-2.0-flash-lite":     TIER_NANO,
@@ -162,6 +173,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="query_api",
         notes="Uses Application Default Credentials (gcloud auth). "
               "Different billing path from AI Studio.",
+        cost_class="paid_subscription",
         models={
             "gemini-1.5-flash":  TIER_NANO,
             "gemini-1.5-pro":    TIER_STANDARD,
@@ -183,6 +195,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="query_api",
         base_url="https://api.groq.com/openai/v1",
         free_tier=True,
+        cost_class="free_limited",
         notes="Groq hosts Llama, Mistral, Gemma, DeepSeek — not their own models. "
               "Free tier is generous. Ideal for triage.",
         models={
@@ -210,6 +223,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         base_url="https://api.mistral.ai/v1",
         capabilities=["eu_residency"],
         notes="Hosted in EU. Use when data residency requirements apply.",
+        cost_class="paid_subscription",
         models={
             "mistral-small-latest":  TIER_NANO,
             "open-mistral-7b":       TIER_NANO,
@@ -235,6 +249,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         base_url="https://api.deepseek.com/v1",
         capabilities=["reasoning", "code"],
         notes="deepseek-chat (V3) is ~$0.01/1M tokens. deepseek-reasoner (R1) is chain-of-thought.",
+        cost_class="paid_subscription",
         models={
             "deepseek-chat":     TIER_STANDARD,
             "deepseek-reasoner": TIER_DEEP,
@@ -255,6 +270,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="query_api",
         base_url="https://api.x.ai/v1",
         notes="X/Twitter subscription does not include API. Separate key from console.x.ai.",
+        cost_class="paid_subscription",
         models={
             "grok-2-mini":  TIER_NANO,
             "grok-2":       TIER_STANDARD,
@@ -278,6 +294,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         free_tier=True,
         capabilities=["rag"],
         notes="Strong RAG grounding. Not a general-purpose primary — use as specialist.",
+        cost_class="free_limited",
         models={
             "command-r":      TIER_STANDARD,
             "command-r-plus": TIER_DEEP,
@@ -299,6 +316,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="query_api",
         base_url="https://api.together.xyz/v1",
         notes="Tool calling is model-dependent — check model card before relying on it.",
+        cost_class="paid_subscription",
         models={
             "meta-llama/Llama-3.2-3B-Instruct-Turbo":  TIER_NANO,
             "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": TIER_NANO,
@@ -321,6 +339,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="partial",
         model_discovery="query_api",
         base_url="https://api.fireworks.ai/inference/v1",
+        cost_class="paid_subscription",
         models={
             "accounts/fireworks/models/llama-v3p1-8b-instruct":  TIER_NANO,
             "accounts/fireworks/models/llama-v3p1-70b-instruct": TIER_STANDARD,
@@ -343,6 +362,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         base_url="https://api.perplexity.ai",
         capabilities=["search"],
         notes="Models have web search baked in — use as a research specialist, not primary.",
+        cost_class="paid_subscription",
         models={
             "llama-3.1-sonar-small-128k-online": TIER_NANO,
             "llama-3.1-sonar-large-128k-online": TIER_STANDARD,
@@ -364,6 +384,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="query_api",
         base_url="https://api-inference.huggingface.co/v1",
         free_tier=True,
+        cost_class="free_limited",
         notes="Serverless inference — cold start latency possible. Not for triage.",
         models={},
     ),
@@ -381,6 +402,8 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="function_call",
         model_discovery="query_api",
         base_url="https://api.cerebras.ai/v1",
+        free_tier=True,
+        cost_class="free_limited",
         models={
             "llama3.1-8b":  TIER_NANO,
             "llama3.1-70b": TIER_STANDARD,
@@ -402,6 +425,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         notes="AWS_PROFILE also accepted for named profiles. Billing via AWS account. "
               "Bedrock model IDs include version suffixes that change with model updates — "
               "verify current IDs at docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html.",
+        cost_class="paid_subscription",
         models={
             "anthropic.claude-3-haiku-20240307-v1:0":     TIER_NANO,
             "anthropic.claude-3-5-sonnet-20241022-v2:0":  TIER_STANDARD,
@@ -430,6 +454,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="function_call",
         model_discovery="static",
         notes="base_url is your Azure endpoint. Deployment name replaces model name.",
+        cost_class="paid_subscription",
         models={},
     ),
 
@@ -446,6 +471,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="partial",
         model_discovery="local_query",
         capabilities=["local"],
+        cost_class="local",
         notes="Install at ollama.ai. Run `ollama pull <model>` before use. "
               "phi4-mini (~3.8B, ~2.5GB RAM) is the recommended nano/triage model.",
         models={
@@ -479,11 +505,10 @@ PROVIDERS: dict[str, ProviderDef] = {
         tool_support="function_call",
         model_discovery="query_api",
         base_url="http://localhost:1234/v1",
+        cost_class="local",
         notes="Start the LM Studio server before use. Models vary by what user has downloaded.",
         models={},
     ),
-
-    # ── vLLM ───────────────────────────────────────────────────────────────
 
     "vllm": ProviderDef(
         type_id="vllm",
@@ -500,6 +525,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         env_vars=[],
         packages=["httpx"],
         tool_support="function_call",
+        cost_class="local",
         model_discovery="query_api",
         base_url="http://localhost:8000/v1",
         capabilities=["local", "code", "search"],
@@ -546,6 +572,7 @@ PROVIDERS: dict[str, ProviderDef] = {
         model_discovery="query_api",
         base_url="https://models.inference.ai.azure.com",
         free_tier=True,
+        cost_class="free_limited",
         notes=(
             "GITHUB_TOKEN = personal access token from github.com/settings/tokens. "
             "Free GitHub account: rate-limited to ~15-50 req/day depending on model. "
@@ -597,6 +624,7 @@ PROVIDERS: dict[str, ProviderDef] = {
             "Useful as a single entry point when operators want access to all providers "
             "without separate API accounts. Trade-off: adds a hop and slight latency."
         ),
+        cost_class="paid_subscription",
         models={
             "google/gemini-2.0-flash":                         TIER_NANO,
             "meta-llama/llama-3.1-8b-instruct":                TIER_NANO,

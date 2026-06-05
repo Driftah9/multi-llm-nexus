@@ -35,7 +35,7 @@
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  LAYER 3: MESH PROTOCOL (ONS transport backbone)               │
+│  LAYER 3: MESH PROTOCOL (IPFS / libp2p transport)              │
 │  Peer discovery (DHT) │ Task routing │ Result validation        │
 │  Ratio tracking │ Trust registry │ Revocation propagation      │
 └─────────────────────────────────────────────────────────────────┘
@@ -51,19 +51,21 @@
 
 ---
 
-## ONS as Transport Backbone
+## Transport Layer (IPFS / libp2p)
 
-The Orbital Network Sync (ONS) project was designed with hardware-bound device identity, P2P encrypted transport, friend-group cooperative mode, and distributed revocation. These primitives map directly onto mesh requirements:
+Nexus Mesh builds on the same distributed systems foundations as BitTorrent, Folding@Home, and IPFS — proven peer-to-peer models that have operated at scale for years. The transport stack uses **IPFS / libp2p**, the same layer that powers IPFS, Ethereum, and Hyperspace Pods.
 
-| ONS Primitive | Mesh Use |
-|---|---|
-| Hardware-bound identity | Node authentication (cannot spoof a node) |
-| Friend-group cooperative mode | Trusted peer relationships (Mode B) |
-| P2P encrypted transport | Task payloads and results cross mesh securely |
-| Distributed revocation | Remove a bad actor without central authority |
-| No central server | Mesh operates even if coordinator goes down |
+| Transport Primitive | Implementation | Proven By |
+|---|---|---|
+| Hardware-bound node identity | Standalone fingerprint module (`sha256(cpu_id + mb_uuid + disk_serial)`) | Adopted from Bitcoin/Zeronet identity model |
+| DHT peer discovery | libp2p Kademlia DHT | IPFS, BitTorrent, Bitcoin |
+| LAN peer discovery | libp2p mDNS | Local-network zero-config |
+| Encrypted transport | libp2p Noise Protocol | Industry standard, used by WireGuard |
+| Distributed revocation gossip | libp2p GossipSub | Ethereum, IPFS pubsub |
+| NAT traversal | libp2p Circuit Relay v2 | IPFS relay infrastructure |
+| No central server | DHT-native | BitTorrent, IPFS — no coordinator required |
 
-ONS moves files. Nexus Mesh moves inference tasks. Same protocol layer, different payload type. The transport is already designed.
+BitTorrent moves files. Folding@Home moves compute tasks. Nexus Mesh moves inference tasks. Same distributed model, same transport primitives, different payload type.
 
 ---
 
@@ -146,20 +148,50 @@ Operators are encouraged to specialize their node's model library around their h
 
 ---
 
-## Two-Mode Topology
+## Four-Mode Architecture
 
-### Mode A: Public Mesh (Anonymous Compute Pool)
+### Mode 0: Local Pool (LAN Layer Sharding)
 
 ```
-Node A ──▶ Mesh Coordinator ──▶ Node B (idle, sandboxed)
-                               Node C (idle, sandboxed)
-                               Node D (idle, sandboxed)
+┌─────────────────────────────────────────────────┐
+│  YOUR NEXUS (Hub)                                │
+│                                                  │
+│  Machine 1 (GPU A) ◄── LAN ──► Machine 2 (GPU B)│
+│       │                               │          │
+│       └─── DeepSeek-R1 layers 0–43   │          │
+│                                       └─── layers 44–80
+│  Nexus coordinates layer allocation + routing   │
+└─────────────────────────────────────────────────┘
 ```
 
-- Tasks routed by coordinator based on model requirements, node availability, and ratio
+- Pipeline parallelism across your own LAN machines
+- Activations stream between machines (LAN speeds make this practical)
+- Nexus is the hub — it allocates layers proportionally by available VRAM
+- Use case: run a model too large for any single machine
+- **LAN only** — activation streaming over WAN adds 30–160s per inference pass
+
+**Reference**: exo (exo-explore/exo) implements this pattern. Mode 0 adds Nexus orchestration.
+**Status**: Phase 6 — deferred for research-scale deployments.
+
+---
+
+### Mode A: Idle Mesh (Anonymous Compute Pool)
+
+```
+Your Nexus ──▶ Mesh DHT ──▶ Peer B (idle, sandboxed)
+                            Peer C (idle, sandboxed)
+                            Peer D (idle, sandboxed)
+
+Peer X ──▶ Mesh DHT ──▶ Your Nexus (when idle, sandboxed)
+```
+
+- Tasks routed via DHT based on model requirements, node availability, and ratio
 - Requesting node knows result; serving node does not know requester
-- All execution in isolated sandbox (see security doc)
+- All execution in isolated sandbox
 - Ratio tracked per hardware-bound identity
+- Complete models only — no layer sharding across WAN
+
+---
 
 ### Mode B: Trusted Sandbox (Explicit Peer Network)
 
@@ -172,10 +204,36 @@ Operator A ◀──▶ Shared Sandbox ◀──▶ Operator B
 
 - Operators explicitly invite peers to named sandboxes
 - Sandbox contains shared context, collaborative workspaces, optionally shared providers
-- "I grant you access to my DeepSeek-R1 for project X" is a scoped, revocable grant
+- "I grant you access to my DeepSeek-R1 for project X" — scoped, revocable grant
+- LAN trusted peers may extend into Mode 0 VRAM pooling
 - Private zones remain entirely separate
 
-Modes A and B run on separate infrastructure paths. A node participating in both maintains separate execution contexts for each.
+---
+
+### Mode R: Research (Async Deferred Queue)
+
+```
+Your Nexus ──▶ Deferred Queue ──▶ Peer B (executes during idle window)
+                                   Peer C (executes during idle window)
+                                   Peer D (executes during idle window)
+                                        │
+                                        ▼
+                                   Synthesis node assembles
+                                   N independent reasoning chains
+                                        │
+                                        ▼
+                               Result delivered to your Nexus
+                               (hours or days later)
+```
+
+- Submit a research task to the deferred queue — no interactive wait
+- Nodes pick up tasks during their scheduled idle windows
+- Each node executes independently with its own complete model
+- N nodes → N independent reasoning chains from N different model perspectives
+- Synthesis step combines chains when all complete
+- Builds on Mode A (anonymous peers) or Mode B (trusted peers) for task execution
+
+All four modes run separate infrastructure paths. A node may participate in multiple modes simultaneously with separate execution contexts for each.
 
 ---
 
@@ -228,6 +286,6 @@ A 10-node mesh that drops to 3 produces slower queue times, not failures. The sy
 
 ## Related Documents
 
-- [01-overview.md](01-overview.md) — Concept, analogies, two modes
+- [01-overview.md](01-overview.md) — Concept, analogies, four modes (0/A/B/R)
 - [03-security.md](03-security.md) — Threat model, isolation, sandbox design
 - [04-protocol.md](04-protocol.md) — Wire protocol, peer discovery, ratio enforcement

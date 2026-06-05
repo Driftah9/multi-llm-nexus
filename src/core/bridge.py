@@ -31,6 +31,13 @@ from .provider_chain import ProviderChain, ProviderChainEntry
 from .heartbeat import HeartbeatManager
 from ..providers.base import Message, ProviderResponse, BaseProvider
 
+# Optional imports — only used when pool routing is active
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .pool_router import PoolRouter
+    from .pool_manager import PoolManager
+    from .triage import TriageResult
+
 logger = logging.getLogger(__name__)
 
 # Max messages to keep in history per session (for non-claude_code providers)
@@ -74,6 +81,8 @@ class NexusBridge:
         system_prompt: str = "",
         quota_manager=None,
         security_policy: Optional[SecurityPolicy] = None,
+        pool_router: Optional["PoolRouter"] = None,
+        pool_manager: Optional["PoolManager"] = None,
     ):
         self.router = router
         self.chain = chain
@@ -81,6 +90,8 @@ class NexusBridge:
         self.system_prompt = system_prompt
         self.quota_manager = quota_manager
         self.security_gate = AuthorizationGate(security_policy or SecurityPolicy())
+        self.pool_router = pool_router
+        self.pool_manager = pool_manager
         # In-memory message history per session key, for non-claude_code providers
         self._history: dict[str, list[Message]] = {}
         self._last_provider_used: dict[str, str] = {}  # session_key → provider_type
@@ -125,6 +136,7 @@ class NexusBridge:
         on_provider_change: Optional[Callable] = None,
         system_prompt: Optional[str] = None,
         ephemeral: bool = False,
+        triage: Optional["TriageResult"] = None,
     ) -> BridgeResult:
         """
         Send a prompt and return the response with automatic failover.
@@ -153,7 +165,13 @@ class NexusBridge:
         start = time.time()
         effective_system = system_prompt or self.system_prompt
 
-        if self.chain:
+        # Pool routing takes priority when configured and triage data is present
+        if self.pool_router and triage:
+            result = await self._invoke_with_pool(
+                prompt, session_key, on_output, effective_system,
+                ephemeral, on_provider_change, triage
+            )
+        elif self.chain:
             result = await self._invoke_with_chain(
                 prompt, session_key, tier, on_output, effective_system,
                 ephemeral, on_provider_change
@@ -166,6 +184,100 @@ class NexusBridge:
         result.elapsed = time.time() - start
         self._last_provider_used[session_key] = result.provider_type
         return result
+
+    async def _invoke_with_pool(
+        self,
+        prompt: str,
+        session_key: str,
+        on_output: Optional[Callable],
+        system_prompt: str,
+        ephemeral: bool,
+        on_provider_change: Optional[Callable],
+        triage: "TriageResult",
+    ) -> BridgeResult:
+        """
+        Pool-based invocation with cost-class priority and automatic failover.
+
+        Works through the pool's ordered provider list (local → free → paid).
+        On rate-limit error, marks the provider, moves to next in pool.
+        Records token usage against each successful provider's rate window.
+        """
+        pool_order = self.pool_router.select(triage)
+
+        if not pool_order:
+            # Pool router couldn't find any candidates — fall through to chain/router
+            logger.warning("Pool router returned empty list — falling back to chain/router")
+            if self.chain:
+                return await self._invoke_with_chain(
+                    prompt, session_key, None, on_output, system_prompt, ephemeral, on_provider_change
+                )
+            return await self._invoke_with_router(
+                prompt, session_key, None, None, on_output, system_prompt, ephemeral
+            )
+
+        last_error = None
+        for provider_name in pool_order:
+            provider = self.pool_router.providers.get(provider_name)
+            if not provider:
+                continue
+
+            # Check rate state before attempting
+            if self.pool_manager and not self.pool_manager.is_available(provider_name):
+                logger.debug(f"Pool skip: {provider_name} not available (rate limit)")
+                continue
+
+            if on_provider_change:
+                display = getattr(provider, "config", {}).get("display_prefix", provider_name)
+                model = getattr(provider, "model", "")
+                await on_provider_change(display, model, None)
+
+            provider_type = type(provider).__name__.lower().replace("provider", "")
+            try:
+                if provider_type == "claudecode":
+                    result = await self._invoke_claude_code(
+                        provider, prompt, session_key, on_output, system_prompt
+                    )
+                else:
+                    result = await self._invoke_api_provider(
+                        provider, prompt, session_key, provider_type,
+                        system_prompt, ephemeral
+                    )
+
+                result.provider_type = provider_type
+
+                # Record successful request against rate windows
+                if self.pool_manager:
+                    tokens = result.input_tokens + result.output_tokens
+                    self.pool_manager.record_request(provider_name, tokens)
+
+                logger.debug(
+                    f"Pool invoke: {provider_name} "
+                    f"({result.input_tokens}in/{result.output_tokens}out tokens)"
+                )
+                return result
+
+            except Exception as e:
+                err_str = str(e).lower()
+                # Detect rate limit responses (429, "rate limit", "too many requests")
+                if any(tok in err_str for tok in ("429", "rate limit", "too many", "quota")):
+                    cooldown = 60.0
+                    if self.pool_manager:
+                        self.pool_manager.set_cooldown(provider_name, cooldown)
+                    logger.info(
+                        f"Pool: {provider_name} rate-limited — cooldown {cooldown:.0f}s, "
+                        f"trying next in pool"
+                    )
+                else:
+                    logger.warning(f"Pool: {provider_name} failed ({e}), trying next")
+                last_error = e
+                continue
+
+        # All providers exhausted
+        logger.error(f"Pool: all providers exhausted. Last error: {last_error}")
+        return BridgeResult(
+            text=f"_(All providers in pool exhausted: {last_error})_",
+            provider_type="pool_exhausted",
+        )
 
     async def _invoke_with_chain(
         self,

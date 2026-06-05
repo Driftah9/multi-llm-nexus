@@ -12,7 +12,7 @@ Nexus Mesh uses a Distributed Hash Table for peer discovery. No central coordina
 
 ```
 Node joins mesh:
-  1. Generate or load hardware-bound identity (via ONS identity layer)
+  1. Generate or load hardware-bound identity (standalone fingerprint module: sha256 of cpu_id + mb_uuid + disk_serial)
   2. Bootstrap from known seed nodes (configurable list, or LAN broadcast)
   3. Announce capability profile to DHT:
      - Node ID (hardware-bound, cryptographic)
@@ -248,7 +248,7 @@ Nodes below `min_node_reputation` threshold (operator-configured, default 0.6) a
 When a node is identified as malicious or compromised:
 
 1. Any mesh member can submit a revocation claim (signed with their hardware key, with evidence)
-2. Revocation is propagated via ONS distributed revocation protocol
+2. Revocation is propagated via libp2p GossipSub (peer-to-peer gossip, no central authority)
 3. Receiving nodes cache the revocation locally
 4. Revoked node ID is excluded from all future routing queries
 5. Revocation does not require central authority — propagates peer-to-peer
@@ -317,6 +317,85 @@ Provider sharing means Operator B can route inference tasks to Operator A's loca
 
 ---
 
+## Mode R: Research Task Protocol
+
+Mode R uses the same task descriptor and sandbox execution as Mode A, with two additions: a deferred queue and a synthesis step.
+
+### Deferred Queue
+
+Research tasks are submitted with `routing.priority: deferred`. They enter a persistent queue rather than being dispatched immediately.
+
+```json
+{
+  "task_id": "r9f2a1b3-...",
+  "routing": {
+    "priority": "deferred",
+    "redundancy": 5,
+    "validation_level": "strict",
+    "synthesis": true,
+    "synthesis_model": "reasoning",
+    "deadline": null
+  }
+}
+```
+
+- `redundancy: 5` — send the same task to 5 different nodes with 5 different models
+- `synthesis: true` — combine all results into a single output when complete
+- `deadline: null` — no time pressure; execute during idle windows only
+
+### Execution Flow
+
+```
+1. Submitting node posts RESEARCH_TASK(descriptor) to deferred queue
+2. Queue persists task (survives restarts)
+3. Coordinator monitors idle windows across mesh
+4. As nodes become idle, coordinator dispatches task copies to N nodes
+5. Each node executes independently in sandbox, returns signed result
+6. Coordinator collects results as they arrive (may take hours)
+7. When N results received (or deadline reached):
+   - Synthesis node runs final reasoning pass over all N chains
+   - Produces consolidated output with source attribution per chain
+8. Submitting node receives final synthesis result
+9. Queue marks task complete
+```
+
+### Synthesis
+
+The synthesis step is itself a mesh task — a reasoning-capable node receives all N raw chains and produces a consolidated output:
+
+```
+Synthesis prompt:
+  "You have received N independent reasoning chains on the following question:
+   [question]
+   
+   Chain 1 (model: deepseek-r1): [output]
+   Chain 2 (model: qwen-72b): [output]
+   ...
+   Chain N (model: [model]): [output]
+   
+   Synthesize these into a comprehensive response. Note where chains agree,
+   where they diverge, and which positions have strongest support."
+```
+
+Synthesis can run on the submitter's local node or be dispatched to a trusted peer with a capable reasoning model.
+
+### Participation Config
+
+Operators opt into Mode R task acceptance separately from Mode A:
+
+```yaml
+mesh:
+  modes:
+    research:
+      enabled: true
+      max_concurrent_research_tasks: 2       # Research tasks are long — cap concurrency
+      max_task_duration_hours: 48            # Abandon tasks running longer than this
+      only_during_scheduled_windows: true    # Never interrupt owner activity
+      min_model_capability: "general"        # Accept tasks this capability and above
+```
+
+---
+
 ## Bandwidth and Network Constraints
 
 Not all operators have high-speed connections. The protocol respects this:
@@ -336,22 +415,32 @@ The coordinator uses advertised bandwidth when routing tasks — large tasks won
 
 ## Wire Protocol Summary
 
-```
-Node joins DHT        → ANNOUNCE(capability_profile)
-Node receives task    → TASK(descriptor) → RESULT(output, signature)
-Node goes offline     → UNAVAILABLE(node_id, reason)
-Node revokes peer     → REVOKE(target_id, evidence, signature)
-Mode B invite         → INVITE(sandbox_id, scoped_token, expiry)
-Mode B access         → ACCESS(sandbox_id, token, hardware_identity)
-Heartbeat (60s)       → HEARTBEAT(node_id, availability, ratio)
-```
+All messages use **msgpack** serialization over **libp2p** transport. Signed with the node's hardware-bound key. Unsigned or unverifiable messages are dropped.
 
-All messages are signed with the node's hardware-bound key. Unsigned or unverifiable messages are dropped.
+```
+# All modes
+Node joins DHT          → ANNOUNCE(capability_profile)
+Node goes offline       → UNAVAILABLE(node_id, reason)
+Heartbeat (60s)         → HEARTBEAT(node_id, availability, ratio)
+Node revokes peer       → REVOKE(target_id, evidence, signature)   [GossipSub]
+
+# Mode A / Mode B — interactive tasks
+Node receives task      → TASK(descriptor) → RESULT(output, signature)
+
+# Mode B — trusted peer establishment
+Mode B invite           → INVITE(sandbox_id, scoped_token, expiry)
+Mode B access           → ACCESS(sandbox_id, token, hardware_identity)
+
+# Mode R — deferred research queue
+Submit research task    → RESEARCH_TASK(descriptor, redundancy, synthesis)
+Research result (each)  → RESEARCH_RESULT(task_id, chain_index, output, signature)
+Synthesis complete      → RESEARCH_SYNTHESIS(task_id, final_output, chain_count)
+```
 
 ---
 
 ## Related Documents
 
-- [01-overview.md](01-overview.md) — Concept, analogies, two modes
+- [01-overview.md](01-overview.md) — Concept, analogies, four modes (0/A/B/R)
 - [02-architecture.md](02-architecture.md) — Architecture, resource governance
 - [03-security.md](03-security.md) — Threat model, isolation, sandbox

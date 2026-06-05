@@ -67,19 +67,40 @@ Hyperspace is a production distributed inference network with 2M+ autonomous nod
 
 **Applied to mesh**: Proves the core premise — idle compute across distributed consumer hardware aggregates into meaningful inference capacity. Hyperspace is the clearest existing validation that mesh-style distributed inference works outside of academic settings.
 
-**Where Nexus Mesh diverges**: Hyperspace solves one problem: run one model that doesn't fit in a single machine's VRAM. Each node carries a slice of the same model; activations stream between layers. Nexus Mesh solves a different problem: run many different models across independent nodes and combine their reasoning. Mode B (Trusted Sandbox) enables diverse specialized reasoners executing in parallel — a code-specialist, a reasoning-specialist, and a domain-specialist reasoning independently on the same problem. That produces composite intelligence a single large model cannot replicate. Mode B's VRAM pooling extension (E1) also covers Hyperspace's use case — if two trusted peers want to co-host a model neither fits alone, they can. The difference is that for Nexus Mesh this is an optional evolution, not the primary design.
+**Where Nexus Mesh diverges**: Hyperspace solves one problem: run one model that doesn't fit in a single machine's VRAM. Each node carries a slice of the same model; activations stream between layers. Nexus Mesh solves a different problem: run many different models across independent nodes and combine their reasoning. Mode B (Trusted Sandbox) enables diverse specialized reasoners executing in parallel — a code-specialist, a reasoning-specialist, and a domain-specialist reasoning independently on the same problem. Mode R extends this further: N nodes producing N independent reasoning chains asynchronously, synthesized into one output. That produces composite intelligence a single large model cannot replicate. Mode 0 (E1) covers Hyperspace's specific use case — LAN machines pooling VRAM to run one large model together — but as a deferred optional extension, not the primary design.
 
 ---
 
-## Two Distinct Mesh Modes
+## Four Deployment Modes
 
-Nexus Mesh operates in two separate modes with different trust models. These are **not interchangeable** and should not share infrastructure.
+Nexus Mesh operates in four distinct modes. Each has a different trust model, network requirement, and use case. They are not interchangeable and do not share infrastructure.
 
-### Mode A: Public Mesh (Compute Donation)
+---
 
-Anonymous contribution of idle inference cycles. Analogous to Folding@Home.
+### Mode 0: Local Pool
 
-- Tasks arrive from the mesh coordinator as opaque inference payloads
+Your machines, your LAN, your Nexus as the hub. No external network required.
+
+- Shard one large model across multiple machines you own on the same LAN
+- Pipeline parallelism — each machine holds a slice of the model's layers
+- Activations stream between machines on the LAN (fast enough to be practical)
+- Use case: run a model that doesn't fit in any single machine's VRAM
+- Nexus orchestrates which machine handles which layers
+- All machines are yours — trust is implicit
+
+**Trust level**: Implicit (your hardware). **Network**: LAN only. Activation streaming makes WAN impractical.
+
+**Reference implementation**: exo (github.com/exo-explore/exo) — same pipeline parallelism pattern. Mode 0 adds Nexus orchestration and multi-operator capability for LAN trusted peers.
+
+**Status**: Phase 6 — deferred. Designed for research-scale deployments with multiple local machines.
+
+---
+
+### Mode A: Idle Mesh (Public Compute Donation)
+
+Anonymous contribution of idle inference cycles. Analogous to Folding@Home and BOINC.
+
+- Tasks arrive from the mesh as opaque inference payloads
 - Your node sees: the prompt, the model required, the output format
 - Your node never sees: who asked, why, what system it's part of
 - Maximum isolation: mesh execution is fully sandboxed from your private Nexus environment
@@ -87,6 +108,8 @@ Anonymous contribution of idle inference cycles. Analogous to Folding@Home.
 - Resource governance: owner-defined throttle, schedule, and bandwidth limits apply
 
 **Trust level**: Zero. Every mesh task is assumed potentially hostile until executed in sandbox.
+
+---
 
 ### Mode B: Trusted Sandbox (Explicit Peer Access)
 
@@ -96,9 +119,29 @@ Direct peer-to-peer trust relationships with known operators. Analogous to givin
 - Sandbox can contain shared context, tools, and optionally provider access
 - "You can use my DeepSeek-R1 for this project" — direct provider sharing
 - Trust is scoped, explicit, and revocable
+- LAN trusted peers can extend into Mode 0 VRAM pooling
 - Still sandboxed from private data, but richer interaction is allowed
 
 **Trust level**: Named, hardware-bound, cryptographically verified. Revocable by either party.
+
+---
+
+### Mode R: Research (Async Batch)
+
+Long-running research workloads with no interactive latency requirement. Analogous to BOINC / Folding@Home for scientific compute — submit a mission, come back to results.
+
+- Submit a research task to the deferred queue
+- Nodes execute during their idle windows — no real-time response expected
+- Multi-node consensus: the same question sent to N nodes produces N independent reasoning chains from N different models
+- Synthesis happens when all chains complete
+- You return hours or days later to a finished result
+- WAN activation streaming (slow) is acceptable here — latency is irrelevant to the outcome
+
+**Trust level**: Mode A (anonymous, sandboxed) or Mode B (named, scoped) — operator's choice.
+
+**Use case examples**: Deep research across conflicting sources, overnight analysis of large datasets, multi-perspective synthesis on complex topics, batch classification at scale.
+
+**The key property**: 10 nodes running 10 different models on the same question produces 10 independent reasoning chains. No single model or datacenter can replicate this — they produce one chain, however many machines support it. Mode R produces a synthesized output that is qualitatively broader than any single inference.
 
 ---
 
@@ -106,15 +149,18 @@ Direct peer-to-peer trust relationships with known operators. Analogous to givin
 
 Several distributed inference projects exist. None combine what Nexus Mesh does.
 
-| System | Multi-Operator | Privacy | Ratio/Reputation | Agent Platform | Status |
-|---|---|---|---|---|---|
-| **Petals** (BigScience) | ✓ | ✗ | ✗ | ✗ | Research only |
-| **Exo** | ✗ (your devices only) | ✗ | ✗ | ✗ | Open source, active |
-| **Hivemind** | ✓ | ✗ | ✗ | ✗ | Research library |
-| **Bittensor** | ✓ | ✗ (blockchain = public) | ✓ (crypto tokens) | ✗ | Deployed, crypto-native |
-| **Federated LLM research** (arxiv) | ✓ | ✓ | ✗ | ✗ | Papers only, undeployed |
-| **vLLM / NVIDIA Dynamo** | ✗ (single org) | ✗ | ✗ | ✗ | Enterprise, centralized |
-| **Nexus Mesh** | ✓ | ✓ | ✓ | ✓ | Design phase |
+| System | Multi-Operator | Privacy | Ratio/Reputation | Agent Platform | Mode | Status |
+|---|---|---|---|---|---|---|
+| **Petals** (BigScience) | ✓ | ✗ | ✗ | ✗ | Layer sharding | Research only |
+| **Exo** | ✗ (your devices only) | ✗ | ✗ | ✗ | Layer sharding (LAN) | Open source, active |
+| **Hyperspace Pods** | ✓ | ✗ | ✗ | ✗ | Layer sharding (WAN batch) | Deployed, 2M+ nodes |
+| **Hivemind** | ✓ | ✗ | ✗ | ✗ | Layer sharding | Research library |
+| **Bittensor** | ✓ | ✗ (blockchain = public) | ✓ (crypto tokens) | ✗ | Complete models | Deployed, crypto-native |
+| **Federated LLM research** (arxiv) | ✓ | ✓ | ✗ | ✗ | Varies | Papers only |
+| **vLLM / NVIDIA Dynamo** | ✗ (single org) | ✗ | ✗ | ✗ | Single org | Enterprise, centralized |
+| **Nexus Mesh** | ✓ | ✓ | ✓ | ✓ | Complete models + layer sharding (Mode 0) | Design phase |
+
+**Exo and Hyperspace** are the clearest technical references for Mode 0 (local pool) and Mode R (async batch) respectively. Neither is being adopted wholesale — they validate specific patterns. Nexus Mesh is not a fork of either.
 
 **Critical architectural distinction — Petals vs. Nexus Mesh:**
 
@@ -135,7 +181,7 @@ Bittensor has ratio/reputation via blockchain tokens, which is the closest to Ne
 
 **The gap Nexus Mesh fills:**
 
-No deployed system combines: multi-operator federation + data sovereignty + ratio enforcement + agent platform integration + hardware-agnostic (budget to Citadel) + two trust modes + local-first routing. This is original design space.
+No deployed system combines: multi-operator federation + data sovereignty + ratio enforcement + agent platform integration + hardware-agnostic (budget to Citadel) + four deployment modes (0/A/B/R) + local-first routing. This is original design space.
 
 ---
 
@@ -171,7 +217,7 @@ No commercial or open-source system in 2026 combines all of the following:
 
 ## Related Documents
 
-- [02-architecture.md](02-architecture.md) — Technical layers, resource governance, ONS transport
+- [02-architecture.md](02-architecture.md) — Technical layers, resource governance, IPFS/libp2p transport
 - [03-security.md](03-security.md) — Threat model, isolation architecture, sandbox design
 - [04-protocol.md](04-protocol.md) — Task descriptors, peer discovery, ratio enforcement, result validation
 - [citadel-tier.md](../citadel-tier.md) — High-end hardware that maximizes mesh contribution
