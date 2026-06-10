@@ -55,7 +55,7 @@ async def test_failover_to_secondary_on_failure(two_provider_chain):
             raise RuntimeError("primary down")
         return "ok from secondary"
 
-    success, result, provider, error = await chain.try_with_fallback(invoke)
+    success, result, provider, fallback_occurred, error = await chain.try_with_fallback(invoke)
     assert success
     assert result == "ok from secondary"
 
@@ -131,6 +131,6 @@ async def test_all_providers_exhausted_returns_failure():
     async def invoke(p):
         raise RuntimeError("always fails")
 
-    success, result, provider, error = await chain.try_with_fallback(invoke)
+    success, result, provider, fallback_occurred, error = await chain.try_with_fallback(invoke)
     assert not success
     assert error is not None
