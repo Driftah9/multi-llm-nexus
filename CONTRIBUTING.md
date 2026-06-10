@@ -60,6 +60,14 @@ Register the provider and its cost class in `src/providers/registry.py`. A provi
 speaks the OpenAI-compatible API can often be reached through the existing OpenAI adapter
 with a different base URL rather than a new module — prefer that where it fits.
 
+First, **research the provider and add it to the catalog** at
+[`docs/AI_PROVIDER_REFERENCE.md`](docs/AI_PROVIDER_REFERENCE.md) — that file is the
+installer's source of truth for selectable providers, their auth models, and free-tier
+limits. Its *"Keeping this current — adding a new provider"* section lists the five facts
+to capture (auth model, endpoint/OpenAI-compat, free-tier limits, models/tier fit, signup).
+Setup steps per provider are in [`docs/api-key-setup-guide.md`](docs/api-key-setup-guide.md);
+the prioritized backlog is in [`docs/provider-integration-roadmap.md`](docs/provider-integration-roadmap.md).
+
 ## Reporting bugs and security issues
 
 - **Bugs / features:** open a GitHub issue with steps to reproduce, your provider/adapter
