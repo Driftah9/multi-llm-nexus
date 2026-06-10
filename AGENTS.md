@@ -204,7 +204,7 @@ The display shows WHAT is active, not HOW it's connected. Connection details are
 - **v0.6.3** — `PoolRouter` (cost-class-aware provider selection from tier pools); `UserGate` (two-stage pre-triage authorization: ACL + local-LLM intent check); Triage extended to 5 dimensions (urgency, task_value, capability, estimated_complexity, task_type); `AdapterBase` + `APISenderBase` extracted from the MM/Discord/Telegram adapters; `cost_class` added to `ProviderRegistry`; mesh docs restructured to four modes (0/A/B/R, ONS removed in favor of IPFS/libp2p transport).
 
 ### Baseline (carried forward from v0.6.0)
-Providers layer complete. Core engine + router + triage + behaviors + bridge all complete.
+Providers layer complete (8 provider-type adapters fronting 22 selectable providers — the `openai` type reaches Groq/Mistral/DeepSeek/Cerebras/etc. via `base_url`). Core engine + router + triage + behaviors + bridge all complete.
 Orchestrator + specialist loader built with real-time heartbeat integration. Session class fixed.
 Mattermost adapter fully implemented. Discord + Telegram adapters implemented.
 Config examples for providers, adapters, workspaces, and 4 specialist profiles provided.

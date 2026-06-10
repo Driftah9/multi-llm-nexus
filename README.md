@@ -37,7 +37,7 @@ A persistent, always-on agent platform that:
 src/
   core/          Engine (ACTIVE/STANDBY hybrid), session, bridge, triage,
                  orchestrator, commands, spaces, watchers, notify
-  providers/     LLM abstraction layer — 22 providers, swap any in/out
+  providers/     LLM abstraction layer — 8 provider types fronting 22 selectable providers, swap any in/out
   adapters/      Platform connectors — Mattermost (WebSocket), Discord (REST), Telegram
   tools/         Function/tool definitions for provider tool-calling
   setup/         Interactive install wizard + systemd service generator
