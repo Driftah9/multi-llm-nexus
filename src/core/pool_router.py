@@ -115,6 +115,31 @@ class PoolRouter:
         )
         return valid
 
+    def select_communicator(self, triage: "TriageResult") -> list[str]:
+        """Return the user-facing answerer candidates — communicator-role providers only.
+
+        The user-facing answer must come from a COMMUNICATOR: a high-trust, stateful
+        provider (mark one with `role: communicator` in providers.yaml). Cheap/stateless
+        providers (the default, `role: worker`) are reachable only for delegated
+        sub-tasks (orchestrator specialists / ephemeral calls), never to speak to the
+        user directly — a worker can be wrong, but it must never *say* a wrong thing to
+        the user. Same fix proven live in claude-brain (decision D-009).
+
+        Resolves the tier pool for this triage, then filters to communicator-role
+        providers, cost-ordered. Returns [] if the operator hasn't designated any
+        communicator — callers fall back to select() for backward compatibility.
+        """
+        pool_name = self._pool_for_triage(triage)
+        ordered = self.pool_manager.ordered_pool(pool_name)
+        comm = [
+            p for p in ordered
+            if p in self.providers
+            and self.providers[p].config.get("role", "worker") == "communicator"
+        ]
+        if comm:
+            logger.debug(f"Communicator pool for {pool_name}: {comm}")
+        return comm
+
     def select_triage_provider(self) -> Optional["BaseProvider"]:
         """Return the best available nano provider for triage classification."""
         ordered = self.pool_manager.ordered_pool(self._triage_pool)

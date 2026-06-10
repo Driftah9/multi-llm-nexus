@@ -18,7 +18,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Optional, Callable, TypeVar, TYPE_CHECKING
+
+# Deterministic liveness pings ("are you there?", "you here?"): short, standalone
+# connectivity checks. Matched whole-message (anchored) so real questions like
+# "are you there to help with X" are NOT swallowed. Answered with a canned reply and
+# NO LLM call — instant and immune to confabulation. Same shortcut as claude-brain.
+_LIVENESS_RE = re.compile(
+    r'^\s*(?:'
+    r'are\s+you\s+(?:there|here|up|alive|online|awake|around|listening)'
+    r'|you\s+(?:there|here|up|alive|around|listening)'
+    r'|still\s+(?:there|here|with\s+me|alive|awake)'
+    r'|(?:are\s+you\s+)?on(?:line)?'
+    r')\s*[\?\.!]*\s*$',
+    re.IGNORECASE,
+)
 
 from .api_base import APISenderBase
 from ..core.behaviors import NexusBehavior, tier_label
@@ -162,13 +177,30 @@ class AdapterBase:
             await self._handle_command(text, channel_id, channel_name, session_key, post_id)
             return
 
-        # Behavior routing — tier/effort display + validator recording
-        triage = await self.behavior.route_message(text, channel_name,
-                                                   self.PLATFORM_PROPS["platform_name"])
-        tier_display = tier_label(triage.tier)
+        reply_to = root_id if root_id and root_id != post_id else ""
 
-        # 5-dimension triage for pool routing
+        # Deterministic liveness shortcut: "are you there?" → "Yes." with NO LLM call
+        # (no triage, no provider, no confabulation). Reached only after the gate, so
+        # owner/allowed users only.
+        if _LIVENESS_RE.match(text.strip()):
+            await self.send(channel_id, "Yes.", reply_to)
+            logger.info("Liveness ping → 'Yes.' (no LLM)")
+            return
+
+        # Instant acknowledgment: post the placeholder NOW, BEFORE triage, so the user
+        # sees feedback immediately instead of waiting through classification. The
+        # heartbeat below refines it with the resolved provider during invoke.
+        placeholder_id = await self._send_placeholder(channel_id, "…", reply_to)
+
+        # Single classification on the hot path: run the 5-dimension triage ONCE, then
+        # derive the tier/effort routing from it (precomputed_tier) instead of firing a
+        # SECOND nano LLM call — the double-triage collapse.
         triage_result = await self._triage.classify(text)
+        triage = await self.behavior.route_message(
+            text, channel_name, self.PLATFORM_PROPS["platform_name"],
+            precomputed_tier=triage_result.estimated_complexity,
+        )
+        tier_display = tier_label(triage.tier)
 
         invoke_start = __import__("time").time()
 
@@ -181,10 +213,6 @@ class AdapterBase:
                 classified_tier=triage.tier,
                 classified_effort=triage.effort,
             )
-
-        # Placeholder message (thread-aware if applicable)
-        reply_to = root_id if root_id and root_id != post_id else ""
-        placeholder_id = await self._send_placeholder(channel_id, tier_display, reply_to)
 
         # Heartbeat for live status updates (has access to channel_id from enclosing scope)
         async def _push_heartbeat(pid: str, content: str) -> None:

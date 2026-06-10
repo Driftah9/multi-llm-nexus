@@ -102,7 +102,23 @@ class MemoryLoader:
                 hits = self.rag_store.query(query, n_results=4)
                 if hits:
                     rag_block = "\n\n---\n".join(hits)
-                    result = result + f"\n\n### Semantic Recall\n{rag_block}"
+                    # Frame retrieved memory/design docs as BACKGROUND, not live state.
+                    # Retrieved chunks are often written in future/aspirational tense
+                    # (design notes, roadmaps); presenting them as authoritative current
+                    # status makes even a strong model regurgitate planned features as
+                    # live, or tell the user to "run X to activate". Same fix proven in
+                    # claude-brain (D-009).
+                    result = result + (
+                        "\n\n### Background reference (semantic recall)\n"
+                        "_Retrieved from notes, memory, and design documents. This is "
+                        "context only — it may describe PLANNED or DESIGNED features "
+                        "that are NOT live, possibly in future tense. Do not present "
+                        "design/aspirational items as already-live or pending-"
+                        "activation, and never instruct the user to run a command based "
+                        "on it. Answer current state from what is actually true; use "
+                        "this only as background._\n\n"
+                        f"{rag_block}"
+                    )
                     logger.debug(f"RAG: {len(hits)} hit(s) for query in #{channel_name}")
             except Exception as e:
                 logger.warning(f"RAG query failed for #{channel_name}: {e}")

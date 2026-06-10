@@ -232,7 +232,8 @@ class NexusBehavior:
         except FileNotFoundError:
             pass
 
-    async def route_message(self, message: str, channel_key: str = "", platform: str = "") -> RoutingDecision:
+    async def route_message(self, message: str, channel_key: str = "", platform: str = "",
+                            precomputed_tier: Optional[str] = None) -> RoutingDecision:
         """
         Decide which tier and effort level to use for a message.
 
@@ -264,6 +265,13 @@ class NexusBehavior:
             )
 
         # 3. Auto triage
+        if precomputed_tier is not None:
+            # Reuse this turn's 5-dimension classification (estimated_complexity == tier)
+            # instead of firing a SECOND nano LLM call on the hot path — the
+            # double-triage collapse. Overrides (steps 1-2) still take precedence.
+            tier = precomputed_tier if precomputed_tier in VALID_TIERS else TIER_STANDARD
+            effort = {"nano": "low", "standard": "medium", "deep": "high"}.get(tier, "medium")
+            return RoutingDecision(tier=tier, effort=effort, source="triage")
         if self.triage_provider:
             return await triage_message(message, self.triage_provider)
 

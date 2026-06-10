@@ -16,6 +16,14 @@
 # Each provider requires three additional fields for pool routing:
 #   cost_class — local | free_limited | paid_subscription
 #   rpm / rpd / tpm / tpd — rate limits (omit or set 0 for unlimited)
+#   role — communicator | worker   (default: worker)
+#     communicator = a high-trust, stateful provider allowed to produce the
+#       USER-FACING answer. Mark your best provider(s) communicator.
+#     worker = cheap/stateless; used only for delegated sub-tasks (triage,
+#       specialist opinions), NEVER posted to the user directly. A worker can be
+#       wrong, but it must never *say* a wrong thing to a user (decision D-009).
+#     If NO provider is marked communicator, Nexus falls back to the full pool
+#       for user-facing answers (backward compatible) and warns once.
 #
 # Provider types:
 #   claude_code → ClaudeCodeProvider  (CLI, full MCP)
@@ -136,6 +144,7 @@ providers:
     timeout: 600
     cost_class: paid_subscription
     tier: standard
+    role: communicator            # answers users directly; workers never do (D-009)
     # effort: low | medium | high  (controls extended thinking)
 
   # Anthropic direct API (no CLI required)

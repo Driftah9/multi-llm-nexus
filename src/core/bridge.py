@@ -202,7 +202,26 @@ class NexusBridge:
         On rate-limit error, marks the provider, moves to next in pool.
         Records token usage against each successful provider's rate window.
         """
-        pool_order = self.pool_router.select(triage)
+        # D-009 role split: a user-facing answer (ephemeral=False) may come ONLY from a
+        # communicator-role provider — never a cheap/stateless worker, which can
+        # confabulate. Workers are reachable only for delegated sub-tasks (ephemeral
+        # calls from the orchestrator's specialists). If the operator hasn't designated
+        # any `role: communicator` provider, fall back to the full pool (backward
+        # compatible) and warn once.
+        if ephemeral:
+            pool_order = self.pool_router.select(triage)
+        else:
+            pool_order = self.pool_router.select_communicator(triage)
+            if not pool_order:
+                if not getattr(self, "_warned_no_communicator", False):
+                    logger.warning(
+                        "No `role: communicator` provider configured — user-facing "
+                        "answers may be produced by a worker. Mark a high-trust, stateful "
+                        "provider with `role: communicator` in providers.yaml to ensure "
+                        "only it speaks to users (D-009)."
+                    )
+                    self._warned_no_communicator = True
+                pool_order = self.pool_router.select(triage)
 
         if not pool_order:
             # Pool router couldn't find any candidates — fall through to chain/router
