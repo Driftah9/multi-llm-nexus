@@ -54,3 +54,6 @@ htmlcov/
 
 # SQLite databases
 *.db
+docs/github_push.md
+docs/project_state.md
+docs/GOPHER_COLLABORATION_BRIEF.md
