@@ -196,9 +196,15 @@ The display shows WHAT is active, not HOW it's connected. Connection details are
 9. **Bypass gracefully** — if no workspace match or all specialists fail, fall through to standard path
 10. **Heartbeat is mechanical** — status display uses zero LLM tokens; all state tracking is asyncio bookkeeping
 
-## Current Status (v0.6.0 — 2026-06-01)
+## Current Status (v0.6.3 — 2026-06-05)
 
-Providers layer complete (22 providers). Core engine + router + triage + behaviors + bridge all complete.
+### Changes since v0.6.0
+- **v0.6.1** — full documentation audit; claude-brain feature port marked complete.
+- **v0.6.2** — OpenAI-compatible API adapter added; vLLM provider + model lifecycle manager for hardware-agnostic local inference.
+- **v0.6.3** — `PoolRouter` (cost-class-aware provider selection from tier pools); `UserGate` (two-stage pre-triage authorization: ACL + local-LLM intent check); Triage extended to 5 dimensions (urgency, task_value, capability, estimated_complexity, task_type); `AdapterBase` + `APISenderBase` extracted from the MM/Discord/Telegram adapters; `cost_class` added to `ProviderRegistry`; mesh docs restructured to four modes (0/A/B/R, ONS removed in favor of IPFS/libp2p transport).
+
+### Baseline (carried forward from v0.6.0)
+Providers layer complete. Core engine + router + triage + behaviors + bridge all complete.
 Orchestrator + specialist loader built with real-time heartbeat integration. Session class fixed.
 Mattermost adapter fully implemented. Discord + Telegram adapters implemented.
 Config examples for providers, adapters, workspaces, and 4 specialist profiles provided.

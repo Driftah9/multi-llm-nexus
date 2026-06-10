@@ -32,13 +32,13 @@ mesh:
   mode_0:
     enabled: true
     machines:
-      - host: 10.0.0.7
+      - host: 192.0.2.10
         vram_gb: 16
         role: hub          # Nexus coordinator
-      - host: 10.0.0.8
+      - host: 192.0.2.11
         vram_gb: 16
         role: worker
-      - host: 10.0.0.9
+      - host: 192.0.2.12
         vram_gb: 16
         role: worker
     
@@ -55,13 +55,13 @@ mesh:
 4. **Mode B extension**: LAN-connected trusted peers with explicit grants can participate in the same pool
 
 ```
-Your Nexus (hub, 10.0.0.7):
+Your Nexus (hub, 192.0.2.10):
   - DeepSeek-R1 671B layers 0-43    (16GB)
 
-Worker machine (10.0.0.8):
+Worker machine (192.0.2.11):
   - DeepSeek-R1 671B layers 44-80   (16GB)
   
-Activation flow: layer 43 output → stream to 10.0.0.8 → layer 44 input
+Activation flow: layer 43 output → stream to 192.0.2.11 → layer 44 input
 ```
 
 ### When This Makes Sense
