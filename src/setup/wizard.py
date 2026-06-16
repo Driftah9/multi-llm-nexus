@@ -134,12 +134,19 @@ def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[s
     for key, label, selected in items:
         args.extend([key, label, "on" if selected else "off"])
     try:
-        result = subprocess.run(args, capture_output=True, text=True, check=False)
+        # whiptail draws its dialog on stderr; selected output goes to stdout.
+        # Open /dev/tty directly so the dialog renders in the terminal even when
+        # stdout is redirected (e.g. inside script(1) or a subprocess chain).
+        with open("/dev/tty", "r+") as tty:
+            result = subprocess.run(
+                args, stdin=tty, stdout=subprocess.PIPE, stderr=tty,
+                text=True, check=False
+            )
         if result.returncode == 0:
             lines = [l for l in result.stdout.strip().split("\n") if l]
             return lines
         return []
-    except FileNotFoundError:
+    except (FileNotFoundError, OSError):
         # Fallback: numbered list
         print(f"\n{title}")
         for i, (key, label, _) in enumerate(items, 1):
@@ -168,11 +175,15 @@ def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
     for key, label, selected in items:
         args.extend([key, label, "on" if selected else "off"])
     try:
-        result = subprocess.run(args, capture_output=True, text=True, check=False)
+        with open("/dev/tty", "r+") as tty:
+            result = subprocess.run(
+                args, stdin=tty, stdout=subprocess.PIPE, stderr=tty,
+                text=True, check=False
+            )
         if result.returncode == 0:
             return result.stdout.strip()
         return ""
-    except FileNotFoundError:
+    except (FileNotFoundError, OSError):
         # Fallback: numbered list
         print(f"\n{title}")
         for i, (key, label, _) in enumerate(items, 1):
