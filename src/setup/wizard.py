@@ -120,75 +120,83 @@ def ask_yn(prompt: str, default: bool = True) -> bool:
     _wlog(f"ANSWER_YN: {ans}")
     return ans.lower().startswith("y")
 
+def _has_interactive_tty() -> bool:
+    """True only when both stdin and stdout are real TTYs (not pipes, not SSH without PTY)."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
 def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[str]:
     """
-    Multi-select via whiptail --checklist.
+    Multi-select checklist. Uses whiptail TUI when a real TTY is present;
+    falls back to a numbered text list otherwise (SSH, pipes, script(1) wrappers).
     items: [(key, label, default_selected), ...]
     Returns: list of selected keys
     """
-    list_height = min(len(items), 15)
-    height = list_height + 8  # dialog chrome
-    # whiptail syntax: --checklist text height width list-height [tag item status ...]
-    args = ["whiptail", "--separate-output", "--checklist", title,
-            str(height), "78", str(list_height)]
-    for key, label, selected in items:
-        args.extend([key, label, "on" if selected else "off"])
-    try:
-        result = subprocess.run(
-            args, stdout=subprocess.PIPE, text=True, check=False
-        )
-        if result.returncode == 0:
-            lines = [l for l in result.stdout.strip().split("\n") if l]
-            return lines
-        raise OSError("whiptail failed or unavailable")
-    except (FileNotFoundError, OSError):
-        # Fallback: numbered list
-        print(f"\n{title}")
-        for i, (key, label, _) in enumerate(items, 1):
-            print(f"  ({i}) {label}")
-        raw = input("  Select (comma-separated numbers): ").strip()
-        sel: list[str] = []
-        for part in raw.split(","):
-            try:
-                idx = int(part.strip()) - 1
-                if 0 <= idx < len(items):
-                    sel.append(items[idx][0])
-            except ValueError:
-                pass
-        return sel
+    if _has_interactive_tty():
+        list_height = min(len(items), 15)
+        height = list_height + 8
+        args = ["whiptail", "--separate-output", "--checklist", title,
+                str(height), "78", str(list_height)]
+        for key, label, selected in items:
+            args.extend([key, label, "on" if selected else "off"])
+        try:
+            result = subprocess.run(args, stdout=subprocess.PIPE, text=True, check=False)
+            if result.returncode == 0:
+                lines = [l for l in result.stdout.strip().split("\n") if l]
+                return lines
+        except (FileNotFoundError, OSError):
+            pass
+
+    # Text fallback: always used when not in a real TTY
+    print(f"\n{title}")
+    for i, (key, label, selected) in enumerate(items, 1):
+        marker = "*" if selected else " "
+        print(f"  ({i:2}) [{marker}] {label}", flush=True)
+    print(flush=True)
+    raw = input("  Enter numbers separated by commas (e.g. 1,3,5): ").strip()
+    sel: list[str] = []
+    for part in raw.split(","):
+        try:
+            idx = int(part.strip()) - 1
+            if 0 <= idx < len(items):
+                sel.append(items[idx][0])
+        except ValueError:
+            pass
+    return sel
 
 def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
     """
-    Single select via whiptail --radiolist.
+    Single-select list. Uses whiptail TUI when a real TTY is present;
+    falls back to numbered text list otherwise.
     items: [(key, label, default_selected), ...]
     Returns: selected key or empty string
     """
-    list_height = min(len(items), 10)
-    height = list_height + 8
-    # whiptail syntax: --radiolist text height width list-height [tag item status ...]
-    args = ["whiptail", "--radiolist", title, str(height), "78", str(list_height)]
-    for key, label, selected in items:
-        args.extend([key, label, "on" if selected else "off"])
-    try:
-        result = subprocess.run(
-            args, stdout=subprocess.PIPE, text=True, check=False
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        raise OSError("whiptail failed or unavailable")
-    except (FileNotFoundError, OSError):
-        # Fallback: numbered list
-        print(f"\n{title}")
-        for i, (key, label, _) in enumerate(items, 1):
-            print(f"  ({i}) {label}")
-        raw = input("  Select (number): ").strip()
+    if _has_interactive_tty():
+        list_height = min(len(items), 10)
+        height = list_height + 8
+        args = ["whiptail", "--radiolist", title, str(height), "78", str(list_height)]
+        for key, label, selected in items:
+            args.extend([key, label, "on" if selected else "off"])
         try:
-            idx = int(raw) - 1
-            if 0 <= idx < len(items):
-                return items[idx][0]
-        except ValueError:
+            result = subprocess.run(args, stdout=subprocess.PIPE, text=True, check=False)
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except (FileNotFoundError, OSError):
             pass
-        return ""
+
+    # Text fallback
+    print(f"\n{title}")
+    for i, (key, label, selected) in enumerate(items, 1):
+        marker = ">" if selected else " "
+        print(f"  ({i}) [{marker}] {label}", flush=True)
+    print(flush=True)
+    raw = input("  Enter number: ").strip()
+    try:
+        idx = int(raw) - 1
+        if 0 <= idx < len(items):
+            return items[idx][0]
+    except ValueError:
+        pass
+    return ""
 
 
 # ─ System utilities ───────────────────────────────────────────────────────────
