@@ -187,6 +187,19 @@ while true; do
     if id "$USERNAME" &>/dev/null; then
         warn "User '$USERNAME' already exists on this system."
         if ask_yn "Use the existing user and continue?"; then
+            # Existing user may have a missing/corrupted home dir (e.g. a prior
+            # 'userdel -r' that failed while a process held the account, leaving
+            # the passwd entry but no /home). Repair it before any config write.
+            USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
+            USER_HOME="${USER_HOME:-/home/$USERNAME}"
+            if [[ ! -d "$USER_HOME" ]]; then
+                warn "Home directory $USER_HOME is missing — recreating it."
+                mkdir -p "$USER_HOME"
+                cp -a /etc/skel/. "$USER_HOME/" 2>/dev/null || true
+                chown -R "$USERNAME:$USERNAME" "$USER_HOME"
+                chmod 755 "$USER_HOME"
+                check "Home directory restored: $USER_HOME"
+            fi
             break
         fi
         continue
