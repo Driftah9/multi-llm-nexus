@@ -18,7 +18,7 @@
 
 ```
 [NAME]/
-├── AGENTS.md          ← project context (single source of truth — edit this)
+├── AI_CONTEXT.md      ← project context (single source of truth — edit this)
 ├── CLAUDE.md          ← AI shim (Claude Code)
 ├── .cursorrules       ← AI shim (Cursor)
 ├── .windsurfrules     ← AI shim (Windsurf)
@@ -33,7 +33,7 @@
 ```
 
 All working files go under `work/`. The project root is for context and config only.
-To switch AI providers, add a new shim at the root pointing to `AGENTS.md` — no other changes needed.
+To switch AI providers, add a new shim at the root pointing to `AI_CONTEXT.md` — no other changes needed.
 
 ## Linked Channels
 

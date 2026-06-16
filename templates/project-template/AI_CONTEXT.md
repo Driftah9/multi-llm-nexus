@@ -1,6 +1,6 @@
 # Project: [NAME]
 
-> **This is the single source of truth for this project.**
+> **This is the single source of truth for this project (AI_CONTEXT.md).**
 > `CLAUDE.md`, `.cursorrules`, `.windsurfrules`, and `.github/copilot-instructions.md`
 > are thin shims that point here. Edit this file — not the shims.
 
@@ -22,12 +22,12 @@ context/config files that AI tools and Nexus read on startup.
 
 ```
 [NAME]/
-├── AGENTS.md                  ← this file (single source of truth)
-├── CLAUDE.md                  ← shim → AGENTS.md (Claude Code)
-├── .cursorrules               ← shim → AGENTS.md (Cursor)
-├── .windsurfrules             ← shim → AGENTS.md (Windsurf)
+├── AI_CONTEXT.md              ← this file (single source of truth)
+├── CLAUDE.md                  ← shim → AI_CONTEXT.md (Claude Code)
+├── .cursorrules               ← shim → AI_CONTEXT.md (Cursor)
+├── .windsurfrules             ← shim → AI_CONTEXT.md (Windsurf)
 ├── .github/
-│   └── copilot-instructions.md  ← shim → AGENTS.md (GitHub Copilot)
+│   └── copilot-instructions.md  ← shim → AI_CONTEXT.md (GitHub Copilot)
 ├── .nexus/                    ← Nexus metadata (links, workspace config)
 └── work/
     ├── src/                   ← source code / implementation
