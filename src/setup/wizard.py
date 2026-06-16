@@ -485,30 +485,46 @@ async def configure_providers(
     if "anthropic_cli" in cloud_selected:
         print("\n  Anthropic / Claude — Subscription (CLI)")
         result = subprocess.run("command -v claude", shell=True, capture_output=True)
-        if result.returncode != 0:
+        cli_ready = result.returncode == 0
+        if not cli_ready:
             print("    ✗ Claude Code CLI not found on PATH.")
             if ask_yn("    Install from https://claude.ai/code now?"):
                 print("    → Running installer...")
-                subprocess.run(
-                    "curl -fsSL https://claude.ai/install.sh | sh",
+                install_result = subprocess.run(
+                    "curl -fsSL https://claude.ai/install.sh | bash",
                     shell=True, check=False
                 )
+                # Reload PATH so claude is visible without a new shell
+                new_path = subprocess.run(
+                    'echo "$HOME/.local/bin:$HOME/.claude/local/bin:$PATH"',
+                    shell=True, capture_output=True, text=True
+                ).stdout.strip()
+                os.environ["PATH"] = new_path
+                cli_ready = subprocess.run("command -v claude", shell=True, capture_output=True).returncode == 0
+                if cli_ready:
+                    print(f"    {check_mark(True)} Claude CLI installed")
+                else:
+                    print(f"    {check_mark(False)} Install script ran but 'claude' still not on PATH.")
+                    print("    Open a new shell and run: claude auth login")
+                    print("    Then re-run: python -m src.setup.wizard")
+                    cloud_selected = [p for p in cloud_selected if p != "anthropic_cli"]
             else:
                 print("    Skipping Anthropic CLI.")
                 _wlog("anthropic_cli: skipped (CLI not installed)")
                 cloud_selected = [p for p in cloud_selected if p != "anthropic_cli"]
 
-        # Auth
-        print("    → Run: claude auth login")
-        input("    Press Enter after authentication completes...")
-        result = subprocess.run("claude -p 'ping' --output-format text", shell=True, capture_output=True, text=True)
-        if result.returncode == 0:
-            configured["anthropic"] = "anthropic_cli"
-            print(f"    {check_mark(True)} Anthropic (CLI) configured")
-            _wlog("anthropic_cli: configured")
-        else:
-            print(f"    {check_mark(False)} Connection test failed")
-            _wlog("anthropic_cli: connection failed")
+        if cli_ready:
+            # Auth
+            print("    → Run: claude auth login")
+            input("    Press Enter after authentication completes...")
+            result = subprocess.run("claude -p 'ping' --output-format text", shell=True, capture_output=True, text=True)
+            if result.returncode == 0:
+                configured["anthropic"] = "anthropic_cli"
+                print(f"    {check_mark(True)} Anthropic (CLI) configured")
+                _wlog("anthropic_cli: configured")
+            else:
+                print(f"    {check_mark(False)} Connection test failed — check: claude auth login")
+                _wlog("anthropic_cli: connection test failed")
 
     # Ollama
     if "ollama" in local_selected:
