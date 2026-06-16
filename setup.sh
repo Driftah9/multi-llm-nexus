@@ -56,15 +56,17 @@ if [ ! -f "$NEXUS_DIR/.env" ]; then
 fi
 
 # Interactive wizard
-_slog "launching wizard: src/setup/wizard.py"
+# Run as module (-m src.setup.wizard) so relative imports work
+_slog "launching wizard: src.setup.wizard"
 echo ""
-$PYTHON "$NEXUS_DIR/src/setup/wizard.py"
+cd "$NEXUS_DIR"
+$PYTHON -m src.setup.wizard
 _slog "wizard returned (exit $?)"
 
 echo ""
 
 # Generate systemd service file
-$PYTHON "$NEXUS_DIR/src/setup/systemd.py"
+$PYTHON -m src.setup.systemd
 
 echo ""
 echo "Setup complete. Start Nexus with:"
