@@ -493,10 +493,14 @@ if [[ -n "$GENERATED_PASSWORD" ]]; then
     echo
     printf "  %s\n" "$(bold "$(yellow "Generated password — store this now:")")"
     printf "    %s\n" "$(bold "$GENERATED_PASSWORD")"
+    echo
+    read -p "  $(dim "Press Enter to continue")" < /dev/tty
 fi
 
 echo
 echo "  $(dim "Switching to '$USERNAME' — bootstrap will handle the rest.")"
 echo
 
-exec su - "$USERNAME" -c "bash ~/.nexus-bootstrap.sh; exec bash -li"
+# Use script to allocate a proper TTY for interactive shell + bootstrap
+# This ensures full job control and whiptail menu support
+exec script -q -c "su - $USERNAME" /dev/null
