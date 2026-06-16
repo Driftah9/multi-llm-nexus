@@ -305,6 +305,12 @@ else
     check "Repository cloned"
 fi
 
+# Inject fixed wizard.py from /tmp if available (bypasses GitHub CDN cache)
+if [[ -f /tmp/wizard_fixed.py ]]; then
+    cp /tmp/wizard_fixed.py "$INSTALL_DIR/src/setup/wizard.py" 2>&3
+    info "Injected wizard.py from /tmp"
+fi
+
 
 # ── 2. Scaffold system root ───────────────────────────────────────────────────
 
