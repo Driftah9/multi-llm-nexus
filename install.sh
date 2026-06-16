@@ -329,6 +329,7 @@ sudo -u "$USERNAME" \
     NEXUS_WORKSPACE_DIR="$WORKSPACE_DIR" \
     NEXUS_SYSTEM_ROOT="/home/$USERNAME" \
     NEXUS_LOG_FILE="$LOG_FILE" \
+    NEXUS_PYTHON_BIN="$PYTHON_BIN" \
     bash "$INSTALL_DIR/setup.sh"
 
 # ── 4.5. Generate provider shims at system root ───────────────────────────────

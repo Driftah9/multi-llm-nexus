@@ -22,18 +22,20 @@ echo "  ====================="
 echo "  Your AI platform. Your rules."
 echo ""
 
-# Prerequisites
-command -v python3 >/dev/null 2>&1 || { echo "Python 3.10+ required."; exit 1; }
+# Use the python binary install.sh detected (3.11+), fall back to python3
+PYTHON_BIN="${NEXUS_PYTHON_BIN:-python3}"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || { echo "Python 3.11+ required. (tried: $PYTHON_BIN)"; exit 1; }
 command -v docker >/dev/null 2>&1 && DOCKER_OK=true || DOCKER_OK=false
 
-PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+PYTHON_VERSION=$("$PYTHON_BIN" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 echo "Python $PYTHON_VERSION found."
+_slog "python binary: $PYTHON_BIN ($PYTHON_VERSION)"
 
 # Virtual environment
 if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment..."
     _slog "creating venv at $VENV_DIR"
-    python3 -m venv "$VENV_DIR"
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 source "$VENV_DIR/bin/activate"
 _slog "venv activated"
