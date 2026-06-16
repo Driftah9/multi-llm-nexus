@@ -487,30 +487,26 @@ async def configure_providers(
         result = subprocess.run("command -v claude", shell=True, capture_output=True)
         cli_ready = result.returncode == 0
         if not cli_ready:
-            print("    ✗ Claude Code CLI not found on PATH.")
-            if ask_yn("    Install from https://claude.ai/code now?"):
-                print("    → Running installer...")
-                install_result = subprocess.run(
-                    "curl -fsSL https://claude.ai/install.sh | bash",
-                    shell=True, check=False
-                )
-                # Reload PATH so claude is visible without a new shell
-                new_path = subprocess.run(
-                    'echo "$HOME/.local/bin:$HOME/.claude/local/bin:$PATH"',
-                    shell=True, capture_output=True, text=True
-                ).stdout.strip()
-                os.environ["PATH"] = new_path
-                cli_ready = subprocess.run("command -v claude", shell=True, capture_output=True).returncode == 0
-                if cli_ready:
-                    print(f"    {check_mark(True)} Claude CLI installed")
-                else:
-                    print(f"    {check_mark(False)} Install script ran but 'claude' still not on PATH.")
-                    print("    Open a new shell and run: claude auth login")
-                    print("    Then re-run: python -m src.setup.wizard")
-                    cloud_selected = [p for p in cloud_selected if p != "anthropic_cli"]
+            print("    ✗ Claude Code CLI not found. Installing...")
+            print("    → Running installer (https://claude.ai/code)...")
+            install_result = subprocess.run(
+                "curl -fsSL https://claude.ai/install.sh | bash",
+                shell=True, check=False
+            )
+            # Reload PATH so claude is visible without a new shell
+            new_path = subprocess.run(
+                'echo "$HOME/.local/bin:$HOME/.claude/local/bin:$PATH"',
+                shell=True, capture_output=True, text=True
+            ).stdout.strip()
+            os.environ["PATH"] = new_path
+            cli_ready = subprocess.run("command -v claude", shell=True, capture_output=True).returncode == 0
+            if cli_ready:
+                print(f"    {check_mark(True)} Claude CLI installed and ready")
             else:
-                print("    Skipping Anthropic CLI.")
-                _wlog("anthropic_cli: skipped (CLI not installed)")
+                print(f"    {check_mark(False)} Install script ran but 'claude' still not on PATH.")
+                print("    → Open a new shell and run: claude auth login")
+                print("    → Then re-run: python -m src.setup.wizard")
+                _wlog("anthropic_cli: install failed — claude not on PATH after install")
                 cloud_selected = [p for p in cloud_selected if p != "anthropic_cli"]
 
         if cli_ready:
