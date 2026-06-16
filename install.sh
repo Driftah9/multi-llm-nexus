@@ -149,6 +149,16 @@ if [[ -z "$PYTHON_BIN" ]]; then
     check "Python 3.11 installed"
 fi
 
+# Ensure the venv module is available for the detected Python version.
+# On Ubuntu, python3.11 ships without python3.11-venv by default.
+if ! "$PYTHON_BIN" -m venv --help &>/dev/null 2>&1; then
+    VENV_PKG="${PYTHON_BIN##*/}-venv"   # e.g. python3.11 → python3.11-venv
+    warn "venv module missing — installing $VENV_PKG..."
+    apt-get update -qq 2>&3
+    apt-get install -y -qq "$VENV_PKG" 2>&3
+    check "$VENV_PKG installed"
+fi
+
 if command -v git &>/dev/null; then
     check "git $(git --version | awk '{print $3}')"
 else
