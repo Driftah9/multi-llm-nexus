@@ -14,11 +14,26 @@
 - [ ] In progress
 - [ ] Complete
 
-## Key Files
+## Structure
 
-- `AGENTS.md` — Agent roles and capabilities for this project
-- `src/` — Source code / implementation
-- `docs/` — Documentation, design decisions, research
+```
+[NAME]/
+├── AGENTS.md          ← project context (single source of truth — edit this)
+├── CLAUDE.md          ← AI shim (Claude Code)
+├── .cursorrules       ← AI shim (Cursor)
+├── .windsurfrules     ← AI shim (Windsurf)
+├── .github/
+│   └── copilot-instructions.md  ← AI shim (GitHub Copilot)
+├── .nexus/            ← Nexus metadata
+└── work/
+    ├── src/           ← source code / implementation
+    ├── docs/          ← documentation, design decisions, research
+    ├── scripts/       ← automation and utilities
+    └── archive/       ← completed or deprecated work
+```
+
+All working files go under `work/`. The project root is for context and config only.
+To switch AI providers, add a new shim at the root pointing to `AGENTS.md` — no other changes needed.
 
 ## Linked Channels
 
