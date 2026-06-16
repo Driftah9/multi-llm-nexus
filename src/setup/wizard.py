@@ -142,7 +142,7 @@ def ask_multiselect(prompt: str, options: list[tuple[str, str]]) -> list[str]:
     _wlog(f"PROMPT_MULTI: {prompt} [options: {[k for k,_ in options]}]")
     selected: set[str] = set()
     print(f"\n{prompt}")
-    print(dim("  Enter numbers separated by spaces/commas, or 'all', or 'none'."))
+    print(dim("  Enter numbers separated by spaces/commas, or 'all', or 'none'. Press Enter to skip."))
     for i, (key, label) in enumerate(options):
         print(f"  ({i+1}) {label}")
     while True:
@@ -151,7 +151,7 @@ def ask_multiselect(prompt: str, options: list[tuple[str, str]]) -> list[str]:
             result = [k for k, _ in options]
             _wlog(f"ANSWER_MULTI: all → {result}")
             return result
-        if raw == "none":
+        if raw in ("none", ""):
             _wlog("ANSWER_MULTI: none → []")
             return []
         try:
@@ -1163,9 +1163,9 @@ async def run() -> None:
     if any(scan.env_keys.values()):
         print(dim("  (Tip: keys already detected in your .env are pre-verified.)"))
 
-    cloud_keys = ask_multiselect("Cloud providers:", CLOUD_PROVIDERS)
-    infra_keys = ask_multiselect("Cloud infrastructure (AWS/Azure/GCP):", CLOUD_INFRA_PROVIDERS)
-    local_keys = ask_multiselect("Local / self-hosted:", LOCAL_PROVIDERS)
+    cloud_keys = ask_multiselect("Cloud providers (1/3):", CLOUD_PROVIDERS)
+    infra_keys = ask_multiselect("Cloud infrastructure — Bedrock, Azure, Vertex (2/3):", CLOUD_INFRA_PROVIDERS)
+    local_keys = ask_multiselect("Local / self-hosted — Ollama, vLLM, etc. (3/3):", LOCAL_PROVIDERS)
 
     # Add local LLM to selection if user opted in
     if local_llm_key and local_llm_key not in local_keys:
