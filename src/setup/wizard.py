@@ -134,19 +134,13 @@ def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[s
     for key, label, selected in items:
         args.extend([key, label, "on" if selected else "off"])
     try:
-        # whiptail draws its dialog on stderr; selected output goes to stdout.
-        # Open /dev/tty directly so the dialog renders in the terminal even when
-        # stdout is redirected (e.g. inside script(1) or a subprocess chain).
-        # buffering=1 (line buffering) flushes each line immediately — good for interactive TTY.
-        with open("/dev/tty", "r+", buffering=1) as tty:
-            result = subprocess.run(
-                args, stdin=tty, stdout=subprocess.PIPE, stderr=tty,
-                text=True, check=False
-            )
+        result = subprocess.run(
+            args, stdout=subprocess.PIPE, text=True, check=False
+        )
         if result.returncode == 0:
             lines = [l for l in result.stdout.strip().split("\n") if l]
             return lines
-        return []
+        raise OSError("whiptail failed or unavailable")
     except (FileNotFoundError, OSError):
         # Fallback: numbered list
         print(f"\n{title}")
@@ -176,14 +170,12 @@ def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
     for key, label, selected in items:
         args.extend([key, label, "on" if selected else "off"])
     try:
-        with open("/dev/tty", "r+") as tty:
-            result = subprocess.run(
-                args, stdin=tty, stdout=subprocess.PIPE, stderr=tty,
-                text=True, check=False
-            )
+        result = subprocess.run(
+            args, stdout=subprocess.PIPE, text=True, check=False
+        )
         if result.returncode == 0:
             return result.stdout.strip()
-        return ""
+        raise OSError("whiptail failed or unavailable")
     except (FileNotFoundError, OSError):
         # Fallback: numbered list
         print(f"\n{title}")
@@ -515,23 +507,15 @@ async def configure_providers(
             print("    → Launching: claude auth login")
             _wlog("anthropic_cli: attempting auth with /dev/tty subprocess")
             auth_success = False
-            try:
-                with open("/dev/tty", "r+", buffering=1) as tty:
-                    _wlog("anthropic_cli: /dev/tty opened successfully")
-                    result = subprocess.run(
-                        ["claude", "auth", "login"],
-                        stdin=tty, stdout=tty, stderr=tty, check=False
-                    )
-                    _wlog(f"anthropic_cli: subprocess returned code {result.returncode}")
-                    auth_success = (result.returncode == 0)
-            except FileNotFoundError as e:
-                _wlog(f"anthropic_cli: /dev/tty not found: {e}")
-                print("    (No TTY available; run manually: claude auth login)")
-                input("    Press Enter when authentication is complete...")
-            except OSError as e:
-                _wlog(f"anthropic_cli: /dev/tty OSError: {e}")
-                print("    (Cannot access TTY; run manually: claude auth login)")
-                input("    Press Enter when authentication is complete...")
+            import sys
+            _wlog("anthropic_cli: launching claude auth login via sys.stdin/stdout")
+            result = subprocess.run(
+                ["claude", "auth", "login"],
+                stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr,
+                check=False
+            )
+            _wlog(f"anthropic_cli: subprocess returned code {result.returncode}")
+            auth_success = (result.returncode == 0)
 
             # Test connection
             result = subprocess.run("claude -p 'ping' --output-format text", shell=True, capture_output=True, text=True)
