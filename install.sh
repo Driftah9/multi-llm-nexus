@@ -260,7 +260,7 @@ ROOT_FOLDERS=(
 for folder in "${ROOT_FOLDERS[@]}"; do
     mkdir -p "/home/$USERNAME/$folder"
     chown "$USERNAME:$USERNAME" "/home/$USERNAME/$folder"
-    _log "OK:   /home/$USERNAME/$folder/"
+    info "/home/$USERNAME/$folder/"
 done
 check "System root folders created (${#ROOT_FOLDERS[@]} canonical folders)"
 
@@ -382,7 +382,7 @@ except Exception as e:
         echo "$shim_content" > "$shim_path"
         chown "$USERNAME:$USERNAME" "$shim_path"
         check "Shim: $shim_file → AI_CONTEXT.md  ($provider)"
-        _log "OK:   shim $shim_file generated for provider $provider"
+        info "shim $shim_file generated for provider $provider"
         SHIM_GENERATED=$((SHIM_GENERATED + 1))
     done <<< "$PROVIDER_NAMES"
 fi
@@ -390,7 +390,7 @@ fi
 if [[ "$SHIM_GENERATED" -eq 0 ]]; then
     warn "No providers found in config — generate shims manually after configuring providers:"
     info "cp $INSTALL_DIR/templates/system/shims/CLAUDE.md /home/$USERNAME/"
-    _log "WARN: no provider shims generated — providers.yaml missing or empty"
+    info "no provider shims generated — providers.yaml missing or empty"
 fi
 
 
