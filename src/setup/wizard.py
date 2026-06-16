@@ -121,8 +121,10 @@ def ask_yn(prompt: str, default: bool = True) -> bool:
     return ans.lower().startswith("y")
 
 def _has_interactive_tty() -> bool:
-    """True only when both stdin and stdout are real TTYs (not pipes, not SSH without PTY)."""
-    return sys.stdin.isatty() and sys.stdout.isatty()
+    """True only when both stdin and stdout are real TTYs AND not in SSH."""
+    # Skip whiptail in SSH sessions — terminal emulation may not support it properly
+    in_ssh = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"))
+    return sys.stdin.isatty() and sys.stdout.isatty() and not in_ssh
 
 def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[str]:
     """
