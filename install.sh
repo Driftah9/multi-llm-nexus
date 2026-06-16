@@ -486,12 +486,17 @@ echo
 
 printf "[%s] ═══ INSTALL COMPLETE ═══\n" "$(date +%T)" >&3
 
-# ── 7. Drop into the Nexus user shell ────────────────────────────────────────
-# Offer to exec into the bot user's login environment so the operator can
-# add credentials, test providers, or explore — without a manual `su -` step.
+# ── 7. Drop into the Nexus user shell and run the wizard ─────────────────────
+# Switch into the bot user, auto-launch the wizard to add credentials, then
+# drop into an interactive login shell — no manual su or cd needed.
 
 echo
-if ask_yn "Switch into the '$USERNAME' user environment now? (add credentials, run wizard, etc.)"; then
-    printf "[%s] exec su - %s\n" "$(date +%T)" "$USERNAME" >&3
-    exec su - "$USERNAME"
+if ask_yn "Switch into '$USERNAME' and run the setup wizard now?"; then
+    printf "[%s] su - %s: launching wizard\n" "$(date +%T)" "$USERNAME" >&3
+    exec su - "$USERNAME" -c "
+        cd ~/nexus && \
+        source .venv/bin/activate && \
+        python -m src.setup.wizard
+        exec bash -li
+    "
 fi
