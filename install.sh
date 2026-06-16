@@ -151,6 +151,14 @@ else
     check "curl installed"
 fi
 
+if command -v whiptail &>/dev/null; then
+    check "whiptail present (interactive menus)"
+else
+    warn "whiptail not found — installing..."
+    apt-get install -y -qq whiptail 2>&3
+    check "whiptail installed"
+fi
+
 
 # ── 2. Bot user creation ──────────────────────────────────────────────────────
 
