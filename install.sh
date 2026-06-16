@@ -321,6 +321,9 @@ export NEXUS_INSTALL_USER="$USERNAME"
 export NEXUS_WORKSPACE_DIR="$WORKSPACE_DIR"
 export NEXUS_SYSTEM_ROOT="/home/$USERNAME"
 
+# setup.sh will run as $USERNAME and needs to write to the log file
+chmod 666 "$LOG_FILE"
+
 sudo -u "$USERNAME" \
     NEXUS_INSTALL_USER="$USERNAME" \
     NEXUS_WORKSPACE_DIR="$WORKSPACE_DIR" \
