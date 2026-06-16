@@ -68,9 +68,9 @@ ask() {
     [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
     printf "[%s] PROMPT: %s [default: %s]\n" "$(date +%T)" "$prompt" "${default:-none}" >&3
     if [[ -n "$default" ]]; then
-        printf "\n  %s [$(dim "$default")]: " "$prompt"
+        printf "\n  %s [$(dim "$default")]: " "$prompt" > /dev/tty
     else
-        printf "\n  %s: " "$prompt"
+        printf "\n  %s: " "$prompt" > /dev/tty
     fi
     if ! read -r answer; then
         # read failed → EOF. Latch it: use any default this one time, but the
@@ -89,7 +89,7 @@ ask_yn() {
     hint="Y/n"; [[ "$default" == "n" ]] && hint="y/N"
     [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
     printf "[%s] PROMPT_YN: %s [default: %s]\n" "$(date +%T)" "$prompt" "$default" >&3
-    printf "\n  %s (%s): " "$prompt" "$hint"
+    printf "\n  %s (%s): " "$prompt" "$hint" > /dev/tty
     if ! read -r answer; then
         _STDIN_EXHAUSTED=1
         answer="$default"
