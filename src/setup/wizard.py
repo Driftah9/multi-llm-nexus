@@ -514,16 +514,27 @@ async def configure_providers(
                 cloud_selected = [p for p in cloud_selected if p != "anthropic_cli"]
 
         if cli_ready:
-            # Auth
-            print("    → Run: claude auth login")
-            input("    Press Enter after authentication completes...")
+            # Auth — run claude auth login with TTY attached so user can interact
+            print("    → Launching: claude auth login")
+            try:
+                with open("/dev/tty", "r+") as tty:
+                    subprocess.run(
+                        ["claude", "auth", "login"],
+                        stdin=tty, stdout=tty, stderr=tty, check=False
+                    )
+            except (FileNotFoundError, OSError):
+                # No TTY; fall back to text instruction
+                print("    (No TTY available; run manually: claude auth login)")
+                input("    Press Enter when authentication is complete...")
+
+            # Test connection
             result = subprocess.run("claude -p 'ping' --output-format text", shell=True, capture_output=True, text=True)
             if result.returncode == 0:
                 configured["anthropic"] = "anthropic_cli"
                 print(f"    {check_mark(True)} Anthropic (CLI) configured")
                 _wlog("anthropic_cli: configured")
             else:
-                print(f"    {check_mark(False)} Connection test failed — check: claude auth login")
+                print(f"    {check_mark(False)} Connection test failed — run: claude auth login")
                 _wlog("anthropic_cli: connection test failed")
 
     # Ollama
