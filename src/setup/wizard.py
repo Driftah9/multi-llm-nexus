@@ -126,29 +126,34 @@ def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[s
     items: [(key, label, default_selected), ...]
     Returns: list of selected keys
     """
-    args = ["whiptail", "--checklist", "--separate-output", title, "20", "60"]
+    list_height = min(len(items), 15)
+    height = list_height + 8  # dialog chrome
+    # whiptail syntax: --checklist text height width list-height [tag item status ...]
+    args = ["whiptail", "--separate-output", "--checklist", title,
+            str(height), "78", str(list_height)]
     for key, label, selected in items:
         args.extend([key, label, "on" if selected else "off"])
     try:
         result = subprocess.run(args, capture_output=True, text=True, check=False)
         if result.returncode == 0:
-            return result.stdout.strip().split("\n")
+            lines = [l for l in result.stdout.strip().split("\n") if l]
+            return lines
         return []
     except FileNotFoundError:
         # Fallback: numbered list
         print(f"\n{title}")
         for i, (key, label, _) in enumerate(items, 1):
             print(f"  ({i}) {label}")
-        raw = input("  Select (comma-separated): ").strip()
-        selected = []
+        raw = input("  Select (comma-separated numbers): ").strip()
+        sel: list[str] = []
         for part in raw.split(","):
             try:
                 idx = int(part.strip()) - 1
                 if 0 <= idx < len(items):
-                    selected.append(items[idx][0])
+                    sel.append(items[idx][0])
             except ValueError:
                 pass
-        return selected
+        return sel
 
 def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
     """
@@ -156,7 +161,10 @@ def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
     items: [(key, label, default_selected), ...]
     Returns: selected key or empty string
     """
-    args = ["whiptail", "--radiolist", title, "20", "60"]
+    list_height = min(len(items), 10)
+    height = list_height + 8
+    # whiptail syntax: --radiolist text height width list-height [tag item status ...]
+    args = ["whiptail", "--radiolist", title, str(height), "78", str(list_height)]
     for key, label, selected in items:
         args.extend([key, label, "on" if selected else "off"])
     try:
@@ -241,9 +249,8 @@ def system_scan() -> dict:
     # Python packages
     for pkg in ["aiohttp", "anthropic", "openai", "google-generativeai", "cohere"]:
         try:
-            importlib.util.find_spec(pkg)
-            scan["packages"][pkg] = True
-        except (ImportError, ModuleNotFoundError):
+            scan["packages"][pkg] = importlib.util.find_spec(pkg) is not None
+        except (ImportError, ModuleNotFoundError, ValueError):
             scan["packages"][pkg] = False
 
     # Local services
@@ -259,9 +266,10 @@ def system_scan() -> dict:
     # API keys from .env
     if ENV_FILE.exists():
         content = ENV_FILE.read_text()
-        for key in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"]:
-            if f"{key}=" in content:
-                scan["env_keys"][key] = True
+        for line in content.splitlines():
+            for key in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"]:
+                if line.startswith(f"{key}=") and len(line.split("=", 1)[1].strip()) > 0:
+                    scan["env_keys"][key] = True
 
     _wlog(f"system_scan: tools={scan['tools']}, services={scan['services']}")
     return scan
@@ -322,12 +330,12 @@ def system_identity() -> tuple[str, str]:
 
 # ─ Hardware Detection [C] ──────────────────────────────────────────────────────
 
-def hardware_detection() -> dict:
+async def hardware_detection() -> dict:
     """Scan hardware and recommend local LLM."""
     header("Hardware Detection & Local LLM")
 
     print("  Detecting hardware... ", end="", flush=True)
-    hw = detect_hardware()
+    hw = await detect_hardware()
     print("done\n")
 
     print(f"  CPU: {hw['cpu_cores']} cores")
@@ -477,7 +485,7 @@ async def configure_providers(
             else:
                 print("    Skipping Anthropic CLI.")
                 _wlog("anthropic_cli: skipped (CLI not installed)")
-                return configured
+                cloud_selected = [p for p in cloud_selected if p != "anthropic_cli"]
 
         # Auth
         print("    → Run: claude auth login")
@@ -514,7 +522,7 @@ async def configure_providers(
             else:
                 print("    Skipping Ollama.")
                 _wlog("ollama: skipped")
-                return configured
+                local_selected = [p for p in local_selected if p != "ollama"]
 
         # Pull model in background
         model = "llama3.2:3b"  # TODO: from hardware detection
@@ -620,7 +628,7 @@ Then restart Nexus:
 
 # ─ Config Writing ──────────────────────────────────────────────────────────────
 
-def write_configs(configured: dict, routing: dict, notify_cfg: dict) -> None:
+def write_configs(configured: dict, routing: dict, notify_cfg: dict, system_ip: str = "localhost") -> None:
     """Write providers.yaml and .env."""
     header("Step 4 — Writing Configuration")
 
@@ -639,7 +647,7 @@ def write_configs(configured: dict, routing: dict, notify_cfg: dict) -> None:
         if provider == "anthropic":
             env_lines.append("# ANTHROPIC_API_KEY set via: claude auth login")
         elif provider == "ollama":
-            env_lines.append(f"OLLAMA_ENDPOINT=http://localhost:11434")
+            env_lines.append(f"OLLAMA_ENDPOINT=http://{system_ip}:11434")
     env_path = ENV_FILE
     env_path.write_text("\n".join(env_lines) + "\n")
     print(f"  {check_mark(True)} {env_path.relative_to(PROJECT_ROOT)}")
@@ -682,7 +690,7 @@ async def run() -> None:
             fpath.write_text(content)
 
     # [C] Hardware Detection
-    hw = hardware_detection()
+    hw = await hardware_detection()
 
     # [D] Provider Selection
     cloud_selected, local_selected = provider_selection(hw)
@@ -707,7 +715,7 @@ async def run() -> None:
     # [I] Service Install — handled by bootstrap.sh
 
     # [J] Config Writing
-    write_configs(configured, routing, notify_cfg)
+    write_configs(configured, routing, notify_cfg, system_ip)
 
     # Summary
     header("Setup Complete")
