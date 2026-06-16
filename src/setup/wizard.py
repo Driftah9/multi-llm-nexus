@@ -512,15 +512,24 @@ async def configure_providers(
         if cli_ready:
             # Auth — run claude auth login with TTY attached so user can interact
             print("    → Launching: claude auth login")
+            _wlog("anthropic_cli: attempting auth with /dev/tty subprocess")
+            auth_success = False
             try:
                 with open("/dev/tty", "r+") as tty:
-                    subprocess.run(
+                    _wlog("anthropic_cli: /dev/tty opened successfully")
+                    result = subprocess.run(
                         ["claude", "auth", "login"],
                         stdin=tty, stdout=tty, stderr=tty, check=False
                     )
-            except (FileNotFoundError, OSError):
-                # No TTY; fall back to text instruction
+                    _wlog(f"anthropic_cli: subprocess returned code {result.returncode}")
+                    auth_success = (result.returncode == 0)
+            except FileNotFoundError as e:
+                _wlog(f"anthropic_cli: /dev/tty not found: {e}")
                 print("    (No TTY available; run manually: claude auth login)")
+                input("    Press Enter when authentication is complete...")
+            except OSError as e:
+                _wlog(f"anthropic_cli: /dev/tty OSError: {e}")
+                print("    (Cannot access TTY; run manually: claude auth login)")
                 input("    Press Enter when authentication is complete...")
 
             # Test connection
