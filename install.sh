@@ -183,7 +183,7 @@ while true; do
         continue
     fi
 
-    if [[ ! "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+    if [[ ! "$USERNAME" =~ ^[[:lower:]_][[:lower:][:digit:]_-]*$ ]]; then
         fail "Invalid — use lowercase letters, numbers, hyphens, underscores. No spaces."
         continue
     fi
