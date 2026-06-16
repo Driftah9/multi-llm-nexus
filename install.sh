@@ -478,6 +478,18 @@ chown "$USERNAME:$USERNAME" "/home/$USERNAME/.nexus-bootstrap.sh"
 chmod +x "/home/$USERNAME/.nexus-bootstrap.sh"
 check "Bootstrap script ready"
 
+# Add a .bashrc hook to auto-run bootstrap on first login
+# This ensures bootstrap runs in an interactive shell with proper TTY for whiptail
+cat >> "/home/$USERNAME/.bashrc" << 'BASHRC_HOOK'
+
+# Nexus bootstrap auto-run on first login
+if [[ -f ~/.nexus-bootstrap.sh ]] && [[ ! -f ~/.nexus-bootstrap-done ]]; then
+    bash ~/.nexus-bootstrap.sh
+    touch ~/.nexus-bootstrap-done
+fi
+BASHRC_HOOK
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.bashrc"
+
 printf "[%s] root phase complete — handoff to %s\n" "$(date +%T)" "$USERNAME" >&3
 
 
