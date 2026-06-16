@@ -480,13 +480,18 @@ info "@bot create project [category]/[projectname]"
 info "@bot link [category]/[projectname] to [adapter]:[channel]"
 
 echo
-echo "  $(dim "To add providers or reconfigure later:")"
-info "sudo su - $USERNAME"
-info "cd nexus && source .venv/bin/activate && python -m src.setup.wizard"
-
-echo
 echo "  $(bold "Install log (share with Claude for debugging):")"
 info "$LOG_FILE"
 echo
 
 printf "[%s] ═══ INSTALL COMPLETE ═══\n" "$(date +%T)" >&3
+
+# ── 7. Drop into the Nexus user shell ────────────────────────────────────────
+# Offer to exec into the bot user's login environment so the operator can
+# add credentials, test providers, or explore — without a manual `su -` step.
+
+echo
+if ask_yn "Switch into the '$USERNAME' user environment now? (add credentials, run wizard, etc.)"; then
+    printf "[%s] exec su - %s\n" "$(date +%T)" "$USERNAME" >&3
+    exec su - "$USERNAME"
+fi
