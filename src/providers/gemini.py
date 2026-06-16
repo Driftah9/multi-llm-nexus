@@ -78,7 +78,7 @@ class GeminiProvider(BaseProvider):
             ),
         ]
 
-    def _convert_messages(self, messages: list[Message]) -> list[genai_types.Content]:
+    def _convert_messages(self, messages: list[Message]) -> list["genai_types.Content"]:
         result = []
         for msg in messages:
             if msg.role == "system":

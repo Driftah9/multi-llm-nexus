@@ -13,10 +13,13 @@ anthropic>=0.30
 #   Fireworks, Perplexity, HuggingFace, Cerebras, Azure, LM Studio, vLLM)
 openai>=1.30
 
-# Google (Gemini AI Studio)
-google-generativeai>=0.8
+# Google (Gemini AI Studio + Vertex AI)
+# NOTE: the new unified SDK is `google-genai` (imported as `from google import genai`).
+# The older `google-generativeai` package is deprecated and does NOT provide
+# `google.genai`, so src/providers/gemini.py fails to import against it.
+google-genai>=0.3
 
-# Google (Vertex AI) — in addition to google-generativeai
+# Google (Vertex AI) — in addition to google-genai
 # google-cloud-aiplatform>=1.50
 
 # Cohere

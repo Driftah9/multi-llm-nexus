@@ -10,8 +10,13 @@
 
 set -euo pipefail
 
-# Re-open stdin from terminal in case we were piped through curl | bash
-exec < /dev/tty
+# Re-open stdin from terminal in case we were piped through curl | bash.
+# Only do this when a real controlling terminal exists — in headless/piped/CI
+# contexts /dev/tty is absent, and an unconditional redirect there aborts the
+# whole script (set -e) before the wizard ever runs.
+if [ -e /dev/tty ] && [ -r /dev/tty ]; then
+    exec < /dev/tty
+fi
 
 REPO_URL="https://github.com/Driftah9/multi-llm-nexus.git"
 BRANCH="${NEXUS_BRANCH:-main}"
@@ -37,22 +42,46 @@ warn()  { printf "  $(yellow "!") %s\n" "$*"; }
 fail()  { printf "  $(red "✗") %s\n" "$*"; }
 info()  { printf "    %s\n" "$(dim "$*")"; }
 
+# EOF latch. Once stdin is exhausted, any further prompt that would loop on
+# validation (`continue`) must abort instead of replaying a default forever —
+# the infinite "Invalid" wall seen on headless/piped runs. A default that is
+# itself a rejected sentinel (e.g. the placeholder username) would otherwise
+# loop indefinitely, so a second post-EOF prompt is always fatal.
+_STDIN_EXHAUSTED=0
+
+_stdin_eof_guard() {
+    printf "\n  %s\n" "$(red "No more input — stdin closed before the wizard finished.")"
+    info "Run the installer interactively, or pipe a complete answers file."
+    exit 1
+}
+
 ask() {
     local prompt="$1" default="${2:-}" answer
+    [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
     if [[ -n "$default" ]]; then
         printf "\n  %s [$(dim "$default")]: " "$prompt"
     else
         printf "\n  %s: " "$prompt"
     fi
-    read -r answer
+    if ! read -r answer; then
+        # read failed → EOF. Latch it: use any default this one time, but the
+        # next prompt aborts rather than handing back the same value in a loop.
+        _STDIN_EXHAUSTED=1
+        [[ -n "$default" ]] && { echo "$default"; return 0; }
+        _stdin_eof_guard
+    fi
     echo "${answer:-$default}"
 }
 
 ask_yn() {
     local prompt="$1" default="${2:-y}" hint answer
     hint="Y/n"; [[ "$default" == "n" ]] && hint="y/N"
+    [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
     printf "\n  %s (%s): " "$prompt" "$hint"
-    read -r answer
+    if ! read -r answer; then
+        _STDIN_EXHAUSTED=1
+        answer="$default"   # EOF → take the default once
+    fi
     answer="${answer:-$default}"
     [[ "${answer,,}" == "y"* ]]
 }
