@@ -1121,6 +1121,39 @@ async def run() -> None:
     if not ask_yn("\n  Continue to provider setup?"):
         return
 
+    # ── System identity ───────────────────────────────────────────────────────
+    header("System Identity")
+    print("  Give your system an identity — a name and a short description.")
+    print("  This becomes the orchestrator's soul: who it is, what it does.")
+    print(dim("  You can change these later by editing SOUL.md and AI_CONTEXT.md"))
+    print()
+
+    agent_name = ask(
+        "  Orchestrator name (what users will call your AI)",
+        default="nexus"
+    )
+    system_name = ask(
+        "  System name (what this installation is called)",
+        default=agent_name.title()
+    )
+
+    _wlog(f"System identity: agent_name={agent_name!r} system_name={system_name!r}")
+
+    # Substitute into system identity files at the nexus user's home root
+    system_root = os.environ.get("NEXUS_SYSTEM_ROOT", "")
+    if system_root:
+        for fname in ("SOUL.md", "OPERATING_PROCEDURES.md", "AI_CONTEXT.md"):
+            fpath = Path(system_root) / fname
+            if fpath.exists():
+                content = fpath.read_text()
+                content = content.replace("[ORCHESTRATOR_NAME]", agent_name)
+                content = content.replace("[SYSTEM_NAME]", system_name)
+                fpath.write_text(content)
+                _wlog(f"Substituted identity into {fname}")
+
+    print(f"\n  {green('✓')} Orchestrator: {bold(agent_name)}")
+    print(f"  {green('✓')} System name:  {bold(system_name)}")
+
     # ── Hardware detection & local LLM setup ──────────────────────────────
     local_llm_key = await _setup_local_llm()
 
@@ -1204,6 +1237,13 @@ async def run() -> None:
     header("Step 4 — Writing Configuration")
     yaml_path = _write_providers_yaml(configured, routing, notify_cfg)
     env_path  = _write_env(configured)
+
+    # Append identity vars to .env so the running system can read them
+    with open(env_path, "a") as ef:
+        ef.write(f"\n# System identity (set by installer)\n")
+        ef.write(f"NEXUS_AGENT_NAME={agent_name}\n")
+        ef.write(f"NEXUS_SYSTEM_NAME={system_name}\n")
+    _wlog(f"Wrote NEXUS_AGENT_NAME={agent_name!r} NEXUS_SYSTEM_NAME={system_name!r} to .env")
 
     print(f"  {check_mark(True)} {yaml_path.relative_to(PROJECT_ROOT)}")
     print(f"  {check_mark(True)} {env_path.relative_to(PROJECT_ROOT)}")
