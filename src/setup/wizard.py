@@ -338,26 +338,26 @@ async def hardware_detection() -> dict:
     hw = await detect_hardware()
     print("done\n")
 
-    print(f"  CPU: {hw['cpu_cores']} cores")
-    print(f"  RAM: {hw['ram_gb']:.1f} GB")
-    print(f"  GPU: {hw['gpu_type'] or 'None (CPU-only)'}\n")
+    print(f"  CPU: {hw.cpu_cores} cores")
+    print(f"  RAM: {hw.ram_gb:.1f} GB")
+    print(f"  GPU: {hw.gpu_type or 'None (CPU-only)'}\n")
 
     _wlog(f"hardware: {hw}")
 
     # Recommend local LLM if viable
     recommended_model = None
-    if hw["ram_gb"] >= 8:
-        if hw["ram_gb"] < 16:
+    if hw.ram_gb >= 8:
+        if hw.ram_gb < 16:
             recommended_model = "llama3.2:3b"
-        elif hw["ram_gb"] < 32:
+        elif hw.ram_gb < 32:
             recommended_model = "llama3.1:8b"
         else:
-            recommended_model = "llama3.1:70b" if hw["gpu_type"] else "llama3.1:8b"
+            recommended_model = "llama3.1:70b" if hw.gpu_type else "llama3.1:8b"
 
         print(f"{check_mark(True)} Local LLM recommended")
         print(f"  Provider: ollama")
         print(f"  Model: {recommended_model}")
-        if not hw["gpu_type"]:
+        if not hw.gpu_type:
             print(f"  No GPU detected. CPU-only inference via Ollama.\n")
 
     return hw
@@ -401,7 +401,7 @@ def provider_selection(hw: dict) -> tuple[list[str], list[str]]:
     # Pre-select ollama if hardware supports it
     local_items = []
     for key, label in LOCAL_PROVIDERS:
-        selected = (key == "ollama" and hw["ram_gb"] >= 8)
+        selected = (key == "ollama" and hw.ram_gb >= 8)
         local_items.append((key, label, selected))
 
     # Combine all providers
