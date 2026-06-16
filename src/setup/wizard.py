@@ -122,34 +122,14 @@ def ask_yn(prompt: str, default: bool = True) -> bool:
 
 def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[str]:
     """
-    Multi-select checklist. Tries whiptail TUI if available; always falls back
-    to numbered text list (for SSH, pipes, script(1) wrappers, or if whiptail
-    produces no output).
+    Multi-select numbered text menu. whiptail is not used — it writes TUI
+    rendering (ANSI escape codes) to stdout when stdout is piped, making its
+    output uncapturable and the dialog invisible. Plain text is reliable in all
+    contexts (SSH, script(1), pipes).
     items: [(key, label, default_selected), ...]
     Returns: list of selected keys
     """
-    # Only try whiptail if both stdin and stdout are TTYs
-    if sys.stdin.isatty() and sys.stdout.isatty():
-        list_height = min(len(items), 15)
-        height = list_height + 8
-        args = ["whiptail", "--separate-output", "--checklist", title,
-                str(height), "78", str(list_height)]
-        for key, label, selected in items:
-            args.extend([key, label, "on" if selected else "off"])
-        try:
-            result = subprocess.run(args, stdout=subprocess.PIPE, text=True, check=False)
-            # Only accept whiptail output if it succeeded AND produced output
-            if result.returncode == 0 and result.stdout.strip():
-                lines = [l for l in result.stdout.strip().split("\n") if l]
-                _wlog(f"whiptail_checklist: selected {lines}")
-                return lines
-            # If whiptail ran but produced no output, fall through to text fallback
-            _wlog(f"whiptail_checklist: returned code={result.returncode}, output_len={len(result.stdout)}")
-        except (FileNotFoundError, OSError):
-            pass
-
-    # Text fallback: numbered list (used when whiptail unavailable, silent, or not a TTY)
-    _wlog(f"whiptail_checklist: using text fallback for {len(items)} items")
+    _wlog(f"whiptail_checklist: text menu for {len(items)} items")
     print(f"\n{title}")
     for i, (key, label, selected) in enumerate(items, 1):
         marker = "*" if selected else " "
@@ -164,36 +144,17 @@ def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[s
                 sel.append(items[idx][0])
         except ValueError:
             pass
-    _wlog(f"whiptail_checklist: text input selected {sel}")
+    _wlog(f"whiptail_checklist: selected {sel}")
     return sel
 
 def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
     """
-    Single-select list. Tries whiptail TUI if available; always falls back
-    to numbered text list (for SSH, pipes, script(1) wrappers, or if whiptail
-    produces no output).
+    Single-select numbered text menu. See whiptail_checklist for why whiptail
+    is not used.
     items: [(key, label, default_selected), ...]
     Returns: selected key or empty string
     """
-    if sys.stdin.isatty() and sys.stdout.isatty():
-        list_height = min(len(items), 10)
-        height = list_height + 8
-        args = ["whiptail", "--radiolist", title, str(height), "78", str(list_height)]
-        for key, label, selected in items:
-            args.extend([key, label, "on" if selected else "off"])
-        try:
-            result = subprocess.run(args, stdout=subprocess.PIPE, text=True, check=False)
-            # Only accept whiptail output if it succeeded AND produced output
-            if result.returncode == 0 and result.stdout.strip():
-                selected = result.stdout.strip()
-                _wlog(f"whiptail_radiolist: selected {selected}")
-                return selected
-            _wlog(f"whiptail_radiolist: returned code={result.returncode}, output_len={len(result.stdout)}")
-        except (FileNotFoundError, OSError):
-            pass
-
-    # Text fallback: numbered list
-    _wlog(f"whiptail_radiolist: using text fallback for {len(items)} items")
+    _wlog(f"whiptail_radiolist: text menu for {len(items)} items")
     print(f"\n{title}")
     for i, (key, label, selected) in enumerate(items, 1):
         marker = ">" if selected else " "
@@ -203,9 +164,9 @@ def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
     try:
         idx = int(raw) - 1
         if 0 <= idx < len(items):
-            selected = items[idx][0]
-            _wlog(f"whiptail_radiolist: text input selected {selected}")
-            return selected
+            result = items[idx][0]
+            _wlog(f"whiptail_radiolist: selected {result}")
+            return result
     except ValueError:
         pass
     _wlog(f"whiptail_radiolist: no selection")
