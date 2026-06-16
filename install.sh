@@ -162,16 +162,17 @@ fi
 
 # ── 2. Bot user creation ──────────────────────────────────────────────────────
 
-header "Nexus Bot User"
+header "System Service Account"
 
-echo "  Nexus runs as a dedicated system user — the AI's own account."
-echo "  Choose a name that represents your assistant's identity."
-echo "  $(dim "Example: chamberlain, nexus-bot, myassistant")"
+echo "  Nexus runs as a dedicated Linux system user account."
+echo "  (This is the system-level account name, separate from your orchestrator's name.)"
+echo "  Choose a name for this account."
+echo "  $(dim "Examples: nexus-bot, system-ai, orchestrator")"
 
 GENERATED_PASSWORD=""
 
 while true; do
-    USERNAME=$(ask "Bot username")
+    USERNAME=$(ask "System account username")
 
     if [[ -z "$USERNAME" || "$USERNAME" == "root" ]]; then
         fail "Please choose a username."
