@@ -137,8 +137,8 @@ def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[s
         # whiptail draws its dialog on stderr; selected output goes to stdout.
         # Open /dev/tty directly so the dialog renders in the terminal even when
         # stdout is redirected (e.g. inside script(1) or a subprocess chain).
-        # buffering=0 disables buffering — /dev/tty is a character device (not seekable).
-        with open("/dev/tty", "r+", buffering=0) as tty:
+        # buffering=1 (line buffering) flushes each line immediately — good for interactive TTY.
+        with open("/dev/tty", "r+", buffering=1) as tty:
             result = subprocess.run(
                 args, stdin=tty, stdout=subprocess.PIPE, stderr=tty,
                 text=True, check=False
@@ -516,7 +516,7 @@ async def configure_providers(
             _wlog("anthropic_cli: attempting auth with /dev/tty subprocess")
             auth_success = False
             try:
-                with open("/dev/tty", "r+", buffering=0) as tty:
+                with open("/dev/tty", "r+", buffering=1) as tty:
                     _wlog("anthropic_cli: /dev/tty opened successfully")
                     result = subprocess.run(
                         ["claude", "auth", "login"],
