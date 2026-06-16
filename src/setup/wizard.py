@@ -1224,7 +1224,8 @@ async def run() -> None:
             print(yellow(f"  Skipped {key}."))
 
     if not configured:
-        print(red("\n  No providers successfully configured. Exiting."))
+        print(yellow("\n  No providers configured yet — credentials can be added after install."))
+        print(dim("  Re-run anytime: python -m src.setup.wizard"))
         return
 
     # ── Step 3: Role assignment ──────────────────────────────────────────
