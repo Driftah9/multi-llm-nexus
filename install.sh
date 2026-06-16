@@ -1,35 +1,33 @@
 #!/usr/bin/env bash
-# Multi-LLM-Nexus Bootstrap Installer
+# Multi-LLM-Nexus — Root Installer
 #
-# Recommended usage (keeps stdin for interactive prompts):
-#   sudo bash <(curl -sSL https://raw.githubusercontent.com/Driftah9/multi-llm-nexus/main/install.sh)
+# Download and run:
+#   curl -sSL https://raw.githubusercontent.com/Driftah9/multi-llm-nexus/main/install.sh -o /tmp/nexus-install.sh
+#   sudo bash /tmp/nexus-install.sh
 #
-# Or download first:
-#   curl -sSL https://raw.githubusercontent.com/Driftah9/multi-llm-nexus/main/install.sh -o install.sh
-#   sudo bash install.sh
+# This script runs as root and does ONLY:
+#   1. System package check / install
+#   2. Create the bot user account
+#   3. Grant narrow sudo rights (systemctl for nexus only)
+#   4. Write runtime config + bootstrap script into the bot user's home
+#   5. exec su into the bot user — bootstrap.sh handles the rest
 
 set -euo pipefail
-
-# Timestamped install log — all steps, prompts, answers, and command output.
-# Tell Claude "I'm on step X" and it reads this file to see exactly what happened.
-LOG_FILE="/tmp/nexus-install-$(date +%Y%m%d-%H%M%S).log"
-exec 3> "$LOG_FILE"
-printf "[%s] nexus installer started (log: %s)\n" "$(date +%T)" "$LOG_FILE" >&3
-trap 'printf "[%s] ERROR: exited status=%s line=%s\n" "$(date +%T)" "$?" "$LINENO" >&3' ERR
-
-# Re-open stdin from terminal in case we were piped through curl | bash.
-# Only do this when a real controlling terminal exists — in headless/piped/CI
-# contexts /dev/tty is absent, and an unconditional redirect there aborts the
-# whole script (set -e) before the wizard ever runs.
-if [ -e /dev/tty ] && [ -r /dev/tty ]; then
-    exec < /dev/tty
-fi
 
 REPO_URL="https://github.com/Driftah9/multi-llm-nexus.git"
 BRANCH="${NEXUS_BRANCH:-main}"
 
+# Root-phase log — brief; full install log lives at ~/Logs/install.log
+ROOT_LOG="/tmp/nexus-root-$(date +%Y%m%d-%H%M%S).log"
+exec 3> "$ROOT_LOG"
+printf "[%s] nexus root installer started\n" "$(date +%T)" >&3
+trap 'printf "[%s] ERROR: status=%s line=%s\n" "$(date +%T)" "$?" "$LINENO" >&3' ERR
 
-# ── Color helpers ─────────────────────────────────────────────────────────────
+# Re-attach stdin to terminal (curl-pipe safety)
+if [ -e /dev/tty ] && [ -r /dev/tty ]; then exec < /dev/tty; fi
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 bold()   { printf "\033[1m%s\033[0m"  "$*"; }
 green()  { printf "\033[32m%s\033[0m" "$*"; }
@@ -44,22 +42,14 @@ header() {
     echo "────────────────────────────────────────────────────────────"
     printf "\n[%s] ═══ STEP: %s ═══\n" "$(date +%T)" "$1" >&3
 }
+check() { printf "  $(green "✓") %s\n" "$*"; printf "[%s] OK:   %s\n" "$(date +%T)" "$*" >&3; }
+warn()  { printf "  $(yellow "!") %s\n" "$*"; printf "[%s] WARN: %s\n" "$(date +%T)" "$*" >&3; }
+fail()  { printf "  $(red "✗") %s\n" "$*"; printf "[%s] FAIL: %s\n" "$(date +%T)" "$*" >&3; }
+info()  { printf "    %s\n" "$(dim "$*")"; printf "[%s] INFO: %s\n" "$(date +%T)" "$*" >&3; }
 
-check() { printf "  $(green "✓") %s\n" "$*"; printf "[%s] OK:   %s\n"   "$(date +%T)" "$*" >&3; }
-warn()  { printf "  $(yellow "!") %s\n" "$*"; printf "[%s] WARN: %s\n"  "$(date +%T)" "$*" >&3; }
-fail()  { printf "  $(red "✗") %s\n" "$*";   printf "[%s] FAIL: %s\n"   "$(date +%T)" "$*" >&3; }
-info()  { printf "    %s\n" "$(dim "$*")";    printf "[%s] INFO: %s\n"   "$(date +%T)" "$*" >&3; }
-
-# EOF latch. Once stdin is exhausted, any further prompt that would loop on
-# validation (`continue`) must abort instead of replaying a default forever —
-# the infinite "Invalid" wall seen on headless/piped runs. A default that is
-# itself a rejected sentinel (e.g. the placeholder username) would otherwise
-# loop indefinitely, so a second post-EOF prompt is always fatal.
 _STDIN_EXHAUSTED=0
-
 _stdin_eof_guard() {
-    printf "\n  %s\n" "$(red "No more input — stdin closed before the wizard finished.")"
-    info "Run the installer interactively, or pipe a complete answers file."
+    printf "\n  %s\n" "$(red "No more input — stdin closed before setup finished.")"
     exit 1
 }
 
@@ -73,10 +63,8 @@ ask() {
         printf "\n  %s: " "$prompt" > /dev/tty
     fi
     if ! read -r answer; then
-        # read failed → EOF. Latch it: use any default this one time, but the
-        # next prompt aborts rather than handing back the same value in a loop.
         _STDIN_EXHAUSTED=1
-        printf "[%s] ANSWER: (EOF — using default: %s)\n" "$(date +%T)" "${default:-none}" >&3
+        printf "[%s] ANSWER: (EOF — using default)\n" "$(date +%T)" >&3
         [[ -n "$default" ]] && { echo "$default"; return 0; }
         _stdin_eof_guard
     fi
@@ -90,14 +78,9 @@ ask_yn() {
     [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
     printf "[%s] PROMPT_YN: %s [default: %s]\n" "$(date +%T)" "$prompt" "$default" >&3
     printf "\n  %s (%s): " "$prompt" "$hint" > /dev/tty
-    if ! read -r answer; then
-        _STDIN_EXHAUSTED=1
-        answer="$default"
-        printf "[%s] ANSWER_YN: (EOF — using default: %s)\n" "$(date +%T)" "$default" >&3
-    fi
+    if ! read -r answer; then _STDIN_EXHAUSTED=1; answer="$default"; fi
     answer="${answer:-$default}"
-    local resolved; [[ "${answer,,}" == "y"* ]] && resolved="YES" || resolved="NO"
-    printf "[%s] ANSWER_YN: %s → %s\n" "$(date +%T)" "$answer" "$resolved" >&3
+    printf "[%s] ANSWER_YN: %s\n" "$(date +%T)" "$answer" >&3
     [[ "${answer,,}" == "y"* ]]
 }
 
@@ -107,24 +90,19 @@ ask_yn() {
 if [[ $EUID -ne 0 ]]; then
     echo
     printf "  %s\n" "$(red "This installer requires root privileges.")"
-    echo
-    echo "  Run:"
-    echo "    sudo bash <(curl -sSL https://raw.githubusercontent.com/Driftah9/multi-llm-nexus/main/install.sh)"
+    echo "  Run: sudo bash /tmp/nexus-install.sh"
     echo
     exit 1
 fi
 
-
-# ── Banner ────────────────────────────────────────────────────────────────────
-
 echo
 echo "$(bold "  Multi-LLM-Nexus Installer")"
 echo "  $(dim "Your AI platform. Your rules.")"
-echo "  $(dim "Install log: $LOG_FILE")"
+echo "  $(dim "Root log: $ROOT_LOG")"
 echo
 
 
-# ── 1. System dependencies ────────────────────────────────────────────────────
+# ── 1. System packages ────────────────────────────────────────────────────────
 
 header "System Check"
 
@@ -149,10 +127,9 @@ if [[ -z "$PYTHON_BIN" ]]; then
     check "Python 3.11 installed"
 fi
 
-# Ensure the venv module is available for the detected Python version.
-# On Ubuntu, python3.11 ships without python3.11-venv by default.
+# On Ubuntu, python3.11 ships without python3.11-venv
 if ! "$PYTHON_BIN" -m venv --help &>/dev/null 2>&1; then
-    VENV_PKG="${PYTHON_BIN##*/}-venv"   # e.g. python3.11 → python3.11-venv
+    VENV_PKG="${PYTHON_BIN##*/}-venv"
     warn "venv module missing — installing $VENV_PKG..."
     apt-get update -qq 2>&3
     apt-get install -y -qq "$VENV_PKG" 2>&3
@@ -175,21 +152,21 @@ else
 fi
 
 
-# ── 2. System user creation ───────────────────────────────────────────────────
+# ── 2. Bot user creation ──────────────────────────────────────────────────────
 
-header "Nexus System User"
+header "Nexus Bot User"
 
-echo "  Nexus will run as a dedicated system user (no sudo privileges)."
-echo "  Choose a username that represents your bot or assistant identity."
+echo "  Nexus runs as a dedicated system user — the AI's own account."
+echo "  Choose a name that represents your assistant's identity."
 echo "  $(dim "Example: chamberlain, nexus-bot, myassistant")"
 
 GENERATED_PASSWORD=""
 
 while true; do
-    USERNAME=$(ask "Username for Nexus to run as" "nexus-user-name")
+    USERNAME=$(ask "Bot username")
 
-    if [[ "$USERNAME" == "root" || "$USERNAME" == "nexus-user-name" ]]; then
-        fail "Please choose your own username."
+    if [[ -z "$USERNAME" || "$USERNAME" == "root" ]]; then
+        fail "Please choose a username."
         continue
     fi
 
@@ -206,7 +183,6 @@ while true; do
         continue
     fi
 
-    # Generate password
     if command -v openssl &>/dev/null; then
         GENERATED_PASSWORD=$(openssl rand -base64 18 | tr -d '/+=' | head -c 22)
     else
@@ -215,288 +191,304 @@ while true; do
 
     useradd -m -s /bin/bash "$USERNAME"
     echo "$USERNAME:$GENERATED_PASSWORD" | chpasswd
-
     check "User '$USERNAME' created — home: /home/$USERNAME"
     break
 done
 
-INSTALL_DIR="/home/$USERNAME/nexus"
-WORKSPACE_DIR="/home/$USERNAME/workspace"
+
+# ── 3. Sudo permissions ───────────────────────────────────────────────────────
+
+header "Permissions"
+
+# Bot user gets NOPASSWD sudo for nexus service management only.
+# Root sets this up — the bot user never manages its own permissions.
+SUDOERS_FILE="/etc/sudoers.d/nexus-${USERNAME}"
+cat > "$SUDOERS_FILE" << SUDOERS
+# Nexus bot user — service management only, no password required
+${USERNAME} ALL=(root) NOPASSWD: \
+    /bin/systemctl daemon-reload, \
+    /bin/systemctl enable nexus, \
+    /bin/systemctl disable nexus, \
+    /bin/systemctl start nexus, \
+    /bin/systemctl stop nexus, \
+    /bin/systemctl restart nexus, \
+    /bin/systemctl status nexus, \
+    /bin/cp /home/${USERNAME}/nexus/nexus.service /etc/systemd/system/nexus.service
+SUDOERS
+chmod 440 "$SUDOERS_FILE"
+check "Sudoers: $USERNAME can manage nexus.service (no password)"
 
 
-# ── 3. Clone repository ───────────────────────────────────────────────────────
+# ── 4. Write runtime config for bootstrap ────────────────────────────────────
 
-header "Cloning Repository"
+header "Preparing Handoff"
+
+# Runtime values the bot-user bootstrap needs but can't detect itself
+cat > "/home/$USERNAME/.nexus-install-config" << CONFIG
+# Auto-generated by install.sh — do not edit
+NEXUS_PYTHON_BIN="$PYTHON_BIN"
+NEXUS_REPO_URL="$REPO_URL"
+NEXUS_BRANCH="$BRANCH"
+NEXUS_ROOT_LOG="$ROOT_LOG"
+CONFIG
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.nexus-install-config"
+
+# Write bootstrap.sh — runs as bot user, handles the full install
+# Single-quoted heredoc: no variable expansion here; bootstrap reads
+# runtime values from .nexus-install-config at startup.
+cat > "/home/$USERNAME/.nexus-bootstrap.sh" << 'BOOTSTRAP_EOF'
+#!/usr/bin/env bash
+# Nexus bootstrap — runs as the bot user, handles full install
+# Called automatically by install.sh via: exec su - $USERNAME -c "bash ~/.nexus-bootstrap.sh"
+# Can also be re-run manually by the bot user for reconfiguration.
+
+set -euo pipefail
+
+# ── Runtime config from root phase ────────────────────────────────────────────
+source ~/.nexus-install-config
+# Provides: NEXUS_PYTHON_BIN, NEXUS_REPO_URL, NEXUS_BRANCH, NEXUS_ROOT_LOG
+
+# ── Log setup — everything from here goes to ~/Logs/install.log ───────────────
+mkdir -p ~/Logs
+LOG_FILE=~/Logs/install.log
+exec 3>> "$LOG_FILE"
+printf "\n[%s] === nexus bootstrap started (user: %s) ===\n" "$(date +%T)" "$(whoami)" >&3
+printf "[%s] root log: %s\n" "$(date +%T)" "$NEXUS_ROOT_LOG" >&3
+trap 'printf "[%s] ERROR: status=%s line=%s\n" "$(date +%T)" "$?" "$LINENO" >&3' ERR
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+bold()   { printf "\033[1m%s\033[0m"  "$*"; }
+green()  { printf "\033[32m%s\033[0m" "$*"; }
+yellow() { printf "\033[33m%s\033[0m" "$*"; }
+red()    { printf "\033[31m%s\033[0m" "$*"; }
+dim()    { printf "\033[2m%s\033[0m"  "$*"; }
+cyan()   { printf "\033[36m%s\033[0m" "$*"; }
+
+header() {
+    echo
+    echo "────────────────────────────────────────────────────────────"
+    printf "  %s\n" "$(bold "$1")"
+    echo "────────────────────────────────────────────────────────────"
+    printf "\n[%s] ═══ STEP: %s ═══\n" "$(date +%T)" "$1" >&3
+}
+check() { printf "  $(green "✓") %s\n" "$*"; printf "[%s] OK:   %s\n" "$(date +%T)" "$*" >&3; }
+warn()  { printf "  $(yellow "!") %s\n" "$*"; printf "[%s] WARN: %s\n" "$(date +%T)" "$*" >&3; }
+fail()  { printf "  $(red "✗") %s\n" "$*"; printf "[%s] FAIL: %s\n" "$(date +%T)" "$*" >&3; }
+info()  { printf "    %s\n" "$(dim "$*")"; printf "[%s] INFO: %s\n" "$(date +%T)" "$*" >&3; }
+
+
+# ── 1. Clone repository ───────────────────────────────────────────────────────
+
+header "Cloning Nexus"
+
+INSTALL_DIR=~/nexus
+WORKSPACE_DIR=~/workspace
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     warn "Nexus already exists at $INSTALL_DIR — pulling latest."
-    sudo -u "$USERNAME" git -C "$INSTALL_DIR" pull --ff-only
+    git -C "$INSTALL_DIR" pull --ff-only 2>&3
     check "Repository updated"
 else
     info "Cloning into $INSTALL_DIR ..."
-    sudo -u "$USERNAME" git clone --branch "$BRANCH" --depth 1 \
-        "$REPO_URL" "$INSTALL_DIR" 2>&3
-    check "Repository cloned to $INSTALL_DIR"
+    git clone --branch "$NEXUS_BRANCH" --depth 1 "$NEXUS_REPO_URL" "$INSTALL_DIR" 2>&3
+    check "Repository cloned"
 fi
 
 
-# ── 3.5. Scaffold system root structure ───────────────────────────────────────
+# ── 2. Scaffold system root ───────────────────────────────────────────────────
 
 header "Scaffolding System Root"
 
-# 15 canonical folders — everything the system needs, nothing it doesn't.
-# Files and folders must live here, not at bare home root.
-# Temp/ is for temporary work (screenshots, drafts, fetches) — auto-cleanup.
-# Agents/ starts empty — agents emerge from observed usage patterns over time.
 ROOT_FOLDERS=(
-    "Inbox"
-    "Logs"
-    "Scripts"
-    "backups"
-    "src"
-    "tests"
-    "Data"
-    "skills"
-    "Config"
-    "dockers"
-    "adapters"
-    "Agents"
-    "Temp"
-    "research_cache"
-    "Tools"
-    "workspace"
+    Inbox Logs Scripts backups src tests Data skills
+    Config dockers adapters Agents Temp research_cache Tools workspace
 )
-
 for folder in "${ROOT_FOLDERS[@]}"; do
-    mkdir -p "/home/$USERNAME/$folder"
-    chown "$USERNAME:$USERNAME" "/home/$USERNAME/$folder"
-    info "/home/$USERNAME/$folder/"
+    mkdir -p ~/"$folder"
+    info "~/$folder/"
 done
 check "System root folders created (${#ROOT_FOLDERS[@]} canonical folders)"
 
-# Copy system-level identity templates
+
+# ── 3. Identity templates ─────────────────────────────────────────────────────
+
 SYS_TEMPLATES="$INSTALL_DIR/templates/system"
 INSTALL_DATE=$(date -u +%Y-%m-%d)
 HOSTNAME_VAL=$(hostname -f 2>/dev/null || hostname)
+USERNAME_VAL=$(whoami)
 
 for tmpl in SOUL.md OPERATING_PROCEDURES.md AI_CONTEXT.md; do
     if [[ -f "$SYS_TEMPLATES/$tmpl" ]]; then
-        dest="/home/$USERNAME/$tmpl"
+        dest=~/"$tmpl"
         cp "$SYS_TEMPLATES/$tmpl" "$dest"
-        # Substitute known values at install time
-        sed -i "s/\[USERNAME\]/$USERNAME/g"                  "$dest"
-        sed -i "s/\[INSTALL_DATE\]/$INSTALL_DATE/g"          "$dest"
-        sed -i "s|\[HOSTNAME\]|$HOSTNAME_VAL|g"              "$dest"
-        chown "$USERNAME:$USERNAME" "$dest"
-        info "  ✓ $tmpl"
+        sed -i "s/\[USERNAME\]/$USERNAME_VAL/g"     "$dest"
+        sed -i "s/\[INSTALL_DATE\]/$INSTALL_DATE/g" "$dest"
+        sed -i "s|\[HOSTNAME\]|$HOSTNAME_VAL|g"     "$dest"
+        info "✓ $tmpl"
     fi
 done
 check "System identity templates installed"
 
-# workspace.config — no pre-declared categories; they grow from use
-cat > "$WORKSPACE_DIR/.workspace.config" <<EOF
-# Nexus Workspace Configuration
-# Generated by installer on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-#
-# workspace/ has no pre-declared categories.
-# Categories and projects are created as work requires.
-#
-# Create a project:
-#   @bot create project [category]/[projectname]
-#
-# Link a project to a channel:
-#   @bot link [category]/[projectname] to [adapter]:[channel]
-
+cat > "$WORKSPACE_DIR/.workspace.config" << WSCFG
+# Nexus Workspace Configuration — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# workspace/ has no pre-declared categories — they grow from use.
+# Create a project:  @bot create project [category]/[name]
 project_template: "$INSTALL_DIR/templates/project-template"
-EOF
-chown "$USERNAME:$USERNAME" "$WORKSPACE_DIR/.workspace.config"
-check "Workspace initialized (categories discovered through use)"
+WSCFG
+check "Workspace initialized"
 
 
-# ── 4. Interactive setup wizard ───────────────────────────────────────────────
+# ── 4. Python environment ─────────────────────────────────────────────────────
 
-header "Starting Nexus Setup Wizard"
+header "Python Environment"
 
-echo "  The wizard will guide you through:"
-echo "    • Hardware detection + local model suggestion"
-echo "    • AI provider selection (subscription or API key)"
-echo "    • Provider connection test — must pass before continuing"
-echo "    • Additional providers (now or later)"
-echo "    • Use-case selection"
-echo "    • Communication channel setup (Mattermost, Discord, Telegram)"
+VENV_DIR="$INSTALL_DIR/.venv"
+if [[ ! -d "$VENV_DIR" ]]; then
+    info "Creating virtual environment..."
+    "$NEXUS_PYTHON_BIN" -m venv "$VENV_DIR" 2>&3
+fi
+source "$VENV_DIR/bin/activate"
+pip install --quiet --upgrade pip 2>&3
+pip install --quiet pyyaml httpx python-dotenv aiohttp 2>&3
+check "Python environment ready  ($NEXUS_PYTHON_BIN)"
+
+
+# ── 5. Config defaults ────────────────────────────────────────────────────────
+
+[[ ! -f "$INSTALL_DIR/config/providers.yaml" ]] && \
+    cp "$INSTALL_DIR/config/providers.yaml.example" "$INSTALL_DIR/config/providers.yaml"
+[[ ! -f "$INSTALL_DIR/config/adapters.yaml" ]] && \
+    cp "$INSTALL_DIR/config/adapters.yaml.example"  "$INSTALL_DIR/config/adapters.yaml"
+[[ ! -f "$INSTALL_DIR/.env" ]] && \
+    cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+
+
+# ── 6. Interactive setup wizard ───────────────────────────────────────────────
+
+header "Setup Wizard"
+echo "  Configure providers, auth, and platform adapters."
+echo "  Log: ~/Logs/install.log"
 echo
 
-# Pass install context to wizard
-export NEXUS_INSTALL_USER="$USERNAME"
-export NEXUS_WORKSPACE_DIR="$WORKSPACE_DIR"
-export NEXUS_SYSTEM_ROOT="/home/$USERNAME"
+cd "$INSTALL_DIR"
+NEXUS_LOG_FILE="$LOG_FILE" python -m src.setup.wizard
 
-# setup.sh will run as $USERNAME and needs to write to the log file
-chmod 666 "$LOG_FILE"
 
-sudo -u "$USERNAME" \
-    NEXUS_INSTALL_USER="$USERNAME" \
-    NEXUS_WORKSPACE_DIR="$WORKSPACE_DIR" \
-    NEXUS_SYSTEM_ROOT="/home/$USERNAME" \
-    NEXUS_LOG_FILE="$LOG_FILE" \
-    NEXUS_PYTHON_BIN="$PYTHON_BIN" \
-    bash "$INSTALL_DIR/setup.sh"
-
-# ── 4.5. Generate provider shims at system root ───────────────────────────────
+# ── 7. Provider shims ─────────────────────────────────────────────────────────
 
 header "Provider Shims"
 
-# Read configured providers from providers.yaml, generate a shim at system root
-# for each one. Shims point to AI_CONTEXT.md — the single source of truth.
-# All projects inherit the same shim set via project scaffold.
-
 PROVIDERS_YAML="$INSTALL_DIR/config/providers.yaml"
-SHIM_GENERATED=0
+SHIM_COUNT=0
 
 if [[ -f "$PROVIDERS_YAML" ]]; then
-    # Extract provider names from yaml (keys under 'providers:')
-    PROVIDER_NAMES=$(python3 -c "
-import yaml, sys
-try:
-    with open('$PROVIDERS_YAML') as f:
-        cfg = yaml.safe_load(f) or {}
-    providers = cfg.get('providers', {})
-    for name in providers:
-        print(name)
-except Exception as e:
-    sys.exit(0)
-" 2>/dev/null || true)
-
     while IFS= read -r provider; do
         [[ -z "$provider" ]] && continue
-        # Map provider key to shim filename
         case "$provider" in
-            anthropic|claude*) shim_file="CLAUDE.md"; shim_content="@AI_CONTEXT.md" ;;
-            openai|gpt*)       shim_file="OPENAI.md";
-                               shim_content="# Project context is in AI_CONTEXT.md — read that file for identity, layout, routing, and agent roles.
-# All working files are under work/. Do not create files at the project root." ;;
-            gemini|google*)    shim_file="GEMINI.md";
-                               shim_content="# Project context is in AI_CONTEXT.md — read that file for identity, layout, routing, and agent roles.
-# All working files are under work/. Do not create files at the project root." ;;
-            groq*)             shim_file="GROQ.md";
-                               shim_content="# Project context is in AI_CONTEXT.md — read that file for identity, layout, routing, and agent roles.
-# All working files are under work/. Do not create files at the project root." ;;
-            mistral*)          shim_file="MISTRAL.md";
-                               shim_content="# Project context is in AI_CONTEXT.md — read that file for identity, layout, routing, and agent roles.
-# All working files are under work/. Do not create files at the project root." ;;
-            ollama*)           shim_file="OLLAMA.md";
-                               shim_content="# Project context is in AI_CONTEXT.md — read that file for identity, layout, routing, and agent roles.
-# All working files are under work/. Do not create files at the project root." ;;
-            *)                 shim_file="${provider^^}.md";
-                               shim_content="# Project context is in AI_CONTEXT.md — read that file for identity, layout, routing, and agent roles.
-# All working files are under work/. Do not create files at the project root." ;;
+            anthropic|claude*)  shim="CLAUDE.md" ;;
+            openai|gpt*)        shim="OPENAI.md" ;;
+            gemini|google*)     shim="GEMINI.md" ;;
+            groq*)              shim="GROQ.md" ;;
+            mistral*)           shim="MISTRAL.md" ;;
+            ollama*)            shim="OLLAMA.md" ;;
+            cohere*)            shim="COHERE.md" ;;
+            *)                  shim="${provider^^}.md" ;;
         esac
-
-        shim_path="/home/$USERNAME/$shim_file"
-        echo "$shim_content" > "$shim_path"
-        chown "$USERNAME:$USERNAME" "$shim_path"
-        check "Shim: $shim_file → AI_CONTEXT.md  ($provider)"
-        info "shim $shim_file generated for provider $provider"
-        SHIM_GENERATED=$((SHIM_GENERATED + 1))
-    done <<< "$PROVIDER_NAMES"
+        echo "@AI_CONTEXT.md" > ~/"$shim"
+        check "Shim: $shim → AI_CONTEXT.md  ($provider)"
+        SHIM_COUNT=$((SHIM_COUNT + 1))
+    done < <("$NEXUS_PYTHON_BIN" -c "
+import yaml, sys
+try:
+    d = yaml.safe_load(open('$PROVIDERS_YAML')) or {}
+    [print(k) for k in d.get('providers', {})]
+except Exception:
+    pass
+" 2>/dev/null)
 fi
 
-if [[ "$SHIM_GENERATED" -eq 0 ]]; then
-    warn "No providers found in config — generate shims manually after configuring providers:"
-    info "cp $INSTALL_DIR/templates/system/shims/CLAUDE.md /home/$USERNAME/"
-    info "no provider shims generated — providers.yaml missing or empty"
+if [[ "$SHIM_COUNT" -eq 0 ]]; then
+    warn "No provider shims generated — re-run wizard after adding credentials."
+    info "cd ~/nexus && source .venv/bin/activate && python -m src.setup.wizard"
 fi
 
 
-# ── 5. Install and enable systemd service ────────────────────────────────────
+# ── 8. Generate and install systemd service ───────────────────────────────────
 
-SERVICE_FILE="$INSTALL_DIR/nexus.service"
-if [[ -f "$SERVICE_FILE" ]]; then
-    header "System Service"
-    cp "$SERVICE_FILE" /etc/systemd/system/nexus.service
-    systemctl daemon-reload
-    systemctl enable nexus
+header "System Service"
+
+cd "$INSTALL_DIR"
+python -m src.setup.systemd 2>&3 || warn "systemd.py could not generate service file"
+
+SERVICE_SRC="$INSTALL_DIR/nexus.service"
+if [[ -f "$SERVICE_SRC" ]]; then
+    sudo cp "$SERVICE_SRC" /etc/systemd/system/nexus.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable nexus
     check "nexus.service installed and enabled (starts on boot)"
-
-    if ask_yn "Start Nexus now?"; then
-        systemctl start nexus
-        sleep 2
-        if systemctl is-active --quiet nexus; then
-            check "Nexus is running"
-        else
-            warn "Service started but may need a moment — check logs:"
-            info "journalctl -u nexus -n 50"
-        fi
+    sudo systemctl start nexus
+    sleep 2
+    if sudo systemctl is-active --quiet nexus 2>/dev/null; then
+        check "Nexus is running"
+    else
+        warn "Service may need a moment. Check: journalctl -u nexus -n 30"
     fi
 else
-    warn "Service file not found — start manually after setup:"
-    info "cd $INSTALL_DIR && source .venv/bin/activate && python -m src.main"
+    warn "Service file not found — start manually:"
+    info "cd ~/nexus && source .venv/bin/activate && python -m src.main"
 fi
 
 
-# ── 6. Summary ────────────────────────────────────────────────────────────────
+# ── 9. Done ───────────────────────────────────────────────────────────────────
 
-header "Installation Complete"
+printf "[%s] === bootstrap complete ===\n" "$(date +%T)" >&3
 
-echo "  $(bold "System user:")"
-echo "    Username : $USERNAME"
-echo "    Home     : /home/$USERNAME"
-echo "    Nexus    : $INSTALL_DIR"
+header "Nexus Ready"
+
+echo
+echo "  $(bold "You are logged in as:") $(whoami)"
+echo "  $(bold "Home:")        ~/"
+echo "  $(bold "Nexus:")       ~/nexus"
+echo "  $(bold "Workspace:")   ~/workspace"
+echo "  $(bold "Logs:")        ~/Logs/install.log"
+echo "  $(bold "Config:")      ~/nexus/config/"
+echo "  $(bold "Env file:")    ~/nexus/.env"
+echo
+echo "  $(bold "Service management:")"
+info "sudo systemctl status nexus"
+info "sudo systemctl restart nexus"
+info "journalctl -u nexus -f"
+echo
+echo "  $(bold "Add or change providers:")"
+info "cd ~/nexus && source .venv/bin/activate && python -m src.setup.wizard"
+echo
+BOOTSTRAP_EOF
+
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.nexus-bootstrap.sh"
+chmod +x "/home/$USERNAME/.nexus-bootstrap.sh"
+check "Bootstrap script ready"
+
+printf "[%s] root phase complete — handoff to %s\n" "$(date +%T)" "$USERNAME" >&3
+
+
+# ── 5. Root summary + handoff ─────────────────────────────────────────────────
+
+header "Root Phase Complete"
+
+echo "  Bot user  : $USERNAME"
+echo "  Sudo rule : service management only (no password)"
+echo "  Root log  : $ROOT_LOG"
 
 if [[ -n "$GENERATED_PASSWORD" ]]; then
     echo
     printf "  %s\n" "$(bold "$(yellow "Generated password — store this now:")")"
     printf "    %s\n" "$(bold "$GENERATED_PASSWORD")"
-    echo
-    echo "  $(dim "To SSH into the Nexus user:")"
-    info "ssh $USERNAME@<this-host>"
-    echo "  $(dim "Or switch from your admin account:")"
-    info "sudo su - $USERNAME"
 fi
 
 echo
-echo "  $(bold "Service management:")"
-info "systemctl status nexus"
-info "journalctl -u nexus -f"
-info "systemctl restart nexus"
-
-echo
-echo "  $(bold "System root:")"
-info "/home/$USERNAME/SOUL.md                 ← system identity"
-info "/home/$USERNAME/OPERATING_PROCEDURES.md ← system behavioral rules"
-info "/home/$USERNAME/AI_CONTEXT.md           ← system context"
-info "/home/$USERNAME/Agents/                 ← dynamic agents (starts empty)"
-info "/home/$USERNAME/workspace/              ← projects and categories"
-
-echo
-echo "  $(bold "Configuration:")"
-info "$INSTALL_DIR/config/   — providers, adapters, specialists"
-info "$INSTALL_DIR/.env      — API keys and secrets"
-info "$WORKSPACE_DIR/.workspace.config  — workspace settings"
-
-echo
-echo "  $(bold "Project commands (via Mattermost/Discord/Telegram):")"
-info "@bot create project [category]/[projectname]"
-info "@bot link [category]/[projectname] to [adapter]:[channel]"
-
-echo
-echo "  $(bold "Install log (share with Claude for debugging):")"
-info "$LOG_FILE"
+echo "  $(dim "Switching to '$USERNAME' — bootstrap will handle the rest.")"
 echo
 
-printf "[%s] ═══ INSTALL COMPLETE ═══\n" "$(date +%T)" >&3
-
-# ── 7. Drop into the Nexus user shell and run the wizard ─────────────────────
-# Switch into the bot user, auto-launch the wizard to add credentials, then
-# drop into an interactive login shell — no manual su or cd needed.
-
-echo
-if ask_yn "Switch into '$USERNAME' and run the setup wizard now?"; then
-    printf "[%s] su - %s: launching wizard\n" "$(date +%T)" "$USERNAME" >&3
-    exec su - "$USERNAME" -c "
-        cd ~/nexus && \
-        source .venv/bin/activate && \
-        python -m src.setup.wizard
-        exec bash -li
-    "
-fi
+exec su - "$USERNAME" -c "bash ~/.nexus-bootstrap.sh; exec bash -li"
