@@ -1,0 +1,65 @@
+project: multi-llm-nexus
+workspace_root: /home/claude/projects
+status: active
+purpose: '> **Status: Active Beta** — Core patterns are validated. The runtime is
+  under active development. Expect rough edges. Not recommended for critical production
+  workloads without your own testing.'
+tools:
+- type: env
+  name: env-.env
+  path: .env
+  detected_at: '2026-06-08'
+  confirmed: true
+  frequency:
+    count: 9
+    last_seen: '2026-06-15'
+  criticality: irreplaceable
+  rebuild_cmd: ''
+  notes: ''
+- type: git
+  name: git-.git
+  path: .git
+  detected_at: '2026-06-08'
+  confirmed: true
+  frequency:
+    count: 9
+    last_seen: '2026-06-15'
+  criticality: essential
+  rebuild_cmd: ''
+  notes: ''
+protected_paths:
+- .env
+- .env.example
+- AGENTS.md
+- CLAUDE.md
+- README.md
+- src/
+access:
+  samba_users: []
+  symlink_targets: []
+  notes: ''
+channels: []
+archive_metadata:
+  archived_date: null
+  archived_reason: null
+  archive_location: null
+  last_active: '2026-06-15T03:45:02Z'
+notes: ''
+_wti_version: '1.0'
+_created_at: '2026-06-08T00:54:29Z'
+todos:
+- text: Wire LLM provider routing layers — nano/standard/deep tiers
+  priority: high
+  done: false
+- text: Integrate OpenRouter as first secondary provider
+  priority: high
+  done: false
+- text: Build provider health check + automatic fallback
+  priority: medium
+  done: false
+- text: Expose tier selection in adapter API (let operators choose depth)
+  priority: medium
+  done: false
+mattermost_channel: multi-llm-nexus
+description: 'LLM-agnostic AI platform: providers, adapters, specialist orchestrator,
+  OSS evolution of claude-brain'

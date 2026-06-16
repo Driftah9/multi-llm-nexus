@@ -1,0 +1,22 @@
+# Adapter Channel Links
+#
+# This file (created and updated via @bot link commands) maps this project
+# to communication channels across different platforms.
+#
+# Structure: one entry per adapter, listing all linked channels.
+# Only channels explicitly linked appear here — projects exist independently.
+
+# Example (uncomment to use):
+# mattermost:
+#   - channel: "category/projectname"
+#     team: "main"
+#
+# discord:
+#   - server_id: "guild_id"
+#     channel_id: "channel_id"
+#
+# telegram:
+#   - chat_id: "-1001234567890"
+#     topic_id: 42
+
+# Add your links here:

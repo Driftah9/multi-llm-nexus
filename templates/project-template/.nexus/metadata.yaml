@@ -1,0 +1,20 @@
+# Project Metadata
+#
+# Auto-generated when project is created.
+# Do not edit manually (safe to edit if you know what you're doing).
+
+created:
+  timestamp: null           # Set by @bot create project
+  orchestrator: null        # Name of the Nexus agent that created it
+  category: null            # Category from workspace
+
+project:
+  name: null                # Inferred from directory name
+  path: null                # Relative to workspace root
+
+owner:
+  operator: null            # System operator (username running Nexus)
+  contact: null             # Operator contact info (optional)
+
+# Workspace context at creation time:
+workspace_categories: []    # List of workspace categories available
