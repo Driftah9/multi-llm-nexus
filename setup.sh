@@ -8,6 +8,14 @@ NEXUS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$NEXUS_DIR/.venv"
 PYTHON="${VENV_DIR}/bin/python"
 
+# Append to the install.sh log if one was opened by the parent.
+_slog() {
+    if [[ -n "${NEXUS_LOG_FILE:-}" ]]; then
+        printf "[%s] SETUP: %s\n" "$(date +%T)" "$*" >> "$NEXUS_LOG_FILE"
+    fi
+}
+_slog "setup.sh started (NEXUS_DIR=$NEXUS_DIR)"
+
 echo ""
 echo "  Multi-LLM-Nexus Setup"
 echo "  ====================="
@@ -24,12 +32,15 @@ echo "Python $PYTHON_VERSION found."
 # Virtual environment
 if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment..."
+    _slog "creating venv at $VENV_DIR"
     python3 -m venv "$VENV_DIR"
 fi
 source "$VENV_DIR/bin/activate"
+_slog "venv activated"
 
-pip install --quiet --upgrade pip
-pip install --quiet pyyaml httpx python-dotenv
+_slog "pip install: pyyaml httpx python-dotenv"
+pip install --quiet --upgrade pip 2>>"${NEXUS_LOG_FILE:-/dev/null}"
+pip install --quiet pyyaml httpx python-dotenv 2>>"${NEXUS_LOG_FILE:-/dev/null}"
 
 # Config files
 if [ ! -f "$NEXUS_DIR/config/providers.yaml" ]; then
@@ -43,8 +54,10 @@ if [ ! -f "$NEXUS_DIR/.env" ]; then
 fi
 
 # Interactive wizard
+_slog "launching wizard: src/setup/wizard.py"
 echo ""
 $PYTHON "$NEXUS_DIR/src/setup/wizard.py"
+_slog "wizard returned (exit $?)"
 
 echo ""
 

@@ -10,6 +10,13 @@
 
 set -euo pipefail
 
+# Timestamped install log — all steps, prompts, answers, and command output.
+# Tell Claude "I'm on step X" and it reads this file to see exactly what happened.
+LOG_FILE="/tmp/nexus-install-$(date +%Y%m%d-%H%M%S).log"
+exec 3> "$LOG_FILE"
+printf "[%s] nexus installer started (log: %s)\n" "$(date +%T)" "$LOG_FILE" >&3
+trap 'printf "[%s] ERROR: exited status=%s line=%s\n" "$(date +%T)" "$?" "$LINENO" >&3' ERR
+
 # Re-open stdin from terminal in case we were piped through curl | bash.
 # Only do this when a real controlling terminal exists — in headless/piped/CI
 # contexts /dev/tty is absent, and an unconditional redirect there aborts the
@@ -35,12 +42,13 @@ header() {
     echo "────────────────────────────────────────────────────────────"
     printf "  %s\n" "$(bold "$1")"
     echo "────────────────────────────────────────────────────────────"
+    printf "\n[%s] ═══ STEP: %s ═══\n" "$(date +%T)" "$1" >&3
 }
 
-check() { printf "  $(green "✓") %s\n" "$*"; }
-warn()  { printf "  $(yellow "!") %s\n" "$*"; }
-fail()  { printf "  $(red "✗") %s\n" "$*"; }
-info()  { printf "    %s\n" "$(dim "$*")"; }
+check() { printf "  $(green "✓") %s\n" "$*"; printf "[%s] OK:   %s\n"   "$(date +%T)" "$*" >&3; }
+warn()  { printf "  $(yellow "!") %s\n" "$*"; printf "[%s] WARN: %s\n"  "$(date +%T)" "$*" >&3; }
+fail()  { printf "  $(red "✗") %s\n" "$*";   printf "[%s] FAIL: %s\n"   "$(date +%T)" "$*" >&3; }
+info()  { printf "    %s\n" "$(dim "$*")";    printf "[%s] INFO: %s\n"   "$(date +%T)" "$*" >&3; }
 
 # EOF latch. Once stdin is exhausted, any further prompt that would loop on
 # validation (`continue`) must abort instead of replaying a default forever —
@@ -58,6 +66,7 @@ _stdin_eof_guard() {
 ask() {
     local prompt="$1" default="${2:-}" answer
     [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
+    printf "[%s] PROMPT: %s [default: %s]\n" "$(date +%T)" "$prompt" "${default:-none}" >&3
     if [[ -n "$default" ]]; then
         printf "\n  %s [$(dim "$default")]: " "$prompt"
     else
@@ -67,9 +76,11 @@ ask() {
         # read failed → EOF. Latch it: use any default this one time, but the
         # next prompt aborts rather than handing back the same value in a loop.
         _STDIN_EXHAUSTED=1
+        printf "[%s] ANSWER: (EOF — using default: %s)\n" "$(date +%T)" "${default:-none}" >&3
         [[ -n "$default" ]] && { echo "$default"; return 0; }
         _stdin_eof_guard
     fi
+    printf "[%s] ANSWER: %s\n" "$(date +%T)" "${answer:-$default}" >&3
     echo "${answer:-$default}"
 }
 
@@ -77,12 +88,16 @@ ask_yn() {
     local prompt="$1" default="${2:-y}" hint answer
     hint="Y/n"; [[ "$default" == "n" ]] && hint="y/N"
     [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
+    printf "[%s] PROMPT_YN: %s [default: %s]\n" "$(date +%T)" "$prompt" "$default" >&3
     printf "\n  %s (%s): " "$prompt" "$hint"
     if ! read -r answer; then
         _STDIN_EXHAUSTED=1
-        answer="$default"   # EOF → take the default once
+        answer="$default"
+        printf "[%s] ANSWER_YN: (EOF — using default: %s)\n" "$(date +%T)" "$default" >&3
     fi
     answer="${answer:-$default}"
+    local resolved; [[ "${answer,,}" == "y"* ]] && resolved="YES" || resolved="NO"
+    printf "[%s] ANSWER_YN: %s → %s\n" "$(date +%T)" "$answer" "$resolved" >&3
     [[ "${answer,,}" == "y"* ]]
 }
 
@@ -105,6 +120,7 @@ fi
 echo
 echo "$(bold "  Multi-LLM-Nexus Installer")"
 echo "  $(dim "Your AI platform. Your rules.")"
+echo "  $(dim "Install log: $LOG_FILE")"
 echo
 
 
@@ -127,8 +143,8 @@ done
 
 if [[ -z "$PYTHON_BIN" ]]; then
     warn "Python 3.11+ not found — installing..."
-    apt-get update -qq
-    apt-get install -y -qq python3.11 python3.11-venv python3-pip
+    apt-get update -qq 2>&3
+    apt-get install -y -qq python3.11 python3.11-venv python3-pip 2>&3
     PYTHON_BIN="python3.11"
     check "Python 3.11 installed"
 fi
@@ -137,14 +153,14 @@ if command -v git &>/dev/null; then
     check "git $(git --version | awk '{print $3}')"
 else
     warn "git not found — installing..."
-    apt-get update -qq && apt-get install -y -qq git
+    apt-get update -qq 2>&3 && apt-get install -y -qq git 2>&3
     check "git installed"
 fi
 
 if command -v curl &>/dev/null; then
     check "curl present"
 else
-    apt-get install -y -qq curl
+    apt-get install -y -qq curl 2>&3
     check "curl installed"
 fi
 
@@ -235,7 +251,7 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
 else
     info "Cloning into $INSTALL_DIR ..."
     sudo -u "$USERNAME" git clone --branch "$BRANCH" --depth 1 \
-        "$REPO_URL" "$INSTALL_DIR"
+        "$REPO_URL" "$INSTALL_DIR" 2>&3
     check "Repository cloned to $INSTALL_DIR"
 fi
 
@@ -299,6 +315,7 @@ sudo -u "$USERNAME" \
     NEXUS_INSTALL_USER="$USERNAME" \
     NEXUS_WORKSPACE_DIR="$WORKSPACE_DIR" \
     NEXUS_WORKSPACE_CATEGORIES="$NEXUS_WORKSPACE_CATEGORIES" \
+    NEXUS_LOG_FILE="$LOG_FILE" \
     bash "$INSTALL_DIR/setup.sh"
 
 
@@ -376,4 +393,10 @@ echo
 echo "  $(dim "To add providers or reconfigure later:")"
 info "sudo su - $USERNAME"
 info "cd nexus && source .venv/bin/activate && python -m src.setup.wizard"
+
 echo
+echo "  $(bold "Install log (share with Claude for debugging):")"
+info "$LOG_FILE"
+echo
+
+printf "[%s] ═══ INSTALL COMPLETE ═══\n" "$(date +%T)" >&3

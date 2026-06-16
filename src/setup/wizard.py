@@ -31,6 +31,19 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"
 ENV_FILE = PROJECT_ROOT / ".env"
 
+# ── Install log (optional, set by install.sh via NEXUS_LOG_FILE) ─────────────
+import datetime as _dt
+
+_LOG_FILE = os.environ.get("NEXUS_LOG_FILE", "")
+_log_fh = open(_LOG_FILE, "a") if _LOG_FILE else None
+
+def _wlog(msg: str) -> None:
+    """Write a plain-text timestamped line to the install log if active."""
+    if _log_fh:
+        ts = _dt.datetime.now().strftime("%H:%M:%S")
+        _log_fh.write(f"[{ts}] WIZARD: {msg}\n")
+        _log_fh.flush()
+
 from ..providers.registry import (
     PROVIDERS, TIER_NANO, TIER_STANDARD, TIER_DEEP,
     get_models_for_tier, get_tier, infer_tier, recommended_triage_model,
@@ -61,35 +74,49 @@ def header(title: str) -> None:
     print("─" * width)
     print(f"  {bold(title)}")
     print("─" * width)
+    _wlog(f"═══ SECTION: {title} ═══")
 
 def ask(prompt: str, default: str = "") -> str:
     display = f"{prompt}"
     if default:
         display += f" {dim(f'[{default}]')}"
     display += ": "
+    _wlog(f"PROMPT: {prompt} [default: {default or 'none'}]")
     try:
         val = input(display).strip()
-        return val or default
+        result = val or default
+        _wlog(f"ANSWER: {result}")
+        return result
     except (KeyboardInterrupt, EOFError):
+        _wlog("ANSWER: (interrupted/EOF — exiting)")
         print()
         sys.exit(0)
 
 def ask_secret(prompt: str) -> str:
     import getpass
+    _wlog(f"PROMPT_SECRET: {prompt} [value hidden]")
     try:
-        return getpass.getpass(f"{prompt}: ").strip()
+        val = getpass.getpass(f"{prompt}: ").strip()
+        _wlog(f"ANSWER_SECRET: {'(provided)' if val else '(empty)'}")
+        return val
     except (KeyboardInterrupt, EOFError):
+        _wlog("ANSWER_SECRET: (interrupted/EOF — exiting)")
         print()
         sys.exit(0)
 
 def ask_yn(prompt: str, default: bool = True) -> bool:
     hint = "Y/n" if default else "y/N"
+    _wlog(f"PROMPT_YN: {prompt} [default: {'y' if default else 'n'}]")
     val = ask(f"{prompt} ({hint})").lower()
     if not val:
-        return default
-    return val.startswith("y")
+        result = default
+    else:
+        result = val.startswith("y")
+    _wlog(f"ANSWER_YN: {'YES' if result else 'NO'}")
+    return result
 
 def ask_choice(prompt: str, choices: list[str], default: int = 0) -> str:
+    _wlog(f"PROMPT_CHOICE: {prompt} [options: {choices}] [default index: {default}]")
     print(f"\n{prompt}")
     for i, c in enumerate(choices):
         marker = green("▶") if i == default else " "
@@ -99,9 +126,11 @@ def ask_choice(prompt: str, choices: list[str], default: int = 0) -> str:
         try:
             idx = int(raw) - 1
             if 0 <= idx < len(choices):
+                _wlog(f"ANSWER_CHOICE: {choices[idx]}")
                 return choices[idx]
         except ValueError:
             pass
+        _wlog(f"FAIL_CHOICE: invalid input '{raw}'")
         print(red("  Invalid choice — enter a number from the list."))
 
 def ask_multiselect(prompt: str, options: list[tuple[str, str]]) -> list[str]:
@@ -110,6 +139,7 @@ def ask_multiselect(prompt: str, options: list[tuple[str, str]]) -> list[str]:
     options: list of (key, display_label)
     Returns selected keys.
     """
+    _wlog(f"PROMPT_MULTI: {prompt} [options: {[k for k,_ in options]}]")
     selected: set[str] = set()
     print(f"\n{prompt}")
     print(dim("  Enter numbers separated by spaces/commas, or 'all', or 'none'."))
@@ -118,8 +148,11 @@ def ask_multiselect(prompt: str, options: list[tuple[str, str]]) -> list[str]:
     while True:
         raw = ask("Select").lower().strip()
         if raw == "all":
-            return [k for k, _ in options]
+            result = [k for k, _ in options]
+            _wlog(f"ANSWER_MULTI: all → {result}")
+            return result
         if raw == "none":
+            _wlog("ANSWER_MULTI: none → []")
             return []
         try:
             parts = raw.replace(",", " ").split()
@@ -130,8 +163,10 @@ def ask_multiselect(prompt: str, options: list[tuple[str, str]]) -> list[str]:
                     result.append(options[idx][0])
                 else:
                     raise ValueError()
+            _wlog(f"ANSWER_MULTI: {result}")
             return result
         except (ValueError, IndexError):
+            _wlog(f"FAIL_MULTI: invalid input '{raw}'")
             print(red("  Invalid input — use numbers from the list."))
 
 def check_mark(ok: bool) -> str:
