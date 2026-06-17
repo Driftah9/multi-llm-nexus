@@ -151,9 +151,14 @@ async def setup_local(pdef: ProviderDef, system_ip: str = "localhost") -> Option
         )
         if result.returncode != 0:
             if ask_yn("    Ollama not running. Install it?"):
-                print("    → Running Ollama installer...")
+                print("    → Downloading Ollama installer...")
                 subprocess.run(
-                    "curl -fsSL https://ollama.com/install.sh | sh",
+                    "curl -fsSL https://ollama.com/install.sh -o /tmp/ollama-install.sh",
+                    shell=True, check=False
+                )
+                print("    → Running Ollama installer (requires sudo)...")
+                subprocess.run(
+                    "sudo /tmp/ollama-install.sh",
                     shell=True, check=False
                 )
                 print("    → Start Ollama: ollama serve")

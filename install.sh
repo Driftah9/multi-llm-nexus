@@ -222,11 +222,12 @@ done
 
 header "Permissions"
 
-# Bot user gets NOPASSWD sudo for nexus service management only.
+# Bot user gets NOPASSWD sudo for: service management + system package installation
+# This allows the wizard to install Ollama, dependencies, etc. without prompting.
 # Root sets this up — the bot user never manages its own permissions.
 SUDOERS_FILE="/etc/sudoers.d/nexus-${USERNAME}"
 cat > "$SUDOERS_FILE" << SUDOERS
-# Nexus bot user — service management only, no password required
+# Nexus bot user — service management + package installation, no password required
 ${USERNAME} ALL=(root) NOPASSWD: \
     /bin/systemctl daemon-reload, \
     /bin/systemctl enable nexus, \
@@ -235,10 +236,17 @@ ${USERNAME} ALL=(root) NOPASSWD: \
     /bin/systemctl stop nexus, \
     /bin/systemctl restart nexus, \
     /bin/systemctl status nexus, \
-    /bin/cp /home/${USERNAME}/nexus/nexus.service /etc/systemd/system/nexus.service
+    /bin/cp /home/${USERNAME}/nexus/nexus.service /etc/systemd/system/nexus.service, \
+    /usr/bin/apt-get, \
+    /usr/bin/apt, \
+    /usr/bin/pacman, \
+    /usr/bin/yum, \
+    /usr/bin/dnf, \
+    /tmp/ollama-install.sh, \
+    /tmp/lm-studio-install.sh
 SUDOERS
 chmod 440 "$SUDOERS_FILE"
-check "Sudoers: $USERNAME can manage nexus.service (no password)"
+check "Sudoers: $USERNAME can manage nexus.service and install packages (no password)"
 
 
 # ── 4. Write runtime config for bootstrap ────────────────────────────────────
