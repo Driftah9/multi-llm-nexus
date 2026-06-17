@@ -351,63 +351,27 @@ async def hardware_detection() -> dict:
 
 # ─ Provider Selection [D] ──────────────────────────────────────────────────────
 
-CLOUD_PROVIDERS = [
-    ("anthropic_cli", "Anthropic / Claude — subscription CLI (Claude Code — Pro/Teams plan)"),
-    ("anthropic_api", "Anthropic / Claude — API key  (no CLI required)"),
-    ("openai", "OpenAI  (GPT-4o, o3)  — API key, not ChatGPT Plus"),
-    ("github_models", "GitHub Models  (GPT-4o, Llama, Mistral + more — free)"),
-    ("openrouter", "OpenRouter  (100+ models, 30+ providers — one API key)"),
-    ("gemini", "Google Gemini  (Flash, Pro — free tier available)"),
-    ("groq", "Groq  (fast open-source inference — free tier available)"),
-    ("mistral", "Mistral AI  (EU-hosted, GDPR-friendly)"),
-    ("deepseek", "DeepSeek  (V3 + R1 reasoning — very low cost)"),
-    ("xai", "xAI / Grok  — API key, not X/Twitter Premium"),
-    ("cohere", "Cohere  (Command R — best for RAG — free tier)"),
-    ("together", "Together.ai  (50+ open models)"),
-    ("fireworks", "Fireworks.ai"),
-    ("perplexity", "Perplexity  (web search baked in)"),
-    ("huggingface", "Hugging Face Inference  (free tier)"),
-    ("cerebras", "Cerebras  (wafer-chip, very fast)"),
-    ("bedrock", "Amazon Bedrock  [Enterprise] (AWS — Claude + Llama + Mistral)"),
-    ("azure_openai", "Azure OpenAI  [Enterprise] (enterprise, data residency)"),
-    ("vertex", "Google Vertex AI  [Enterprise] (GCP)"),
-]
-
-LOCAL_PROVIDERS = [
-    ("ollama", "Ollama  (free, runs on your machine — recommended)"),
-    ("lm_studio", "LM Studio  (GUI model manager + local API)"),
-    ("vllm", "vLLM  (self-hosted, GPU server)"),
-]
-
-def provider_selection(hw: dict) -> tuple[list[str], list[str]]:
-    """Multi-select providers (cloud + infra + local merged)."""
+def provider_selection(hw: dict) -> list[str]:
+    """Multi-select providers from registry (cloud + local)."""
     header("Step 1 — Select Your Providers")
     print("  Select all providers you have access to.\n")
 
-    # Pre-select ollama if hardware supports it
-    local_items = []
-    for key, label in LOCAL_PROVIDERS:
-        selected = (key == "ollama" and hw.ram_gb >= 8)
-        local_items.append((key, label, selected))
-
-    # Combine all providers
+    # Generate items from registry
     all_items = []
-    for key, label in CLOUD_PROVIDERS:
-        all_items.append((key, label, False))
-    all_items.extend(local_items)
+    for ptype, pdef in PROVIDERS.items():
+        # Pre-select ollama if hardware supports it
+        selected = (ptype == "ollama" and hw.ram_gb >= 8)
+        all_items.append((ptype, pdef.display_name, selected))
 
     selected_keys = whiptail_checklist(
         "Select providers (SPACE to select, ENTER when done):",
         all_items
     )
 
-    cloud_selected = [k for k in selected_keys if any(k == cp[0] for cp in CLOUD_PROVIDERS)]
-    local_selected = [k for k in selected_keys if any(k == lp[0] for lp in LOCAL_PROVIDERS)]
-
     print(f"\n  {check_mark(True)} Providers selected: {len(selected_keys)}")
-    _wlog(f"provider_selection: cloud={cloud_selected}, local={local_selected}")
+    _wlog(f"provider_selection: {selected_keys}")
 
-    return cloud_selected, local_selected
+    return selected_keys
 
 
 # ─ Adapter Selection [E] ───────────────────────────────────────────────────────
@@ -447,103 +411,20 @@ def adapter_selection() -> list[str]:
 # ─ Provider Configuration [F] ──────────────────────────────────────────────────
 
 async def configure_providers(
-    cloud_selected: list[str],
-    local_selected: list[str],
+    selected_providers: list[str],
     system_ip: str
 ) -> dict:
-    """Configure selected providers (CLI install, API keys, connection test)."""
+    """Configure selected providers sequentially (CLI install, API keys, tests)."""
+    from .provider_setup import setup_provider
+
     header("Step 2 — Configure Providers")
 
     configured = {}
 
-    # Anthropic CLI
-    if "anthropic_cli" in cloud_selected:
-        print("\n  Anthropic / Claude — Subscription (CLI)")
-        result = subprocess.run("command -v claude", shell=True, capture_output=True)
-        cli_ready = result.returncode == 0
-        if not cli_ready:
-            print("    ✗ Claude Code CLI not found. Installing...")
-            print("    → Running installer (https://claude.ai/code)...")
-            install_result = subprocess.run(
-                "curl -fsSL https://claude.ai/install.sh | bash",
-                shell=True, check=False
-            )
-            # Reload PATH so claude is visible without a new shell
-            new_path = subprocess.run(
-                'echo "$HOME/.local/bin:$HOME/.claude/local/bin:$PATH"',
-                shell=True, capture_output=True, text=True
-            ).stdout.strip()
-            os.environ["PATH"] = new_path
-            cli_ready = subprocess.run("command -v claude", shell=True, capture_output=True).returncode == 0
-            if cli_ready:
-                print(f"    {check_mark(True)} Claude CLI installed and ready")
-            else:
-                print(f"    {check_mark(False)} Install script ran but 'claude' still not on PATH.")
-                print("    → Open a new shell and run: claude auth login")
-                print("    → Then re-run: python -m src.setup.wizard")
-                _wlog("anthropic_cli: install failed — claude not on PATH after install")
-                cloud_selected = [p for p in cloud_selected if p != "anthropic_cli"]
-
-        if cli_ready:
-            # Auth — run claude auth login with TTY attached so user can interact
-            print("    → Launching: claude auth login")
-            _wlog("anthropic_cli: attempting auth with /dev/tty subprocess")
-            auth_success = False
-            import sys
-            _wlog("anthropic_cli: launching claude auth login via sys.stdin/stdout")
-            result = subprocess.run(
-                ["claude", "auth", "login"],
-                stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr,
-                check=False
-            )
-            _wlog(f"anthropic_cli: subprocess returned code {result.returncode}")
-            auth_success = (result.returncode == 0)
-
-            # Test connection
-            result = subprocess.run("claude -p 'ping' --output-format text", shell=True, capture_output=True, text=True)
-            if result.returncode == 0:
-                configured["anthropic"] = "anthropic_cli"
-                print(f"    {check_mark(True)} Anthropic (CLI) configured")
-                _wlog("anthropic_cli: configured")
-            else:
-                print(f"    {check_mark(False)} Connection test failed — run: claude auth login")
-                _wlog("anthropic_cli: connection test failed")
-
-    # Ollama
-    if "ollama" in local_selected:
-        print("\n  Ollama  (local)")
-        endpoint = f"http://{system_ip}:11434"
-        print(f"    Endpoint: {endpoint}")
-
-        # Check if running
-        result = subprocess.run(
-            f"curl -s {endpoint}/api/tags",
-            shell=True, capture_output=True, timeout=2
-        )
-        if result.returncode != 0:
-            if ask_yn("    Ollama not found. Install it?"):
-                print("    → Running Ollama installer...")
-                subprocess.run(
-                    "curl -fsSL https://ollama.com/install.sh | sh",
-                    shell=True, check=False
-                )
-                print("    → Start Ollama: ollama serve")
-                input("    Press Enter after Ollama is running...")
-            else:
-                print("    Skipping Ollama.")
-                _wlog("ollama: skipped")
-                local_selected = [p for p in local_selected if p != "ollama"]
-
-        # Pull model in background
-        model = "llama3.2:3b"  # TODO: from hardware detection
-        print(f"    Pulling model: {model}")
-        subprocess.Popen(
-            f"ollama pull {model}",
-            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        configured["ollama"] = "ollama"
-        print(f"    {check_mark(True)} Ollama configured (model pulling in background)")
-        _wlog("ollama: configured")
+    for provider_type in selected_providers:
+        result = await setup_provider(provider_type, system_ip)
+        if result:
+            configured.update(result)
 
     return configured
 
@@ -639,31 +520,57 @@ Then restart Nexus:
 # ─ Config Writing ──────────────────────────────────────────────────────────────
 
 def write_configs(configured: dict, routing: dict, notify_cfg: dict, system_ip: str = "localhost") -> None:
-    """Write providers.yaml and .env."""
+    """Write providers.yaml with proper config + .env with keys."""
     header("Step 4 — Writing Configuration")
 
-    # providers.yaml
-    providers_config = {
-        "providers": {provider: {} for provider in configured},
-        "routing": routing,
-    }
+    providers_config = {"providers": {}, "routing": routing}
+    env_lines = []
+
+    # Build providers.yaml entries
+    for provider_type, config in configured.items():
+        pdef = PROVIDERS.get(provider_type)
+        if not pdef:
+            continue
+
+        # Base entry
+        entry = {"type": pdef.type_id}
+
+        # Add model (first model for this tier)
+        if pdef.models:
+            first_model = list(pdef.models.keys())[0]
+            entry["model"] = first_model
+
+        # Add base_url if provided
+        if pdef.base_url:
+            entry["base_url"] = pdef.base_url
+
+        # Add API key reference if it's an API key provider
+        if config.get("api_key"):
+            env_var = config.get("env_var", f"{pdef.type_id.upper()}_API_KEY")
+            entry["api_key"] = f"${{{env_var}}}"
+            env_lines.append(f"{env_var}={config['api_key']}")
+
+        # Add endpoint if it's a local provider
+        if config.get("endpoint"):
+            entry["endpoint"] = config["endpoint"]
+
+        providers_config["providers"][provider_type] = entry
+
+    # Write providers.yaml
     yaml_path = CONFIG_DIR / "providers.yaml"
     yaml_path.write_text(yaml.dump(providers_config, default_flow_style=False))
     print(f"  {check_mark(True)} {yaml_path.relative_to(PROJECT_ROOT)}")
 
-    # .env
-    env_lines = []
-    for provider in configured:
-        if provider == "anthropic":
-            env_lines.append("# ANTHROPIC_API_KEY set via: claude auth login")
-        elif provider == "ollama":
-            env_lines.append(f"OLLAMA_ENDPOINT=http://{system_ip}:11434")
+    # Write .env (gitignored)
     env_path = ENV_FILE
-    env_path.write_text("\n".join(env_lines) + "\n")
+    if env_lines:
+        env_path.write_text("\n".join(env_lines) + "\n")
+    else:
+        env_path.write_text("# Add provider API keys here\n")
     print(f"  {check_mark(True)} {env_path.relative_to(PROJECT_ROOT)}")
 
     print()
-    _wlog(f"write_configs: providers={configured}, routing={routing}")
+    _wlog(f"write_configs: providers={list(configured.keys())}, routing={routing}")
 
 
 # ─ Main ────────────────────────────────────────────────────────────────────────
@@ -703,13 +610,13 @@ async def run() -> None:
     hw = await hardware_detection()
 
     # [D] Provider Selection
-    cloud_selected, local_selected = provider_selection(hw)
+    selected_providers = provider_selection(hw)
 
     # [E] Adapter Selection
     adapter_selected, adapter_config = adapter_selection()
 
     # [F] Provider Configuration
-    configured = await configure_providers(cloud_selected, local_selected, system_ip)
+    configured = await configure_providers(selected_providers, system_ip)
 
     if not configured:
         print(yellow("\n  No providers configured yet — credentials can be added after install."))
