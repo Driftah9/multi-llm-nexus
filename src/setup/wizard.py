@@ -253,14 +253,17 @@ def system_scan() -> dict:
             scan["packages"][pkg] = False
 
     # Local services
+    # Ollama: CLI must exist AND endpoint must respond — both required
+    ollama_cli = subprocess.run("command -v ollama", shell=True, capture_output=True).returncode == 0
     try:
-        subprocess.run(
+        r = subprocess.run(
             "curl -s http://localhost:11434/api/tags",
             shell=True, capture_output=True, timeout=2, check=False
         )
-        scan["services"]["ollama"] = True
+        ollama_http = r.returncode == 0
     except Exception:
-        scan["services"]["ollama"] = False
+        ollama_http = False
+    scan["services"]["ollama"] = ollama_cli and ollama_http
 
     # API keys from .env — check all env_vars in registry
     all_env_vars: set[str] = set()
