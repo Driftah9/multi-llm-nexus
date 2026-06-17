@@ -330,11 +330,11 @@ def system_identity() -> tuple[str, str]:
     if soul_path.exists():
         content = soul_path.read_text()
         if "[ORCHESTRATOR_NAME]" not in content:
-            # Already configured — extract name from first heading
+            # Already configured — extract name from first heading (stop at " — " subtitle)
             agent_name = ""
             for line in content.splitlines():
                 if line.startswith("# "):
-                    agent_name = line[2:].strip()
+                    agent_name = line[2:].strip().split(" — ")[0].strip()
                     break
             system_name = get_hostname()
             print(f"\n  {check_mark(True)} Identity already configured: {bold(agent_name or 'unknown')}")
@@ -691,9 +691,77 @@ async def run() -> None:
     print(f"  System IP: {bold(system_ip)} (used as default for local service endpoints)")
     print()
 
-    # [A] System Scan
+    # [A] System Scan — always run first
     scan = system_scan()
     print_scan(scan)
+    active_providers = scan.get("active_providers", {})
+    is_rerun = bool(active_providers)
+
+    if is_rerun:
+        # ── Re-run mode: top-level menu ──────────────────────────────────────
+        header("What would you like to do?")
+        choice = whiptail_radiolist(
+            "Choose an option:",
+            [
+                ("providers", "Add or configure AI providers", True),
+                ("adapters", "Add or configure platform adapters  (Mattermost, Discord, Telegram)", False),
+            ],
+        )
+        if not choice:
+            print("  Cancelled.")
+            return
+
+        if choice == "providers":
+            # Identity check (prints "already configured" and returns early)
+            agent_name, system_name = system_identity()
+
+            # Hardware scan (brief)
+            hw = await hardware_detection()
+
+            # Provider selection
+            selected_providers = provider_selection(hw, active_providers)
+            if not selected_providers:
+                print("\n  Nothing selected. Exiting.")
+                return
+
+            # Configure selected providers
+            configured = await configure_providers(selected_providers, system_ip)
+            if not configured:
+                print(yellow("\n  No providers were configured."))
+                return
+
+            # Role assignment across all providers (new + existing)
+            all_providers = {**{k: {} for k in active_providers}, **configured}
+            if len(all_providers) > 1:
+                routing = role_assignment(all_providers)
+            else:
+                routing = {"default": list(all_providers.keys())[0]}
+                header("Step 3 — Role Assignment")
+                print(f"  Orchestrator: {bold(list(all_providers.keys())[0])} (only provider)")
+                print(f"\n  {check_mark(True)} Triage, workers, and failover auto-assigned at runtime.")
+
+            write_configs(configured, routing, {}, system_ip)
+
+            header("Providers Updated")
+            print(f"  Added: {', '.join(configured.keys())}")
+            print(f"  Total providers: {len(all_providers)}")
+            print()
+
+        elif choice == "adapters":
+            adapter_selected, adapter_config = adapter_selection()
+            if not adapter_selected:
+                print("\n  Nothing selected. Exiting.")
+                return
+            platform_setup(adapter_selected, adapter_config, system_ip)
+            header("Adapters Updated")
+            print(f"  Configured: {', '.join(adapter_selected)}")
+            print(f"  Edit {cyan('config/adapters.yaml')} and set {cyan('enabled: true')} for each adapter,")
+            print(f"  then add tokens to {cyan('.env')} and restart Nexus.")
+            print()
+
+        return  # re-run done
+
+    # ── First-time install flow ───────────────────────────────────────────────
     if not ask_yn("Continue to provider setup?"):
         print("  Cancelled.")
         return
@@ -714,22 +782,22 @@ async def run() -> None:
     # [C] Hardware Detection
     hw = await hardware_detection()
 
-    # [D] Provider Selection — pass active providers so list shows current state
-    selected_providers = provider_selection(hw, scan.get("active_providers", {}))
+    # [D] Provider Selection
+    selected_providers = provider_selection(hw, {})
 
-    # [E] Adapter Selection
-    adapter_selected, adapter_config = adapter_selection()
-
-    # [F] Provider Configuration
+    # [F] Provider Configuration — done BEFORE adapter selection
     configured = await configure_providers(selected_providers, system_ip)
 
-    if not configured:
+    routing = {}
+    if configured:
+        # [G] Role Assignment
+        routing = role_assignment(configured)
+    else:
         print(yellow("\n  No providers configured yet — credentials can be added after install."))
         print(dim("  Re-run anytime: python -m src.setup.wizard"))
-        return
 
-    # [G] Role Assignment
-    routing = role_assignment(configured)
+    # [E] Adapter Selection — after providers so user has full context
+    adapter_selected, adapter_config = adapter_selection()
 
     # [H] Platform Setup
     notify_cfg = platform_setup(adapter_selected, adapter_config, system_ip)
@@ -737,7 +805,8 @@ async def run() -> None:
     # [I] Service Install — handled by bootstrap.sh
 
     # [J] Config Writing
-    write_configs(configured, routing, notify_cfg, system_ip)
+    if configured:
+        write_configs(configured, routing, notify_cfg, system_ip)
 
     # Summary
     header("Setup Complete")
