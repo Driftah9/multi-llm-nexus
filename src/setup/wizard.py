@@ -217,13 +217,23 @@ def check_port_available(port: int, host: str = "0.0.0.0") -> bool:
 # ─ System Scan [A] ────────────────────────────────────────────────────────────
 
 def system_scan() -> dict:
-    """Scan for CLI tools, Python packages, local services, API keys."""
+    """Scan for active providers, CLI tools, Python packages, local services, API keys."""
     scan = {
+        "active_providers": {},   # from existing providers.yaml
         "tools": {},
         "packages": {},
         "services": {},
         "env_keys": {},
     }
+
+    # Active providers from existing providers.yaml
+    yaml_path = CONFIG_DIR / "providers.yaml"
+    if yaml_path.exists():
+        try:
+            cfg = yaml.safe_load(yaml_path.read_text()) or {}
+            scan["active_providers"] = cfg.get("providers", {})
+        except Exception:
+            pass
 
     # CLI tools
     for tool in ["claude", "ollama", "docker"]:
@@ -232,8 +242,11 @@ def system_scan() -> dict:
         )
         scan["tools"][tool] = result.stdout.strip() if result.returncode == 0 else None
 
-    # Python packages
-    for pkg in ["aiohttp", "anthropic", "openai", "google-generativeai", "cohere"]:
+    # Python packages — collected from registry (not hardcoded)
+    required_packages: set[str] = set()
+    for pdef in PROVIDERS.values():
+        required_packages.update(pdef.packages)
+    for pkg in sorted(required_packages):
         try:
             scan["packages"][pkg] = importlib.util.find_spec(pkg) is not None
         except (ImportError, ModuleNotFoundError, ValueError):
@@ -249,21 +262,35 @@ def system_scan() -> dict:
     except Exception:
         scan["services"]["ollama"] = False
 
-    # API keys from .env
+    # API keys from .env — check all env_vars in registry
+    all_env_vars: set[str] = set()
+    for pdef in PROVIDERS.values():
+        all_env_vars.update(pdef.env_vars)
     if ENV_FILE.exists():
         content = ENV_FILE.read_text()
         for line in content.splitlines():
-            for key in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"]:
+            for key in all_env_vars:
                 if line.startswith(f"{key}=") and len(line.split("=", 1)[1].strip()) > 0:
                     scan["env_keys"][key] = True
 
-    _wlog(f"system_scan: tools={scan['tools']}, services={scan['services']}")
+    _wlog(f"system_scan: active={list(scan['active_providers'].keys())}, tools={scan['tools']}")
     return scan
 
 
 def print_scan(scan: dict) -> None:
     """Pretty-print system scan results."""
     header("System Scan")
+
+    # Active providers — shown first so operator knows what's already running
+    print("\n  Active Providers")
+    active = scan.get("active_providers", {})
+    if active:
+        for pname, pcfg in active.items():
+            pdef = PROVIDERS.get(pname.rsplit("_", 1)[0] if pname[-1].isdigit() else pname)
+            label = pdef.display_name if pdef else pname
+            print(f"    {check_mark(True)} {pname:25} {dim(label)}")
+    else:
+        print(f"    {dim('none configured yet')}")
 
     print("\n  CLI Tools")
     for tool in ["claude", "ollama", "docker"]:
@@ -274,20 +301,19 @@ def print_scan(scan: dict) -> None:
             print(f"    {check_mark(False)} {tool:15} not found")
 
     print("\n  Python Packages")
-    for pkg in ["aiohttp", "anthropic", "openai", "google-generativeai", "cohere"]:
-        ok = scan["packages"].get(pkg, False)
-        print(f"    {check_mark(ok)} {pkg:30} {'installed' if ok else 'not installed'}")
+    for pkg, ok in sorted(scan["packages"].items()):
+        print(f"    {check_mark(ok)} {pkg:35} {'installed' if ok else 'not installed'}")
 
     print("\n  Local Services")
     print(f"    {check_mark(scan['services'].get('ollama', False))} Ollama  " +
           ("reachable" if scan["services"].get("ollama") else "not reached"))
 
-    print("\n  API Keys")
+    print("\n  API Keys in .env")
     if scan["env_keys"]:
-        for key in scan["env_keys"]:
+        for key in sorted(scan["env_keys"]):
             print(f"    {check_mark(True)} {key}")
     else:
-        print(f"    {check_mark(False)} None found in .env")
+        print(f"    {dim('none found in .env')}")
 
     print()
 
@@ -295,9 +321,26 @@ def print_scan(scan: dict) -> None:
 # ─ System Identity [B] ────────────────────────────────────────────────────────
 
 def system_identity() -> tuple[str, str]:
-    """Prompt for orchestrator name and system hostname."""
-    header("System Identity")
+    """Prompt for orchestrator name and system hostname. Skips if already configured."""
+    # Detect if identity was already set (placeholder replaced = first-run already done)
+    soul_path = SYSTEM_ROOT / "SOUL.md"
+    if soul_path.exists():
+        content = soul_path.read_text()
+        if "[ORCHESTRATOR_NAME]" not in content:
+            # Already configured — extract name from first heading
+            agent_name = ""
+            for line in content.splitlines():
+                if line.startswith("# "):
+                    agent_name = line[2:].strip()
+                    break
+            system_name = get_hostname()
+            print(f"\n  {check_mark(True)} Identity already configured: {bold(agent_name or 'unknown')}")
+            print(f"  {dim('Edit SOUL.md and AI_CONTEXT.md to change.')}\n")
+            _wlog(f"system_identity: already set, agent={agent_name}")
+            return agent_name, system_name
 
+    # First-time setup
+    header("System Identity")
     print("  Give your system an identity — a name and a short description.")
     print("  This becomes the orchestrator's soul: who it is, what it does.")
     print("  You can change these later by editing SOUL.md and AI_CONTEXT.md\n")
@@ -351,27 +394,53 @@ async def hardware_detection() -> dict:
 
 # ─ Provider Selection [D] ──────────────────────────────────────────────────────
 
-def provider_selection(hw: dict) -> list[str]:
-    """Multi-select providers from registry (cloud + local)."""
-    header("Step 1 — Select Your Providers")
-    print("  Select all providers you have access to.\n")
+def provider_selection(hw: dict, active_providers: dict = None) -> list[str]:
+    """
+    Multi-select providers from registry. Shows already-configured providers with
+    active count. Supports selecting the same provider multiple times (multi-instance).
+    """
+    header("Step 1 — Add Providers")
+    active = active_providers or {}
+
+    # Count active instances per base provider type
+    active_counts: dict[str, int] = {}
+    for pname in active:
+        # Strip numeric suffix: gemini_2 → gemini
+        base = pname.rsplit("_", 1)[0] if pname[-1:].isdigit() else pname
+        active_counts[base] = active_counts.get(base, 0) + 1
+
+    if active:
+        print(f"  {len(active)} provider(s) already configured — select NEW ones to add,")
+        print(f"  or re-select an active provider to add another connection.\n")
+    else:
+        print("  Select all providers you have access to.\n")
 
     # Generate items from registry
     all_items = []
     for ptype, pdef in PROVIDERS.items():
-        # Pre-select ollama if hardware supports it
-        selected = (ptype == "ollama" and hw.ram_gb >= 8)
-        all_items.append((ptype, pdef.display_name, selected))
+        count = active_counts.get(ptype, 0)
+        if count > 0:
+            label = f"{pdef.display_name}  [{count} active — add another?]"
+        else:
+            label = pdef.display_name
+        # Pre-select ollama if hardware supports it and not already active
+        pre_selected = (ptype == "ollama" and hw.ram_gb >= 8 and count == 0)
+        all_items.append((ptype, label, pre_selected))
 
     selected_keys = whiptail_checklist(
         "Select providers (SPACE to select, ENTER when done):",
         all_items
     )
 
-    print(f"\n  {check_mark(True)} Providers selected: {len(selected_keys)}")
-    _wlog(f"provider_selection: {selected_keys}")
+    # Filter: only keep selections that are either new OR explicitly re-selected (multi-instance)
+    to_configure = []
+    for key in selected_keys:
+        to_configure.append(key)
 
-    return selected_keys
+    print(f"\n  {check_mark(True)} Providers to configure: {len(to_configure)}")
+    _wlog(f"provider_selection: {to_configure}")
+
+    return to_configure
 
 
 # ─ Adapter Selection [E] ───────────────────────────────────────────────────────
@@ -520,57 +589,89 @@ Then restart Nexus:
 # ─ Config Writing ──────────────────────────────────────────────────────────────
 
 def write_configs(configured: dict, routing: dict, notify_cfg: dict, system_ip: str = "localhost") -> None:
-    """Write providers.yaml with proper config + .env with keys."""
+    """
+    Merge new provider configs into existing providers.yaml + .env.
+    Supports multi-instance providers: second gemini becomes gemini_2, etc.
+    """
     header("Step 4 — Writing Configuration")
 
-    providers_config = {"providers": {}, "routing": routing}
-    env_lines = []
+    yaml_path = CONFIG_DIR / "providers.yaml"
+    env_path = ENV_FILE
 
-    # Build providers.yaml entries
+    # Load existing configs to merge into
+    existing_providers: dict = {}
+    existing_routing: dict = {}
+    if yaml_path.exists():
+        try:
+            existing_cfg = yaml.safe_load(yaml_path.read_text()) or {}
+            existing_providers = existing_cfg.get("providers", {})
+            existing_routing = existing_cfg.get("routing", {})
+        except Exception:
+            pass
+
+    # Load existing .env keys
+    existing_env: dict[str, str] = {}
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, _, v = line.partition("=")
+                existing_env[k.strip()] = v.strip()
+
+    new_env: dict[str, str] = {}
+
     for provider_type, config in configured.items():
-        pdef = PROVIDERS.get(provider_type)
+        # Strip any suffix to get the base type for registry lookup
+        base_type = provider_type.rsplit("_", 1)[0] if provider_type[-1:].isdigit() else provider_type
+        pdef = PROVIDERS.get(base_type) or PROVIDERS.get(provider_type)
         if not pdef:
             continue
 
-        # Base entry
-        entry = {"type": pdef.type_id}
+        # Generate unique key for this instance (gemini → gemini, second → gemini_2)
+        instance_key = provider_type
+        if instance_key in existing_providers:
+            n = 2
+            while f"{provider_type}_{n}" in existing_providers:
+                n += 1
+            instance_key = f"{provider_type}_{n}"
 
-        # Add model (first model for this tier)
+        # Build provider entry
+        entry: dict = {"type": pdef.type_id}
         if pdef.models:
-            first_model = list(pdef.models.keys())[0]
-            entry["model"] = first_model
-
-        # Add base_url if provided
+            entry["model"] = list(pdef.models.keys())[0]
         if pdef.base_url:
             entry["base_url"] = pdef.base_url
 
-        # Add API key reference if it's an API key provider
         if config.get("api_key"):
             env_var = config.get("env_var", f"{pdef.type_id.upper()}_API_KEY")
+            # Multi-instance: suffix env var to avoid collision (GEMINI_API_KEY_2)
+            if env_var in existing_env or env_var in new_env:
+                suffix = instance_key.split("_")[-1] if instance_key[-1:].isdigit() else "2"
+                env_var = f"{env_var}_{suffix}"
             entry["api_key"] = f"${{{env_var}}}"
-            env_lines.append(f"{env_var}={config['api_key']}")
+            new_env[env_var] = config["api_key"]
 
-        # Add endpoint if it's a local provider
         if config.get("endpoint"):
             entry["endpoint"] = config["endpoint"]
 
-        providers_config["providers"][provider_type] = entry
+        existing_providers[instance_key] = entry
+        print(f"  {check_mark(True)} Provider: {instance_key}")
+
+    # Merge routing (new routing wins)
+    existing_routing.update(routing)
 
     # Write providers.yaml
-    yaml_path = CONFIG_DIR / "providers.yaml"
-    yaml_path.write_text(yaml.dump(providers_config, default_flow_style=False))
+    final_cfg = {"providers": existing_providers, "routing": existing_routing}
+    yaml_path.write_text(yaml.dump(final_cfg, default_flow_style=False))
     print(f"  {check_mark(True)} {yaml_path.relative_to(PROJECT_ROOT)}")
 
-    # Write .env (gitignored)
-    env_path = ENV_FILE
-    if env_lines:
-        env_path.write_text("\n".join(env_lines) + "\n")
-    else:
-        env_path.write_text("# Add provider API keys here\n")
+    # Write .env — merge new keys with existing
+    existing_env.update(new_env)
+    env_lines = [f"{k}={v}" for k, v in sorted(existing_env.items())]
+    env_path.write_text("\n".join(env_lines) + "\n" if env_lines else "# Provider API keys\n")
     print(f"  {check_mark(True)} {env_path.relative_to(PROJECT_ROOT)}")
 
     print()
-    _wlog(f"write_configs: providers={list(configured.keys())}, routing={routing}")
+    _wlog(f"write_configs: providers={list(existing_providers.keys())}, routing={existing_routing}")
 
 
 # ─ Main ────────────────────────────────────────────────────────────────────────
@@ -594,23 +695,24 @@ async def run() -> None:
         print("  Cancelled.")
         return
 
-    # [B] System Identity
+    # [B] System Identity — skipped if already configured
     agent_name, system_name = system_identity()
 
-    # Update identity templates
+    # Update identity templates (only if placeholders still present)
     for fname in ("SOUL.md", "OPERATING_PROCEDURES.md", "AI_CONTEXT.md"):
         fpath = SYSTEM_ROOT / fname
         if fpath.exists():
             content = fpath.read_text()
-            content = content.replace("[ORCHESTRATOR_NAME]", agent_name)
-            content = content.replace("[SYSTEM_NAME]", system_name)
-            fpath.write_text(content)
+            if "[ORCHESTRATOR_NAME]" in content or "[SYSTEM_NAME]" in content:
+                content = content.replace("[ORCHESTRATOR_NAME]", agent_name)
+                content = content.replace("[SYSTEM_NAME]", system_name)
+                fpath.write_text(content)
 
     # [C] Hardware Detection
     hw = await hardware_detection()
 
-    # [D] Provider Selection
-    selected_providers = provider_selection(hw)
+    # [D] Provider Selection — pass active providers so list shows current state
+    selected_providers = provider_selection(hw, scan.get("active_providers", {}))
 
     # [E] Adapter Selection
     adapter_selected, adapter_config = adapter_selection()
