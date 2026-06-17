@@ -156,6 +156,7 @@ async def setup_local(pdef: ProviderDef, system_ip: str = "localhost") -> Option
                     "curl -fsSL https://ollama.com/install.sh -o /tmp/ollama-install.sh",
                     shell=True, check=False
                 )
+                subprocess.run("chmod +x /tmp/ollama-install.sh", shell=True, check=False)
                 print("    → Running Ollama installer (requires sudo)...")
                 subprocess.run(
                     "sudo /tmp/ollama-install.sh",
