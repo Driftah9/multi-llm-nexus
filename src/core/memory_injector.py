@@ -176,6 +176,19 @@ def set_injector(inj: MemoryInjector) -> None:
     _injector = inj
 
 
+def enable_memory(rag_store=None, memory_loader=None) -> MemoryInjector:
+    """Activate provider-agnostic memory injection by wiring the operator's stores.
+
+    Call ONCE at startup (e.g. from the engine/orchestrator setup) to turn on the
+    always-on memory seam in Bridge.invoke. Until called, the default injector has no
+    stores and injection is a clean no-op — so the platform's default behavior is
+    unchanged and memory is strictly opt-in per deployment.
+    """
+    inj = DefaultMemoryInjector(rag_store=rag_store, memory_loader=memory_loader)
+    set_injector(inj)
+    return inj
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TOOL-RECALL path — JSON-schema tool specs any function-calling model can call.
 # Anthropic-shaped (name / description / input_schema); a per-provider adapter remaps

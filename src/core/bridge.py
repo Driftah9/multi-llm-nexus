@@ -165,6 +165,25 @@ class NexusBridge:
         start = time.time()
         effective_system = system_prompt or self.system_prompt
 
+        # Provider-AGNOSTIC memory injection (the MemoryInjector seam). Enrich the turn
+        # with always-on context ONCE, here, before any provider is chosen — so every
+        # model reads system memory the same way, not per-provider. No-op by default
+        # (the default injector has no stores); an operator activates it by wiring the
+        # stores once at startup: memory_injector.set_injector(DefaultMemoryInjector(rag, mem)).
+        # Skipped for ephemeral specialist one-shots (the orchestrator supplies their context).
+        if not ephemeral:
+            try:
+                from .memory_injector import get_injector
+                _mem = await get_injector().assemble_context(query=prompt, scope=session_key)
+                if _mem.recall:
+                    prompt = f"{_mem.recall}\n\n{prompt}"
+                if _mem.standing:
+                    effective_system = (
+                        f"{effective_system}\n\n{_mem.standing}" if effective_system else _mem.standing
+                    )
+            except Exception as e:
+                logger.debug(f"memory injection skipped: {e}")
+
         # Pool routing takes priority when configured and triage data is present
         if self.pool_router and triage:
             result = await self._invoke_with_pool(
