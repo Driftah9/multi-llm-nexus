@@ -3,7 +3,7 @@
 Flow:
   1. Check cache (instant hit if valid)
   2. Search via duckduckgo-search (free, no API key)
-  3. Fetch pages via Jina Reader (r.jina.ai/<url>, free, no API key)
+  3. Fetch + extract pages LOCALLY (httpx + trafilatura on-box — no third-party reader)
   4. Synthesize via the configured triage model (default: haiku-class)
   5. Auto-cache result with TTL
 
@@ -65,22 +65,37 @@ async def _search_duckduckgo(query: str, num_results: int = 5) -> list[dict]:
         return []
 
 
-async def _fetch_page_jina(url: str, timeout: int = 10) -> Optional[str]:
-    """Fetch page via Jina Reader API (free, no key). Returns markdown or None."""
-    jina_url = f"https://r.jina.ai/{url}"
+_FETCH_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+
+
+async def _fetch_page_local(url: str, timeout: int = 12) -> Optional[str]:
+    """Fetch + extract a page's main content ENTIRELY ON-BOX.
+
+    Was Jina Reader (r.jina.ai) — a remote third party that received the URL, the implied
+    query intent, and the full page content before any local LLM saw it. Now httpx fetches
+    the raw HTML directly and trafilatura extracts the main article text locally, so nothing
+    about the page leaves the operator's machine until the (locally-routed) synthesis LLM.
+    Local-first by construction — the floor needs no third-party reader.
+
+    Returns clean text or None on failure. Requires `httpx` + `trafilatura`.
+    """
     try:
-        result = await asyncio.to_thread(
-            subprocess.run,
-            ["curl", "-s", "-L", jina_url],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+        import httpx
+        import trafilatura
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True,
+                                     headers={"User-Agent": _FETCH_UA}) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            html = r.text
+        text = await asyncio.to_thread(
+            trafilatura.extract, html,
+            include_comments=False, include_tables=True, favor_recall=True, url=url,
         )
-        if result.returncode == 0 and result.stdout:
-            return result.stdout
+        return text or None
     except Exception as e:
-        logger.warning(f"Jina fetch failed for {url}: {e}")
-    return None
+        logger.warning(f"local fetch/parse failed for {url}: {e}")
+        return None
 
 
 async def _synthesize(query: str, pages: dict[str, str], sources: list[str]) -> str:
@@ -171,7 +186,7 @@ async def research(
 
     urls = [r["url"] for r in search_results]
     pages_raw = await asyncio.gather(
-        *[_fetch_page_jina(url) for url in urls],
+        *[_fetch_page_local(url) for url in urls],
         return_exceptions=True,
     )
 
