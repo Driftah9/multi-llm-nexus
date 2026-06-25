@@ -44,3 +44,7 @@ uvicorn>=0.29
 # pytest>=8.0
 # pytest-asyncio>=0.23
 trafilatura>=1.6  # on-box web content extraction (replaces remote Jina Reader)
+
+# Optional — only for council failover (multi-orchestrator lease/checkpoint). A floor
+# deployment without it simply runs council failover dark (capability-gated).
+# redis>=5.0
