@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Optional
 
 from ..providers.base import BaseProvider
-from .error_classifier import classify_error, is_retryable_same, should_advance_chain
+from .error_classifier import classify_error, is_retryable_same, should_advance_chain, AUTH, QUOTA
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,11 @@ class ChainConfig:
     failure_threshold: int = 3  # consecutive failures before marking unhealthy
     on_failure: str = "next_available"  # next_available | local_only | silent
     enable_health_monitoring: bool = True
-    cooldown_seconds: float = 30.0  # hot-path skip window after a failure
+    cooldown_seconds: float = 30.0  # transient-failure hot-path skip window
+    # Billing/auth failures (insufficient balance, expired/invalid key) won't recover in
+    # 30s — bench the provider for a long window so a dead-key/dead-balance provider stops
+    # costing a failed round-trip every request. Auto-recovers when the window elapses.
+    auth_cooldown_seconds: float = 3600.0
 
 
 class ProviderChain:
@@ -265,15 +269,25 @@ class ProviderChain:
                     entry.consecutive_failures += 1
                     entry.last_error = error
 
+                    # Classification-aware cooldown: a billing/auth failure won't clear in
+                    # the short transient window, so bench it long (mirrors the live
+                    # gateway's dual-cooldown). Everything else uses the short window.
+                    klass = classify_error(error)
+                    cooldown = (
+                        self.config.auth_cooldown_seconds
+                        if klass in (AUTH, QUOTA)
+                        else self.config.cooldown_seconds
+                    )
                     if (entry.consecutive_failures >= self.config.failure_threshold):
                         entry.health = ProviderHealth.FAILED
+                        entry.cooldown_until = time.time() + cooldown
                         logger.error(
                             f"Provider {entry.name} marked FAILED after "
-                            f"{entry.consecutive_failures} consecutive failures: {error}"
+                            f"{entry.consecutive_failures} consecutive failures [{klass}]: {error}"
                         )
                     else:
                         entry.health = ProviderHealth.DEGRADED
-                        entry.cooldown_until = time.time() + self.config.cooldown_seconds
+                        entry.cooldown_until = time.time() + cooldown
                     break
 
     async def start_health_monitoring(self) -> None:
