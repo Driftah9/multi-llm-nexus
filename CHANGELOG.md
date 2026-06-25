@@ -3,12 +3,17 @@
 All notable changes to Multi-LLM-Nexus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
-## [0.7.0] — Unreleased
+## [0.8.0] — 2026-06-25
 
 Convergence pass: provider-neutral mechanisms hardened in the upstream live system were
 ported down as agnostic platform features. **No provider APIs, keys, or rosters are
 included** — only the mechanisms; operators wire their own providers via config. See
 [docs/convergence-2026-06.md](docs/convergence-2026-06.md) for the architecture.
+
+> This release also rolls up earlier unreleased work that landed after the premature
+> `v0.7.0` tag (vLLM hardware-agnostic provider, the model lifecycle manager, and the
+> mesh documentation restructure) — see `docs/project_state.md` and the git history for
+> that detail. The headline of 0.8.0 is the convergence below.
 
 ### Added
 - **`core/error_classifier`** — classifies a provider failure into `transient | quota |
