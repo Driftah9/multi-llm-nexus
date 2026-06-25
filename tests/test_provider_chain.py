@@ -134,3 +134,58 @@ async def test_all_providers_exhausted_returns_failure():
     success, result, provider, fallback_occurred, error = await chain.try_with_fallback(invoke)
     assert not success
     assert error is not None
+
+
+@pytest.mark.asyncio
+async def test_auth_failure_gets_long_cooldown(two_provider_chain):
+    """A billing/auth failure benches the provider for the long auth window, not the
+    short transient window (classification-aware cooldown)."""
+    chain, primary, _ = two_provider_chain
+    chain.config.auth_cooldown_seconds = 3600.0
+    chain.config.cooldown_seconds = 5.0
+    before = time.time()
+    await chain.record_failure(primary, error="Error 402 insufficient balance")
+    entry = chain._find_entry(primary)
+    # cooldown should be ~1h out, far beyond the 5s transient window
+    assert entry.cooldown_until - before > 3000
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_gets_short_cooldown(two_provider_chain):
+    chain, primary, _ = two_provider_chain
+    chain.config.auth_cooldown_seconds = 3600.0
+    chain.config.cooldown_seconds = 5.0
+    before = time.time()
+    await chain.record_failure(primary, error="529 overloaded, try again")
+    entry = chain._find_entry(primary)
+    assert entry.cooldown_until - before < 60
+
+
+@pytest.mark.asyncio
+async def test_health_persists_across_restart(tmp_path):
+    """A benched provider's cooldown survives a 'restart' (new chain instance loading
+    the same health_path)."""
+    health_file = str(tmp_path / "health.json")
+    p = MockProvider("primary")
+    cfg = ChainConfig(enable_health_monitoring=False, auth_cooldown_seconds=3600.0,
+                      health_path=health_file)
+    chain1 = ProviderChain(entries=[_entry(p)], config=cfg)
+    await chain1.record_failure(p, error="401 invalid api key")
+    saved_cooldown = chain1._find_entry(p).cooldown_until
+    assert saved_cooldown > time.time() + 3000
+
+    # "restart": brand-new chain, fresh provider instance, same health file
+    p2 = MockProvider("primary")
+    chain2 = ProviderChain(entries=[_entry(p2)],
+                           config=ChainConfig(enable_health_monitoring=False, health_path=health_file))
+    restored = chain2._find_entry(p2)
+    assert restored.cooldown_until == saved_cooldown
+    assert restored.health == ProviderHealth.DEGRADED
+
+
+@pytest.mark.asyncio
+async def test_no_persistence_when_path_unset(two_provider_chain):
+    """Default (no health_path) → no file I/O, pure in-memory (behavior-preserving)."""
+    chain, primary, _ = two_provider_chain
+    assert chain.config.health_path is None
+    await chain.record_failure(primary, error="boom")  # must not raise

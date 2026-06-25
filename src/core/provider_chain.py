@@ -67,6 +67,10 @@ class ChainConfig:
     on_failure: str = "next_available"  # next_available | local_only | silent
     enable_health_monitoring: bool = True
     cooldown_seconds: float = 30.0  # transient-failure hot-path skip window
+    # Optional path to persist provider health (cooldown/failures) across restarts, so a
+    # provider benched on a long auth/quota cooldown stays benched after a reboot instead
+    # of being re-probed immediately. None = in-memory only (default, behavior-preserving).
+    health_path: Optional[str] = None
     # Billing/auth failures (insufficient balance, expired/invalid key) won't recover in
     # 30s — bench the provider for a long window so a dead-key/dead-balance provider stops
     # costing a failed round-trip every request. Auto-recovers when the window elapses.
@@ -101,6 +105,60 @@ class ProviderChain:
         self.config = config or ChainConfig()
         self.monitor: Optional[HealthMonitor] = None
         self._lock = asyncio.Lock()
+        self._load_health()
+
+    def _load_health(self) -> None:
+        """Restore persisted health (health/failures/cooldown) onto entries by name.
+        Expired cooldowns are naturally ignored (cooldown_until in the past). No-op when
+        health_path is unset or the file is missing/corrupt."""
+        path = self.config.health_path
+        if not path:
+            return
+        try:
+            import json
+            with open(path) as f:
+                saved = json.load(f)
+            by_name = {e.name: e for e in self.entries}
+            for name, st in saved.items():
+                e = by_name.get(name)
+                if not e:
+                    continue
+                try:
+                    e.health = ProviderHealth(st.get("health", "unknown"))
+                except ValueError:
+                    e.health = ProviderHealth.UNKNOWN
+                e.consecutive_failures = int(st.get("consecutive_failures", 0))
+                e.cooldown_until = float(st.get("cooldown_until", 0.0))
+                e.last_error = st.get("last_error", "")
+        except FileNotFoundError:
+            pass
+        except Exception as ex:
+            logger.warning(f"provider health load failed ({path}): {ex}")
+
+    def _save_health(self) -> None:
+        """Persist current entry health. No-op when health_path is unset. Best-effort."""
+        path = self.config.health_path
+        if not path:
+            return
+        try:
+            import json
+            import os
+            snapshot = {
+                e.name: {
+                    "health": e.health.value,
+                    "consecutive_failures": e.consecutive_failures,
+                    "cooldown_until": e.cooldown_until,
+                    "last_error": (e.last_error or "")[:200],
+                }
+                for e in self.entries if e.name
+            }
+            os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+            tmp = f"{path}.tmp"
+            with open(tmp, "w") as f:
+                json.dump(snapshot, f)
+            os.replace(tmp, path)  # atomic
+        except Exception as ex:
+            logger.debug(f"provider health save skipped ({path}): {ex}")
 
     async def select_provider(self, tier: Optional[str] = None) -> Optional[BaseProvider]:
         """
@@ -259,7 +317,9 @@ class ProviderChain:
                         )
                     entry.consecutive_failures = 0
                     entry.health = ProviderHealth.HEALTHY
+                    entry.cooldown_until = 0.0
                     break
+            self._save_health()
 
     async def record_failure(self, provider: BaseProvider, error: str = "") -> None:
         """Record a provider failure and potentially mark it unhealthy."""
@@ -289,6 +349,7 @@ class ProviderChain:
                         entry.health = ProviderHealth.DEGRADED
                         entry.cooldown_until = time.time() + cooldown
                     break
+            self._save_health()
 
     async def start_health_monitoring(self) -> None:
         """Start background health checks."""
