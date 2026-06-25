@@ -2,7 +2,7 @@
 
 > **Status: Active Beta** — Core patterns are validated. The runtime is under active development. Expect rough edges. Not recommended for critical production workloads without your own testing.
 
-> 📋 Release history in [CHANGELOG.md](CHANGELOG.md). Latest (0.8.0) is an agnostic convergence pass — see [docs/convergence-2026-06.md](docs/convergence-2026-06.md).
+> 📋 Release history in [CHANGELOG.md](CHANGELOG.md). Latest (0.9.0) is an agnostic convergence pass — see [docs/convergence-2026-06.md](docs/convergence-2026-06.md).
 
 **Your AI platform. You are the Operator. Who you put in the court is up to you.**
 
