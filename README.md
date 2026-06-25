@@ -2,6 +2,8 @@
 
 > **Status: Active Beta** — Core patterns are validated. The runtime is under active development. Expect rough edges. Not recommended for critical production workloads without your own testing.
 
+> 📋 Release history in [CHANGELOG.md](CHANGELOG.md). Latest (0.7.0) is an agnostic convergence pass — see [docs/convergence-2026-06.md](docs/convergence-2026-06.md).
+
 **Your AI platform. You are the Operator. Who you put in the court is up to you.**
 
 Multi-LLM-Nexus is a self-hosted AI agent platform connecting your infrastructure, your communication platforms, and any LLM you choose. It does not have a personality — you give it one. One user calls theirs a castle and their agent Chamberlin. Another names theirs Terry. The Nexus doesn't care. It just runs.
