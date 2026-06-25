@@ -1,0 +1,21 @@
+{
+  "_comment": "Identity registry — maps platform handles to canonical person_ids. Copy to identity.json and fill in. Optional: with no identity.json, everyone resolves to the shared tier. 'owner' is the floor that always resolves (the operator). 'ids' are platform-native identifiers (usernames, numeric user ids — matched as strings).",
+
+  "owner": {
+    "person_id": "owner",
+    "platforms": {
+      "mattermost": { "ids": ["your-mm-username"] },
+      "discord": { "ids": ["123456789012345678"] },
+      "telegram": { "ids": ["123456789"] }
+    },
+    "notify_priority": ["mattermost", "discord", "telegram"]
+  },
+
+  "people": {
+    "alice": {
+      "platforms": {
+        "discord": { "ids": ["987654321098765432"] }
+      }
+    }
+  }
+}
