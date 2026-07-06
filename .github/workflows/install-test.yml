@@ -1,0 +1,157 @@
+name: Installer Tests
+
+on:
+  push:
+    branches: [main, convergence-port-*]
+    paths:
+      - "install.sh"
+      - "setup.sh"
+      - "scripts/**"
+      - ".github/workflows/install-test.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    name: Preflight Validator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run preflight checks
+        run: bash scripts/preflight_check.sh
+        continue-on-error: true  # Warnings are OK
+
+  install-fresh:
+    name: Fresh Install - ${{ matrix.ubuntu }}
+    runs-on: ${{ matrix.ubuntu }}
+    strategy:
+      matrix:
+        ubuntu:
+          - ubuntu-22.04
+          - ubuntu-24.04
+      fail-fast: false
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preflight check
+        run: |
+          bash scripts/preflight_check.sh || echo "Warnings: may auto-fix"
+        continue-on-error: true
+
+      - name: Run installer (fresh)
+        run: |
+          # Non-interactive: skip prompts, use defaults
+          export NEXUS_BRANCH="${{ github.ref_name }}"
+
+          # Mock interactive inputs via here-string
+          sudo bash install.sh <<'EOF'
+          nexus-ci
+
+          EOF
+        continue-on-error: true
+        timeout-minutes: 20
+
+      - name: Check install state
+        run: |
+          if [[ -f /root/.nexus-install-state.json ]]; then
+            echo "=== Install State ==="
+            cat /root/.nexus-install-state.json
+          else
+            echo "No install state found (may be in bot user home)"
+          fi
+        continue-on-error: true
+
+      - name: Verify installed files
+        run: |
+          if [[ -d /home/nexus-ci/nexus ]]; then
+            echo "✓ Nexus directory exists"
+            ls -la /home/nexus-ci/nexus/ | head -20
+          else
+            echo "✗ Nexus not installed"
+            exit 1
+          fi
+
+      - name: Verify Python environment
+        run: |
+          if [[ -d /home/nexus-ci/nexus/.venv ]]; then
+            echo "✓ Virtual environment created"
+            /home/nexus-ci/nexus/.venv/bin/python --version
+          else
+            echo "✗ Virtual environment not found"
+            exit 1
+          fi
+
+  install-resume:
+    name: Resume from Checkpoint - ubuntu-24.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Simulate partial install (setup phase only)
+        run: |
+          # Create mock install state showing "system check" completed
+          mkdir -p /root
+          cat > /root/.nexus-install-state.json <<'STATEEOF'
+          {
+            "version": 1,
+            "phases": {
+              "system-check": {
+                "completed_at": "2026-01-01T00:00:00+00:00",
+                "status": "ok"
+              }
+            },
+            "started_at": "2026-01-01T00:00:00+00:00"
+          }
+          STATEEOF
+          echo "Mock install state created"
+          cat /root/.nexus-install-state.json
+
+      - name: Resume installer
+        run: |
+          export NEXUS_BRANCH="${{ github.ref_name }}"
+
+          # Re-run installer; it should skip completed phases
+          sudo bash install.sh <<'EOF'
+          nexus-ci
+
+          EOF
+        continue-on-error: true
+        timeout-minutes: 20
+
+      - name: Verify install completed
+        run: |
+          if [[ -d /home/nexus-ci/nexus ]]; then
+            echo "✓ Install completed successfully"
+          else
+            echo "✗ Install did not complete"
+            cat /root/.nexus-install-state.json || true
+            exit 1
+          fi
+
+  state-tracker:
+    name: Install State Tracker Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test mark-phase
+        run: |
+          python3 scripts/install_state.py mark-phase test-phase-1
+          python3 scripts/install_state.py mark-phase test-phase-2
+
+      - name: Test is-completed
+        run: |
+          python3 scripts/install_state.py is-completed test-phase-1 && echo "✓ Phase found"
+          python3 scripts/install_state.py is-completed nonexistent && exit 1 || echo "✓ Phase not found (expected)"
+
+      - name: Test show
+        run: |
+          python3 scripts/install_state.py show
+
+      - name: Test reset
+        run: |
+          python3 scripts/install_state.py reset
+          python3 scripts/install_state.py is-completed test-phase-1 && exit 1 || echo "✓ State reset confirmed"
