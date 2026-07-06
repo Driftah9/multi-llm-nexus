@@ -79,7 +79,7 @@ Each specialist resolves to a **single** provider. Fan-out is by *role*, not by 
 
 **What's missing (the build target):**
 ```
-tier "deep" task → fan SAME prompt to [Claude Opus, SambaNova 405B, local 70B]
+tier "deep" task → fan SAME prompt to [Claude Opus, SambaNova DeepSeek-V3.2, local 70B]
   → gather all answers → judge/synthesize → return best
 ```
 The hook is already there: `TierPoolConfig.parallelism: sequential | failover | parallel` in `pool_manager.py`. It's parsed and stored but **never read**. Wiring it is the highest-leverage feature for the Operator's vision.
@@ -88,7 +88,7 @@ The hook is already there: `TierPoolConfig.parallelism: sequential | failover | 
 
 ## Blockers: Why Nexus Is Inert (must fix to run at all)
 
-1. **Primary provider 404** — `config/providers.yaml` primary is `cerebras` model `qwen-3-235b-a22b-instruct-2507`, returns HTTP 404 "model does not exist or you do not have access" on every call. → Verify the exact Cerebras model slug, or switch primary to a known-good model.
+1. **Primary provider 404** — *(resolved, PW-3)* the primary was `cerebras` model `qwen-3-235b-a22b-instruct-2507`, which the provider retired (HTTP 404 on every call). `config/providers.yaml` now points Cerebras at `gpt-oss-120b` and SambaNova at `DeepSeek-V3.2` (both former models confirmed retired via `discover_models.py`). Boot-time schema validation (PW-5) plus the model-lifecycle health check now catch a retired model before traffic hits it.
 2. **Mattermost adapter can't attach** — `config/adapters.yaml` `mattermost.token` is an unresolved env placeholder, and `team: main` doesn't exist (live team is `claude-brain`). → Set a real bot token + correct team.
 3. **Engine never goes ACTIVE** — stuck in STANDBY since Jun 3. → Likely downstream of #1/#2; re-check after fixing.
 
@@ -99,7 +99,7 @@ Until these are fixed, Nexus listens on `:8080` (OpenAI-compatible API) but answ
 ## Recommended Build-Out Sequence
 
 ### Phase 1 — Make Nexus Live (unblock)
-- [ ] Fix Cerebras model slug (or repoint primary) — kill the 404
+- [x] Fix Cerebras model slug (or repoint primary) — kill the 404 *(done, PW-3: `gpt-oss-120b`)*
 - [ ] Set real Mattermost bot token + `team: claude-brain` (use a TEST channel, not town-square, to avoid colliding with the live brain)
 - [ ] Confirm engine transitions STANDBY → ACTIVE and answers one test message
 - [ ] Verify `llm-watcher` sees it healthy
@@ -108,7 +108,7 @@ Until these are fixed, Nexus listens on `:8080` (OpenAI-compatible API) but answ
 - [ ] Enable staged providers in `config/providers.yaml` (currently `enabled: false`):
   - **nano:** Groq (triage), + GitHub Models low-tier as backup
   - **standard:** Cerebras, Google Gemini (250K TPM), Mistral, GitHub Models (GPT-4o)
-  - **deep:** SambaNova 405B, OpenRouter (frontier), Claude (reserved)
+  - **deep:** SambaNova DeepSeek-V3.2, OpenRouter (frontier), Claude (reserved)
 - [ ] Each new key → flip `enabled: true`, assign `tier:` + `priority:`, set `access_tier` + RPM/RPD/TPM/TPD so quota manager governs it
 - [ ] Confirm rollover: saturate a free tier, watch it fail over to the next in cost-class order
 - Detail: `docs/provider-integration-roadmap.md`, `docs/api-key-setup-guide.md`

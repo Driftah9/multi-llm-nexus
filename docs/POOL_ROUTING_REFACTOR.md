@@ -83,7 +83,7 @@ routing:
 providers:
   cerebras:
     type: openai
-    model: qwen-3-235b-a22b-instruct-2507
+    model: gpt-oss-120b
     tier: standard
     cost_class: free_limited     # NEW
     rpm: 30
@@ -433,7 +433,7 @@ providers:
   cerebras:
     type: openai
     cost_class: free_limited
-    model: qwen-3-235b-a22b-instruct-2507
+    model: gpt-oss-120b
     tier: standard
     rpm: 30
     tpm: 60000

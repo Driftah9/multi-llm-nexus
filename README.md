@@ -64,10 +64,13 @@ watchers/
 ```bash
 git clone https://github.com/Driftah9/multi-llm-nexus
 cd multi-llm-nexus
+sudo bash scripts/preflight_check.sh   # optional: verify OS, Python, disk, network before installing
 ./setup.sh
 ```
 
 That's it. `setup.sh` creates the virtual environment, installs the minimal bootstrap packages, and launches the interactive wizard.
+
+`preflight_check.sh` is an optional read-only check that confirms the host is ready (Linux, Python 3.11+, ≥2 GB disk, network, required commands) before you run the installer. See [docs/INSTALLER_RESILIENCE.md](docs/INSTALLER_RESILIENCE.md) for the preflight + checkpoint-resume design.
 
 **What the wizard does:**
 
@@ -85,6 +88,8 @@ Then start:
 source .venv/bin/activate
 python -m src.main
 ```
+
+On startup Nexus validates `config/providers.yaml` and `config/adapters.yaml` against a schema (provider types, tiers `nano`/`standard`/`deep`/`apex`, `access_tier`, routing patterns, and failover strategy). If a config is malformed, it exits immediately with a clear error rather than starting in a broken state.
 
 **Re-run the wizard anytime** to add providers, change models, or reconfigure:
 

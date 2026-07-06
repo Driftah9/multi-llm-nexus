@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Config schema validation at boot** (`core/config_schema`, PW-5) — `providers.yaml`
+  and `adapters.yaml` are validated against Pydantic models in `main.run()` before any
+  provider or adapter is built. Catches missing/typo'd fields, wrong types (e.g. `rpm`
+  as a string), invalid tiers (must be `nano`/`standard`/`deep`/`apex`), bad `access_tier`
+  values, and malformed routing patterns (must have exactly one of `provider`/`providers`).
+  On failure the process exits with a clear error instead of starting half-configured.
+- **Installer resilience** (PW-6):
+  - `scripts/preflight_check.sh` — read-only pre-install validator (Linux, root, ≥2 GB
+    disk, memory, DNS/GitHub reachability, Python 3.11+, `git`/`curl`/`whiptail`, ports,
+    sudoers). Exit codes: `0` pass, `1` fail, `2` warnings.
+  - `scripts/install_state.py` — install checkpoint tracker (`~/.nexus-install-state.json`)
+    with `mark-phase` / `is-completed` / `show` / `reset`, enabling resume-after-failure
+    for idempotent install phases.
+  - `docs/INSTALLER_RESILIENCE.md` — two-layer (preflight + checkpoint) design. Installer
+    testing is **local-only** (interactive TTY/whiptail/sudo can't run headless); this repo
+    has no CI.
+- **Triage validator extensions** (`core/triage_validator`, PW-8) — decision metadata
+  columns (`domain`, `stakes`, `complexity`, `platform`) and turn facts (`provider`,
+  `model`, `failover_hops`, `council`, `error`); re-ask detection (`note_incoming` flags the
+  previous decision dissatisfied on a negation opener or >60% token overlap within 5 min);
+  `apex` added to the tier rank; and legacy-DB migration that archives pre-2026-06
+  model-name-schema databases instead of failing.
 - **`core/diag_report`** — a self-diagnostic report generator. `nexus doctor` (or any
   surface) renders a single Markdown document of the deployment's own state: versions, a
   hardware/capability snapshot, **which features are active vs deferred** (via the real
@@ -44,6 +66,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
     `models/` prefixes and azureml registry URIs; fail-open on odd listings) —
     retirements are caught by the 60s health monitor before any real traffic
     hits them, not after.
+
+### Changed
+- **Retired provider models swapped in `config/providers.yaml`** (PW-3, confirmed via
+  `discover_models.py` 2026-07-06): Cerebras `qwen-3-235b-a22b-instruct-2507` →
+  `gpt-oss-120b`; SambaNova `llama-3.1-405b` → `DeepSeek-V3.2`. Both former models were
+  retired at their providers. `docs/AI_PROVIDER_REFERENCE.md` updated to match.
+
+### Removed
+- **`config/sessions.json` untracked** (PW-4) — it is runtime session state and was
+  committed by mistake. Removed via `git rm --cached` and added to `.gitignore`.
 
 ### Fixed
 - **Provider loader honors `enabled: false`** (`main._build_providers`). Previously every

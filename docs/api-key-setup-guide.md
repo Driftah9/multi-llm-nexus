@@ -122,7 +122,7 @@ echo "GROQ_API_KEY=gsk_xxxxxxxx" >> .env
 
 ---
 
-### 4. SambaNova (Llama 405B — Only Free 405B)
+### 4. SambaNova (DeepSeek-V3.2 — free frontier-class)
 **Time:** 3 min | **Card Required:** No | **Rate:** 10 RPM / 1K RPD
 
 1. Go to [cloud.sambanova.ai](https://cloud.sambanova.ai)
@@ -142,9 +142,11 @@ echo "GROQ_API_KEY=gsk_xxxxxxxx" >> .env
 8. Restart Nexus and verify.
 
 **Models Available Free:**
-- `llama-3.1-405b` (largest free model anywhere)
-- `llama-3.1-70b`
-- `llama-3.1-8b`
+- `DeepSeek-V3.2` (frontier-class; current deep-tier default)
+- `Meta-Llama-3.3-70B-Instruct`
+
+> `llama-3.1-405b` was retired from SambaNova's free tier (PW-3, 2026-07-06). Use
+> `DeepSeek-V3.2` instead.
 
 **Cost:** $0/month, forever.
 
@@ -399,7 +401,7 @@ tail -f logs/nexus.log | grep "rate_limit\|429\|quota"
 1. Enable **Google Gemini** today (2 min, 250K TPM free)
 2. Add **GitHub Models** tomorrow (3 min, GPT-4o/o3 free)
 3. Add **Mistral** when you need EU compliance
-4. Add **SambaNova** for 405B capability
+4. Add **SambaNova** for free frontier-class deep reasoning (DeepSeek-V3.2)
 5. Use **OpenRouter** as a gateway once you have a deposit
 
 **Total setup time:** ~15 minutes across Tier 1. No payment required.

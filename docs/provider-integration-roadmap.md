@@ -128,34 +128,38 @@ mistral:
 **Provider Type:** OpenAI-compatible  
 **Status:** Not connected
 
+> **Note (PW-3, 2026-07-06):** `llama-3.1-405b` was retired from SambaNova's free
+> tier. The current deep-tier model is `DeepSeek-V3.2` (Meta-Llama-3.3-70B-Instruct
+> also available). Examples below reflect the replacement.
+
 ```yaml
 sambanova:
   type: openai
-  model: llama-3.1-405b                   # **Only provider offering 405B free**
+  model: DeepSeek-V3.2                     # llama-3.1-405b retired 2026-07-06
   api_key: ${SAMBANOVA_API_KEY}
   base_url: https://api.sambanova.ai/v1
   priority: 4
   tier: deep
   display_prefix: SambaNova
-  model_display: Llama-405B
+  model_display: DeepSeek-V3.2
   access_tier: free
-  rpm: 10                                 # 405B = 10 RPM
+  rpm: 10
   rpd: 1000                               # 1K RPD for large models
   tpm: null
   tpd: null
 ```
 
 **Rate Limits (Free):**
-- 10 RPM / 1K RPD (405B model)
+- 10 RPM / 1K RPD (large models)
 - Smaller models: up to 30 RPM
 - $5 one-time signup credits (30-day expiry)
 
 **Best Use Cases:**
-- Deep reasoning (405B parameter model)
+- Deep reasoning (frontier-class model)
 - Cost-free complex problem solving
-- Testing 405B capability vs Claude
+- Deep-tier fallback behind Claude
 
-**Why Add:** Only free 405B in the world. RDU hardware (custom). Great for deep tier fallback.
+**Why Add:** Free frontier-class inference on SambaNova's RDU hardware. Great for deep tier fallback.
 
 **Key:** `SAMBANOVA_API_KEY` from [cloud.sambanova.ai](https://cloud.sambanova.ai) — no card.
 

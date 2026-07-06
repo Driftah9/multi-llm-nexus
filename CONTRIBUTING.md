@@ -52,6 +52,12 @@ Please add or update tests under `tests/` for any behavior change to core
 3. Run `pytest` and confirm it passes.
 4. Open a pull request describing **what** changed and **why**. Link any related issue.
 
+> **Editing `config/providers.yaml` or `config/adapters.yaml`?** Both are validated
+> against a Pydantic schema (`src/core/config_schema.py`) at startup — the process exits
+> on an invalid tier, `access_tier`, provider type, or routing pattern. If you add a new
+> config field or a new allowed value, update `config_schema.py` in the same change or boot
+> will reject it.
+
 ## Adding a provider
 
 New providers live in `src/providers/` and implement the shared provider interface

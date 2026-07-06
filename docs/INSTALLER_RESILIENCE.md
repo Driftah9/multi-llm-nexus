@@ -1,10 +1,14 @@
 # Installer Resilience (PW-6)
 
-This document describes the three-layer installer resilience system:
+This document describes the two-layer installer resilience system:
 
 1. **Preflight validator** — pre-install checks
 2. **Checkpoint tracker** — resume-on-failure
-3. **CI matrix** — test matrix for multiple OS versions
+
+> **Testing is local-only.** The installer is interactive (whiptail menus, sudo
+> prompts, TTY-bound `read`), which cannot run in a headless CI environment. This
+> repo intentionally has **no GitHub Actions / CI**. Validate the installer on a
+> real Ubuntu VM or container using the manual steps in *Local Testing* below.
 
 ## Layer 1: Preflight Validator
 
@@ -115,13 +119,13 @@ Suggested phase names for `install.sh`:
 - `setup-wizard` — Config wizard completed
 - `systemd-service` — systemd service installed
 
-## Layer 3: CI Matrix
+## Local Testing
 
-**File:** `.github/workflows/install-test.yml`
+The installer must be tested manually on a real Ubuntu VM or container — it is
+interactive and cannot be exercised end-to-end in headless CI. There is no CI
+workflow for this; testing is the operator's responsibility.
 
-Automated installer testing across OS versions and scenarios.
-
-### Test Matrix
+Recommended matrix to cover before a release:
 
 | OS | Scenario |
 |----|----------|
@@ -129,19 +133,7 @@ Automated installer testing across OS versions and scenarios.
 | Ubuntu 24.04 LTS | Fresh install |
 | Ubuntu 24.04 LTS | Resume from checkpoint |
 
-### GitHub Actions Workflow
-
-**Trigger:** Commits to `main`, pull requests, or manual dispatch via `workflow_dispatch`
-
-**Steps per job:**
-1. Run `preflight_check.sh` (non-fatal warnings)
-2. Run `install.sh` with mocked interactive inputs
-3. Verify install output (`/home/nexus-ci/nexus/`)
-4. Check Python venv, config files, systemd service
-
-### Running Locally
-
-To test the installer locally before pushing:
+To run a local test:
 
 ```bash
 # 1. Create a VM or container
@@ -177,17 +169,17 @@ tail -f ~/Logs/install.log
 - **Clear output:** Each check is explicit (pass/warn/fail)
 - **Resumable from failure:** Preflight can be re-run anytime
 
-### CI Design
+### Local Testing Design
 
-- **Quick feedback:** Tests complete in <30 minutes
-- **Isolated:** Each test run is independent (fresh VM per job)
-- **Realistic:** Uses the same install script as end users
-- **Extensible:** Easy to add new OS versions or scenarios
+- **Realistic:** Uses the same install script as end users (no mocks)
+- **Isolated:** Each run starts from a fresh VM or container
+- **Reproducible:** Same OS matrix, same preflight → install → verify steps
+- **Operator-run:** No CI; a maintainer runs the matrix before a release
 
 ## Future Enhancements
 
 - [ ] Rollback on phase failure (clean up partially-installed state)
 - [ ] Dry-run mode (`--dry-run` flag) for testing without making changes
 - [ ] Configuration backup/restore (checkpoint .env before wizard)
-- [ ] Telemetry (track common failure modes, report to CI dashboard)
+- [ ] Telemetry (track common failure modes locally)
 - [ ] Multi-provider testing (AWS, GCP, Azure VM templates)

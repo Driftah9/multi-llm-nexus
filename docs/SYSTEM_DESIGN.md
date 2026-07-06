@@ -130,7 +130,7 @@ standard tier (general work, reasoning):
 deep tier (complex reasoning, strategic, architectural):
   1. Opus 4.8 (Anthropic) — session window + weekly limit
   2. GPT-4-Turbo (OpenAI)
-  3. SambaNova 405B — largest free model
+  3. SambaNova DeepSeek-V3.2 — largest free model (was Llama-3.1-405B, retired)
   4. Local 70B (if vLLM available)
 
 fallback tier (always available, use when all tiers exhausted):

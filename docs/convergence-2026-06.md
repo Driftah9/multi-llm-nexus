@@ -104,6 +104,33 @@ remote Jina Reader. Nothing about a fetched page leaves the operator's machine b
 
 ---
 
+## Hardening pass (PW-3 → PW-8)
+
+A follow-on pass on the same `convergence-port-2026-06` branch closed a set of
+production-readiness gaps alongside the mechanisms above:
+
+- **Boot-time config validation** (`core/config_schema`, PW-5) — `providers.yaml` and
+  `adapters.yaml` are validated against Pydantic models in `main.run()` before any provider
+  or adapter is built. Invalid tier (`nano`/`standard`/`deep`/`apex`), `access_tier`, type,
+  or routing-pattern shape aborts startup with a clear error instead of a half-configured
+  runtime. This closes the same failure class as the `enabled: false` loader bug — configs
+  are now checked, not trusted.
+- **Installer resilience** (PW-6) — `scripts/preflight_check.sh` (read-only host readiness)
+  and `scripts/install_state.py` (checkpoint/resume tracker) make the interactive installer
+  recoverable. Testing is local-only; there is no CI (the installer is TTY/whiptail/sudo
+  bound). See `docs/INSTALLER_RESILIENCE.md`.
+- **Triage validator extensions** (`core/triage_validator`, PW-8) — decision metadata
+  (`domain`, `stakes`, `complexity`, `platform`), turn facts (`provider`, `model`,
+  `failover_hops`, `council`, `error`), re-ask detection, `apex` tier rank, and legacy-DB
+  migration — porting the live system's calibration signals down so the accuracy dataset is
+  captured here too.
+- **Retired-model swap + de-tracking** (PW-3/PW-4) — the `*.example` roster and docs moved
+  off provider-retired models (Cerebras `qwen-3-235b…` → `gpt-oss-120b`; SambaNova
+  `llama-3.1-405b` → `DeepSeek-V3.2`), and the accidentally-committed runtime
+  `config/sessions.json` was untracked and gitignored.
+
+---
+
 ## What this does *not* change
 
 - No providers, keys, or rosters were added — provider config stays the operator's.
