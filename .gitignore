@@ -8,6 +8,7 @@
 config/providers.yaml
 config/adapters.yaml
 config/user_preferences.json
+config/sessions.json
 config/sessions/
 
 # Python
