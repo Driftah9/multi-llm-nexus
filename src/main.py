@@ -86,6 +86,9 @@ def _build_providers(providers_config: dict) -> dict:
 
     instances = {}
     for name, cfg in providers_config.items():
+        if not cfg.get("enabled", True):
+            logger.info(f"Provider '{name}' disabled — skipping")
+            continue
         provider_type = cfg.get("type")
         if not provider_type:
             logger.warning(f"Provider '{name}' has no type — skipping")
@@ -396,7 +399,49 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     logger.info("Stopped.")
 
 
+def _run_doctor(argv: list[str]) -> None:
+    """`nexus doctor` — write a local self-diagnostic report for issue reports.
+    Generates only; never transmits. The operator downloads/copies/pastes it."""
+    from src.core import diag_report
+    p = argparse.ArgumentParser(prog="nexus doctor",
+                                description="Generate a self-diagnostic report (local only — nothing is sent).")
+    p.add_argument("--no-redact-paths", action="store_true",
+                   help="Do not redact home paths / LAN IPs (secrets are always masked).")
+    p.add_argument("--stdout", action="store_true", help="Print to stdout instead of writing a file.")
+    p.add_argument("--output", help="Write the report to this path instead of the default data dir.")
+    args = p.parse_args(argv)
+    redact = not args.no_redact_paths
+    if args.stdout:
+        print(diag_report.generate_markdown(redact_paths=redact))
+        return
+    out_dir = Path(args.output).parent if args.output else None
+    path = diag_report.write_report(redact_paths=redact, out_dir=out_dir)
+    if args.output:
+        path.rename(args.output)
+        path = Path(args.output)
+    print(f"Diagnostic report written to: {path}")
+    print("Review it, then attach it to a GitHub issue or email. Nothing was transmitted.")
+
+
+def _run_ops_board(argv: list[str]) -> None:
+    """`nexus ops-board` — launch the local admin console (Providers + Diag tabs).
+    Local only; it never transmits anything."""
+    from src.tools.ops_board import serve
+    p = argparse.ArgumentParser(prog="nexus ops-board",
+                                description="Launch the local Nexus admin console (web UI).")
+    p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
+    p.add_argument("--port", type=int, default=8137, help="Bind port (default: 8137).")
+    args = p.parse_args(argv)
+    serve(host=args.host, port=args.port)
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        _run_doctor(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "ops-board":
+        _run_ops_board(sys.argv[2:])
+        return
     parser = argparse.ArgumentParser(description="Multi-LLM Nexus")
     parser.add_argument("--providers", default=str(PROJECT_ROOT / "config" / "providers.yaml"),
                         help="Path to providers.yaml")

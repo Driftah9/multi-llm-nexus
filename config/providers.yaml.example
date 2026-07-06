@@ -130,7 +130,7 @@ providers:
   #   type: openai
   #   model: meta-llama/Llama-3.1-8B-Instruct
   #   api_key: ${HF_TOKEN}
-  #   base_url: https://api-inference.huggingface.co/v1
+  #   base_url: https://router.huggingface.co/v1
   #   cost_class: free_limited
   #   tier: nano
   #   rpd: 1000

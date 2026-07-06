@@ -338,7 +338,7 @@ huggingface:
   type: openai
   model: mistralai/Mistral-7B-Instruct-v0.3
   api_key: ${HF_API_KEY}
-  base_url: https://api-inference.huggingface.co/v1
+  base_url: https://router.huggingface.co/v1
   priority: 9
   tier: nano
   display_prefix: HF

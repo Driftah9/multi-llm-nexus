@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Optional
 
 from ..providers.base import BaseProvider
-from .error_classifier import classify_error, is_retryable_same, should_advance_chain, AUTH, QUOTA
+from .error_classifier import classify_error, is_retryable_same, should_advance_chain, AUTH, QUOTA, MODEL_GONE
 
 logger = logging.getLogger(__name__)
 
@@ -338,6 +338,21 @@ class ProviderChain:
                         if klass in (AUTH, QUOTA)
                         else self.config.cooldown_seconds
                     )
+                    if klass == MODEL_GONE:
+                        # The configured MODEL is dead (retired/renamed) — more
+                        # retries can never heal it. Bench immediately for 30
+                        # days (survives restarts via persisted health) and tell
+                        # the operator to update providers.yaml.
+                        entry.health = ProviderHealth.FAILED
+                        entry.cooldown_until = time.time() + 30 * 24 * 3600
+                        logger.error(
+                            f"Provider {entry.name}: MODEL GONE — "
+                            f"{getattr(entry.provider, 'model', '?')} rejected by the "
+                            f"provider ({error[:120]}). Benched 30d; update the model "
+                            f"in config/providers.yaml and restart to clear."
+                        )
+                        self._save_health()
+                        break
                     if (entry.consecutive_failures >= self.config.failure_threshold):
                         entry.health = ProviderHealth.FAILED
                         entry.cooldown_until = time.time() + cooldown

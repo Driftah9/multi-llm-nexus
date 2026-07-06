@@ -3,6 +3,59 @@
 All notable changes to Multi-LLM-Nexus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`core/diag_report`** — a self-diagnostic report generator. `nexus doctor` (or any
+  surface) renders a single Markdown document of the deployment's own state: versions, a
+  hardware/capability snapshot, **which features are active vs deferred** (via the real
+  `capability_gate` + each feature's `CapabilityRequirement`), configured providers **by
+  type/tier/role** (keys reported only as present/absent — never the value), provider
+  health, and local-service reachability. For attaching to a GitHub issue, email, etc.
+  - **No phone-home.** The module only produces a string and a file; it never transmits.
+    The operator is the sole transmitter (download / copy / paste).
+  - **Fail-closed redaction** (`diag_report.scrub`): secret-shaped strings are always
+    masked; home paths and LAN IPs are redacted by default. Other users' identities are
+    never included (people are reported as a count only).
+  - Everything is read from the operator's own `config/providers.yaml` + a live hardware
+    scan — no baked-in roster, no operator data in the module.
+- **`nexus doctor`** CLI subcommand (`--stdout`, `--output PATH`, `--no-redact-paths`).
+- **`tools/ops_board`** — a local admin console (`nexus ops-board`, default `127.0.0.1:8137`)
+  built on Nexus's own FastAPI stack with HTML/CSS/JS inlined (no template engine or static
+  assets). Agnostic, config-driven tabs:
+  - **Providers** — from `config/providers.yaml`, by type/tier/role; keys present/absent only.
+  - **Diag** — the diagnostic report (rendered Markdown + Raw toggle, Download / Copy /
+    Regenerate, redact toggle).
+  Both tabs reuse `core.diag_report`'s collectors, so the console and `nexus doctor` can
+  never disagree. Local only; it never transmits.
+- Test suite `tests/test_diag_report.py` (structure, fail-closed redaction, no-config safety).
+
+- **Model-lifecycle hardening** (agnostic port from the live upstream system):
+  - `core/error_classifier` gains a `MODEL_GONE` class — provider errors like
+    `model_not_found` / "has been decommissioned" / Ollama "try pulling it first"
+    are the MODEL dying, not the provider or the request. Tested before
+    `bad_request` so a retired model advances failover instead of stopping it.
+  - `core/provider_chain.record_failure`: `MODEL_GONE` skips the failure
+    threshold — immediate FAILED with a 30-day cooldown persisted across
+    restarts. A dead model is never hammered again; the log names the fix
+    (update `config/providers.yaml`).
+  - OpenAI-compatible `health_check()` now verifies the **configured model is
+    present in the provider’s live listing** (normalized for Gemini
+    `models/` prefixes and azureml registry URIs; fail-open on odd listings) —
+    retirements are caught by the 60s health monitor before any real traffic
+    hits them, not after.
+
+### Fixed
+- **Provider loader honors `enabled: false`** (`main._build_providers`). Previously every
+  provider in `providers.yaml` was instantiated regardless of its `enabled` flag, so
+  "disabled" providers still joined the failover chain and were health-probed every cycle
+  (surfaced as an endless `/models` retry loop against a dead endpoint). Adapters already
+  honored the flag; providers now match. Operators relying on the old behavior must flip
+  `enabled: true` on providers they actually use.
+- HuggingFace template `base_url` updated `api-inference.huggingface.co/v1` →
+  `router.huggingface.co/v1` (the old serverless domain was sunset upstream and no longer
+  resolves).
+
 ## [0.9.0] — 2026-06-25
 
 Convergence pass: provider-neutral mechanisms hardened in the upstream live system were

@@ -32,11 +32,23 @@ TRANSIENT = "transient"
 QUOTA = "quota"
 AUTH = "auth"
 BAD_REQUEST = "bad_request"
+MODEL_GONE = "model_gone"
 UNKNOWN = "unknown"
 
 # Ordered most-specific → least. First matching group wins, so QUOTA (which can
 # share tokens like "limit"/"429" with rate-limiting) is tested before TRANSIENT.
 _RULES: list[tuple[str, tuple[str, ...]]] = [
+    # The MODEL is unknown to the provider (retired/renamed) while the provider
+    # itself is fine. Tested FIRST: these arrive as 400/404s and would otherwise
+    # hit BAD_REQUEST. A dead model never heals by retrying — bench it long and
+    # tell the operator to update the config.
+    (MODEL_GONE, (
+        "model_not_found", "model not found", "model_decommissioned", "decommissioned",
+        "model has been decommissioned", "does not exist or you do not have access",
+        "unknown model", "model is deprecated", "model has been deprecated",
+        "has been deprecated", "model has been retired", "no such model",
+        "not found, try pulling",
+    )),
     # Out of budget — recovers only at a reset window, never by retrying now.
     (QUOTA, (
         "session limit", "usage limit", "hit your limit", "resets ",

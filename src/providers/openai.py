@@ -97,11 +97,42 @@ class OpenAIProvider(BaseProvider):
         return True
 
     async def health_check(self) -> bool:
+        """Reachability AND configured-model presence.
+
+        A bare /models 200 passes even when the configured model was retired --
+        the deployment then looks healthy while every real call 404s. When the
+        listing is non-empty, require the configured model to appear in it
+        (normalized: some gateways prefix ids, e.g. Gemini "models/<id>",
+        GitHub azureml registry URIs). Fail-open on empty/odd listings.
+        """
         try:
-            await self.client.models.list()
-            return True
+            models = await self.client.models.list()
         except Exception:
             return False
+        try:
+            ids = [str(m.id) for m in (models.data or [])]
+        except Exception:
+            return True  # listing shape surprise -- reachable is enough
+        if not ids:
+            return True
+
+        def norm(mid: str) -> str:
+            if mid.startswith("azureml://") and "/models/" in mid:
+                mid = mid.split("/models/", 1)[1].split("/versions")[0]
+            elif mid.startswith("models/"):
+                mid = mid[len("models/"):]
+            return mid.lower()
+
+        want = norm(self.model or "")
+        listed = {norm(i) for i in ids}
+        if want in listed or any(want in i or i in want for i in listed if i):
+            return True
+        import logging
+        logging.getLogger("nexus.provider").error(
+            "health_check: configured model %r is NOT in the live listing "
+            "(%d models) -- likely retired; update config/providers.yaml",
+            self.model, len(ids))
+        return False
 
     async def list_models(self) -> list[str]:
         """Query the provider's model list. Returns empty list on failure."""

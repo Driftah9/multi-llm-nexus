@@ -296,7 +296,7 @@ When a capable GPU is available (e.g. a datacenter-class card or equivalent):
   - `microsoft/phi-4`
   - `google/gemma-2-9b-it`
   - Any public model on HuggingFace Hub
-- **OpenAI compat:** Partial — `https://api-inference.huggingface.co/v1` (newer serverless models)
+- **OpenAI compat:** Partial — `https://router.huggingface.co/v1` (Inference Providers router; api-inference.huggingface.co was sunset)
 - **Key source:** [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
 - **Best for:** Discovering and testing open-source models, cold-start-acceptable research tasks, access to non-commercial or specialized community models
 
