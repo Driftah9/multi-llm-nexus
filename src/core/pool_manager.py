@@ -285,10 +285,10 @@ class PoolManager:
 
             rate_cfg = ProviderRateConfig(
                 cost_class=cost_class,
-                rpm=int(cfg.get("rpm", 0)),
-                rpd=int(cfg.get("rpd", 0)),
-                tpm=int(cfg.get("tpm", 0)),
-                tpd=int(cfg.get("tpd", 0)),
+                rpm=int(cfg.get("rpm") or 0),
+                rpd=int(cfg.get("rpd") or 0),
+                tpm=int(cfg.get("tpm") or 0),
+                tpd=int(cfg.get("tpd") or 0),
             )
 
             self._rate_states[name] = ProviderRateState(

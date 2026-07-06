@@ -57,3 +57,6 @@ htmlcov/
 docs/github_push.md
 docs/project_state.md
 docs/GOPHER_COLLABORATION_BRIEF.md
+
+# Self-diagnostic reports (generated locally, never committed)
+data/diag-reports/
