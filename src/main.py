@@ -185,14 +185,25 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     providers_config_raw = _load_yaml(providers_yaml)
     adapters_config = _load_yaml(adapters_yaml)
 
+    # Validate configs against schema before using them
+    from .core.config_schema import validate_providers_yaml, validate_adapters_yaml
+    try:
+        validate_providers_yaml(providers_config_raw)
+        logger.info("providers.yaml schema validated")
+    except ValueError as e:
+        logger.error(f"providers.yaml validation failed: {e}")
+        sys.exit(1)
+
+    try:
+        validate_adapters_yaml(adapters_config)
+        logger.info("adapters.yaml schema validated")
+    except ValueError as e:
+        logger.error(f"adapters.yaml validation failed: {e}")
+        sys.exit(1)
+
     providers_defs = providers_config_raw.get("providers", {})
     routing_config = providers_config_raw.get("routing", {})
     failover_config = providers_config_raw.get("failover", {})
-
-    if not providers_defs:
-        logger.error(f"No providers configured in {providers_yaml}")
-        logger.error("Run: python -m src.setup.wizard")
-        sys.exit(1)
 
     # Build core
     from .core.session import SessionStore

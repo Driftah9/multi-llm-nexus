@@ -89,14 +89,14 @@ Then: add a summary-table row + a full section below, and register it in the wiz
   - 60,000 TPM
   - 1,000,000 TPD ← **highest free TPD of any provider**
 - **Models available:**
-  - `qwen-3-235b-a22b-instruct-2507` — flagship (primary)
-  - `gpt-oss-120b` — 120B OSS model
+  - ~~`qwen-3-235b-a22b-instruct-2507`~~ — **retired** (caught by discover_models.py, confirmed 2026-07-06)
+  - `gpt-oss-120b` — 120B OSS model — **primary** (replaces retired 235B)
   - `zai-glm-4.7` — GLM series
   - `llama3.1-8b` — fast nano
 - **OpenAI compat:** ✅ `https://api.cerebras.ai/v1`
 - **Key:** Get from [cloud.cerebras.ai](https://cloud.cerebras.ai) — no card
 - **Strength:** 1M TPD daily budget + fast hardware. Best sustained-volume provider. Best price-per-token in free tier.
-- **Limit to watch:** The Qwen3 235B model ID has variant gotchas (a wrong variant returns 404). Confirm model IDs before use.
+- **Limit to watch:** Confirm model IDs before use — providers retire/rename models without notice; this file was stale on the exact issue it's warning about (Cerebras's flagship changed under it).
 
 ---
 
@@ -370,7 +370,7 @@ NANO TIER (fast, cheap, triage/classification/routing)
 
 STANDARD TIER (most requests — summaries, coding, drafting)
   Remote (primary):
-  ├── Cerebras Qwen3-235B  — primary (1M TPD, fast)
+  ├── Cerebras GPT-OSS-120B — primary (1M TPD, fast)
   ├── Google Gemini Flash  — high throughput (250K TPM)
   ├── Mistral Large        — EU compliance, ~1B/month
   ├── GitHub GPT-4o        — frontier diversity (50 RPD)
@@ -385,7 +385,7 @@ DEEP TIER (complex reasoning, architecture, production changes)
   ├── SambaNova DeepSeek   — DeepSeek V3.2 on RDU hardware (1K RPD)
   ├── SambaNova Llama-70B  — Llama 3.3 70B on RDU (1K RPD)
   ├── GitHub o3            — OpenAI reasoning model (50 RPD)
-  ├── Cerebras Qwen3-235B  — sustained volume fallback
+  ├── Cerebras GPT-OSS-120B — sustained volume fallback
   └── Claude Sonnet        — subscription fallback
   Offline fallback: qwen2.5:3b (best local for deep — tinyllama not suitable)
 
