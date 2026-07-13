@@ -66,17 +66,32 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        val = val.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = val
+    """Load environment variables from a .env file.
+
+    Also tries to load from a secure secrets file (e.g., ~/.local/etc/nexus.env)
+    to support split config where secrets are stored separately, mirroring what
+    systemd does with multiple EnvironmentFile directives.
+    """
+    def _parse_env_file(file_path: Path) -> None:
+        if not file_path.exists():
+            return
+        for line in file_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+
+    # Load primary .env file
+    _parse_env_file(path)
+
+    # Load secure secrets file (secondary, allows overrides for sensitive values)
+    # Pattern: if primary is PROJECT_ROOT/.env, try ~/.local/etc/nexus.env
+    secure_path = Path.home() / ".local" / "etc" / "nexus.env"
+    _parse_env_file(secure_path)
 
 
 # ── Provider bootstrap ────────────────────────────────────────────────────────
