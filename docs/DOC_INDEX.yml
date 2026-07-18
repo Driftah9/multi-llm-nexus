@@ -1,0 +1,170 @@
+# DOC_INDEX — the anti-drift claim map.
+#
+# Maps a code/config area → the docs that make CLAIMS about it, plus the current
+# claim that must stay true. `scripts/doc_check.py` reads this: when you change a file
+# matching a `paths:` glob, it lists that area's docs so you reconcile them BEFORE editing.
+#
+# Why a map on top of grep: grep catches docs that NAME the changed file; this catches
+# docs that make a CONCEPTUAL claim ("self-improvement loop", "routes around busy pools")
+# without naming the module. Both are needed.
+#
+# MAINTENANCE: when you add a doc that describes a subsystem, or change what a subsystem
+# does, update the matching entry here in the SAME change. Keep `claim` short — it's the
+# one-line truth a reviewer checks the doc against.
+#
+# Last verified against code: 2026-07-18
+# # NEXUS:PORTABLE (the schema) / # NEXUS:OPERATOR (the specific paths+docs below)
+
+subsystems:
+  - area: "provider routing / tier pools / failover"
+    paths:
+      - "src/core/pool_router.py"
+      - "src/core/pool_manager.py"
+      - "src/core/bridge.py"
+      - "src/core/chain_builder.py"
+      - "src/core/provider_chain.py"
+    docs:
+      - "docs/POOL_ROUTING_REFACTOR.md"
+      - "docs/gpu-pool-topology.md"
+      - "docs/provider-integration-roadmap.md"
+      - "docs/BUILDOUT_STATUS.md"
+      - "README.md"
+      - "KNOWN_LIMITATIONS.md"
+    claim: "Provider-level PARALLEL fan-out is NOT wired (parallelism parsed, never branched). Busy-pool routing only feeds the legacy ProviderChain path, not the tier_pools path."
+
+  - area: "quota / rate governance"
+    paths:
+      - "src/core/provider_quota.py"
+    docs:
+      - "docs/BUILDOUT_STATUS.md"
+      - "docs/provider-integration-roadmap.md"
+      - "docs/gpu-pool-topology.md"
+    claim: "provider_quota.py + pool_manager ProviderRateState are the real rate/quota layer (the proposed rate_limiter.py / routing_rules.yaml were never built)."
+
+  - area: "triage / classification"
+    paths:
+      - "src/core/triage.py"
+      - "src/core/triage_validator.py"
+    docs:
+      - "docs/BUILDOUT_STATUS.md"
+      - "docs/local_llm_guide.md"
+      - "README.md"
+    claim: "5-dimension triage (urgency, task_value, capability, complexity, task_type). Runs on every message."
+
+  - area: "capability ladder / swarm / council"
+    paths:
+      - "src/orchestration/*"
+    docs:
+      - "AGENTS.md"
+      - "CHANGELOG.md"
+      - "KNOWN_LIMITATIONS.md"
+      - "PHILOSOPHY.md"
+      - "docs/BUILDOUT_STATUS.md"
+      - "docs/convergence-2026-06.md"
+      - "docs/SYSTEM_DESIGN.md"
+    claim: "Swarm/ladder/council are ported + tested but INERT behind SWARM_LOOP_ENABLED=0 (not battle-tested). The built council is fixed-role (Skeptic/Advocate/Verifier), NOT the reputation-scoring council in SYSTEM_DESIGN §6."
+
+  - area: "multi-orchestrator failover (leader election)"
+    paths:
+      - "src/core/council_lease.py"
+      - "src/core/council_resumer.py"
+      - "src/core/council_checkpoint.py"
+    docs:
+      - "docs/convergence-2026-06.md"
+      - "docs/SYSTEM_DESIGN.md"
+    claim: "Standalone modules + capability-gate example + diagnostic only — NOT wired into the live dispatch loop. Distinct from the fixed-role council (name collision)."
+
+  - area: "providers registry / provider modules"
+    paths:
+      - "src/providers/*"
+    docs:
+      - "docs/AI_PROVIDER_REFERENCE.md"
+      - "docs/api-key-setup-guide.md"
+      - "docs/provider-integration-roadmap.md"
+      - "README.md"
+      - "AGENTS.md"
+    claim: "registry.py is the installer's source of truth (NOT the reference doc). Canonical count: 8 provider-type adapters fronting 22 selectable providers (100+ models)."
+
+  - area: "heartbeat / live status display"
+    paths:
+      - "src/core/heartbeat.py"
+    docs:
+      - "README.md"
+      - "AGENTS.md"
+    claim: "Real. Mechanical (zero LLM tokens). Adapter-agnostic push_fn."
+
+  - area: "self-improvement / evolution loop"
+    paths:
+      - "src/core/skill_metrics.py"
+    docs:
+      - "README.md"
+      - "PHILOSOPHY.md"
+      - "docs/lineage.md"
+      - "docs/comparison.md"
+      - "KNOWN_LIMITATIONS.md"
+    claim: "DESIGNED, NOT BUILT. skill_metrics.py logs to SQLite; no candidate-queue / report-generator / bi-weekly loop exists. Never describe it as working."
+
+  - area: "installer / setup / wizard"
+    paths:
+      - "src/setup/*"
+      - "scripts/preflight_check.sh"
+      - "scripts/install_state.py"
+      - "install.sh"
+    docs:
+      - "docs/INSTALLER_RESILIENCE.md"
+      - "docs/local_llm_guide.md"
+      - "README.md"
+      - "CONTRIBUTING.md"
+    claim: "Wizard recommends local models from RAM+GPU-presence only (hardware_detect.py's richer logic isn't wired in). preflight_check.sh + install_state.py are standalone — NOT yet invoked by install.sh. No CI."
+
+  - area: "config schema"
+    paths:
+      - "src/core/config_schema.py"
+      - "config/*.example"
+    docs:
+      - "CONTRIBUTING.md"
+      - "README.md"
+      - "docs/AI_PROVIDER_REFERENCE.md"
+      - "docs/api-key-setup-guide.md"
+    claim: "providers.yaml/adapters.yaml validated at boot; exits on invalid. Current model is tier_pools:/cost_class/role: (the bare enabled: true flip is legacy mode)."
+
+  - area: "adapters (Mattermost/Discord/Telegram/API)"
+    paths:
+      - "src/adapters/*"
+    docs:
+      - "README.md"
+      - "AGENTS.md"
+      - "docs/api-key-setup-guide.md"
+    claim: "Mattermost/Discord/Telegram implemented (Beta). Slack/Matrix are config-reserved, no code. OpenAI-compatible API adapter default port 8080."
+
+  - area: "self-diagnostic report"
+    paths:
+      - "src/core/diag_report.py"
+    docs:
+      - "KNOWN_LIMITATIONS.md"
+      - "CHANGELOG.md"
+      - ".github/ISSUE_TEMPLATE/bug_report.yml"
+    claim: "nexus doctor renders state as a string/file. NO phone-home. Keys reported present/absent only."
+
+  - area: "Nexus Mesh (concept)"
+    paths:
+      - "src/mesh/*"
+    docs:
+      - "docs/mesh/*"
+      - "docs/comparison.md"
+      - "README.md"
+      - "KNOWN_LIMITATIONS.md"
+      - "SECURITY.md"
+    claim: "CONCEPT — not built, not in active development. No src/mesh/ exists. If a src/mesh/ ever appears, that itself is a major status change requiring all mesh docs to flip from 'concept' to real."
+
+  - area: "hardware tiers (Citadel / server / phone cluster)"
+    paths:
+      - "config/pools.yaml.example"
+      - "src/setup/hardware_detect.py"
+    docs:
+      - "docs/citadel-tier.md"
+      - "docs/server-grade-builds.md"
+      - "docs/gpu-pool-topology.md"
+      - "docs/phone-llm-cluster.md"
+      - "KNOWN_LIMITATIONS.md"
+    claim: "Documented hardware DESIGNS, not validated deployments. Test matrix does not include multi-GPU NVLink or phone clusters."

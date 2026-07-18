@@ -1,6 +1,6 @@
 # Multi-LLM Nexus — External Review Brief
 
-> **Historical document** — This brief was prepared for a code review of v0.5.3 (2026-05-13). All findings (F1–F6, S3) were addressed in v0.5.3 and subsequent versions. Current release is v0.6.0. This file is retained for architectural context only.
+> **Historical document** — This brief was prepared for a code review of v0.5.3 (2026-05-13). All findings (F1–F6, S3) were addressed in v0.5.3 and subsequent versions. (It cited v0.6.0 as current at the time of writing; the project is now at 0.9.0 — see AGENTS.md / CHANGELOG.md for current state.) This file is retained for architectural context only.
 
 **Version reviewed:** v0.5.3  
 **Date:** 2026-05-13  

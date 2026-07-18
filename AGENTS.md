@@ -196,7 +196,24 @@ The display shows WHAT is active, not HOW it's connected. Connection details are
 9. **Bypass gracefully** — if no workspace match or all specialists fail, fall through to standard path
 10. **Heartbeat is mechanical** — status display uses zero LLM tokens; all state tracking is asyncio bookkeeping
 
-## Current Status (0.9.0 + convergence hardening — 2026-07-06)
+## Current Status (0.9.0 + swarm/ladder/council convergence — 2026-07-18)
+
+> Honest status lives in [`docs/BUILDOUT_STATUS.md`](docs/BUILDOUT_STATUS.md) (verified) and
+> [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md). Summary: provider layer, tier routing,
+> rollover/failover, quota, session/memory, and heartbeat are real; the swarm / capability
+> ladder / fixed-role council are ported and tested but **inert behind `SWARM_LOOP_ENABLED=0`**;
+> the self-improvement loop and provider-level parallel fan-out are designed, not built.
+
+### Convergence: swarm + graduation ladder + fixed-role council (2026-07-18)
+Live→Nexus port of the swarm orchestration loop, the capability graduation ladder (models
+start unqualified and earn demanding roles per-domain via graded evidence), and the fixed-role
+council (Skeptic/Advocate/Verifier, replacing the retired anonymize+Borda tournament). 15/15
+steps ported, 194 tests green, deployed to `nexus.service` **inert behind `SWARM_LOOP_ENABLED=0`**;
+ON-path validated once against real providers (not yet battle-tested). Modules under
+`src/orchestration/`: `provider_status`, `worker_pool`, `scribe`, `staging`, `council_session`,
+`council_roles`, `council_judge`, `council_executor`, `delegator`, `swarm_loop`, `swarm_grading`,
+`swarm_wiring`, plus the `capability_map` ladder foundation and a `core/bridge.py` gate. See
+`docs/BUILDOUT_STATUS.md` → "Swarm + Graduation Ladder convergence".
 
 ### Changes since v0.6.0
 - **v0.6.1** — full documentation audit; claude-brain feature port marked complete.

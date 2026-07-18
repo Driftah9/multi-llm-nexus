@@ -18,7 +18,10 @@ A persistent, always-on agent platform that:
 - **Connects everywhere** — Mattermost, Discord, Telegram (Slack/Matrix planned)
 - **Tiers, not model names** — `nano` / `standard` / `deep` route to whatever model you have configured, not hardcoded names
 - **Lives on your hardware** — no cloud dependency unless you add it
-- **Self-improves** — optional bi-weekly evaluation loop stages candidates for your approval
+- **Grades what it runs** *(experimental, off by default)* — an optional swarm + capability-ladder layer routes work to models proven per-domain; inert behind a flag until you enable it
+- **Self-improves** *(designed — not yet built)* — the planned bi-weekly evaluation loop will stage candidates for your approval
+
+> **Status honesty:** Nexus has a large north star and a smaller live core. The honest line between what runs today and what's designed lives in **[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)** and **[docs/BUILDOUT_STATUS.md](docs/BUILDOUT_STATUS.md)** — read them before trusting a feature in production.
 
 ---
 
@@ -26,7 +29,7 @@ A persistent, always-on agent platform that:
 
 | Role | What It Is |
 |---|---|
-| **The Nexus** | The platform — infrastructure, routing, memory, self-improvement loop |
+| **The Nexus** | The platform — infrastructure, provider routing, memory, orchestration |
 | **The Operator** | You — the person who deploys and commands it |
 | **Chief of Staff** | The named agent you deploy (`bot_name` in adapters.yaml) |
 | **Specialists** | Task-specific providers — Triage, Developer, Researcher, etc. |
@@ -224,6 +227,8 @@ ollama pull llama3.1:8b
 
 > **Deep tier on local hardware is rarely worth it** with consumer cards. The V100 SXM2 32GB is the exception — see below.
 
+> **The builds below (V100, dual-V100 "Dreadnought", phone cluster, Citadel) are hardware *designs*, not validated Nexus deployments.** They describe what the architecture supports; they haven't each been run end to end. Treat the costs and configs as starting points.
+
 ### Enthusiast Pick: NVIDIA Tesla V100 SXM2
 
 The V100 SXM2 is a data center GPU that ended up cheap on the secondhand market (~$200–400 for 16GB, ~$400–700 for 32GB as of 2025). It is not a consumer card — it has no display output and uses the SXM2 form factor, which requires a **PCIe riser adapter** (~$50–100) to install in a standard desktop or server chassis.
@@ -313,7 +318,7 @@ See **[docs/phone-llm-cluster.md](docs/phone-llm-cluster.md)** for the full arch
 
 The **Citadel** is the hardware tier where all Nexus tiers run locally — triage, standard, deep, and specialists — on 4-8 server-grade GPUs with NVLink fabric. Cloud becomes optional fallback, not a dependency.
 
-Nexus supports pool-aware routing for Citadel deployments out of the box. Configure `config/pools.yaml` to tell Nexus how your GPUs are grouped (independent workers vs. tensor-parallel pools), and Nexus routes around busy pools automatically using vLLM's metrics endpoint.
+Nexus has pool-aware routing *scaffolding* for Citadel deployments. `config/pools.yaml` describes how your GPUs are grouped (independent workers vs. tensor-parallel pools). **Note:** the automatic route-around-busy-pools path (`parallelism: parallel`) is currently parsed but not yet wired — today pools are treated as failover order. See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
 Three docs cover the Citadel path:
 
@@ -323,28 +328,21 @@ Three docs cover the Citadel path:
 | **[docs/server-grade-builds.md](docs/server-grade-builds.md)** | Qualifying hardware: V100/A100/H100 platforms, power/cooling/storage, build checklist |
 | **[docs/gpu-pool-topology.md](docs/gpu-pool-topology.md)** | Operational playbook: pools.yaml config, operator profiles, vLLM/Ollama launch patterns |
 
-### Nexus Mesh — Federated Inference Network
+### Nexus Mesh — Federated Inference Network *(concept — not in active development)*
 
-The **Nexus Mesh** connects independent Nexus deployments into a collective inference network. Each node remains sovereign — private memory, sessions, and config never leave your machine. The mesh moves tasks and inference results only.
+The **Nexus Mesh** is a design *concept*, not a current work item and not on the near-term
+roadmap. The idea: independent Nexus deployments interlocked into a collective inference
+network where each node stays sovereign — private memory, sessions, and config never leave
+your machine — and only tasks and inference results move between peers. It would invert the
+commercial cost model (you pay electricity, not tokens), and a spread of budget nodes running
+diverse models would give breadth of reasoning no single centralized model matches.
 
-**Why it matters**: The mesh inverts the commercial AI cost model. You pay electricity, not tokens. Idle GPU cycles become collective intelligence. A mesh of 10 budget nodes running diverse models produces breadth of reasoning that no single centralized model can match — each node runs its own independent inference chain, and the synthesis is richer than any one answer.
+None of it is built. It is, however, fully thought through — modes, architecture, security,
+protocol, and a staged build plan are all captured as a design, ready if the concept is ever
+pursued:
 
-Two mesh modes:
-- **Public Mesh** — Anonymous compute donation (Folding@Home model). Idle inference cycles served to the pool with full sandbox isolation.
-- **Trusted Sandbox** — Explicit peer access. Named permissions. Direct provider sharing between known operators.
-
-Local inference is always first. Mesh is supplemental. Cloud APIs are fallback only.
-
-| Doc | What It Covers |
-|---|---|
-| **[docs/mesh/01-overview.md](docs/mesh/01-overview.md)** | Concept, cost model, BitTorrent/BOINC/Folding@Home analogies, two modes |
-| **[docs/mesh/02-architecture.md](docs/mesh/02-architecture.md)** | Full stack, resource governance (50% GPU idle, hard preemption), ONS transport |
-| **[docs/mesh/03-security.md](docs/mesh/03-security.md)** | Threat model, sandbox isolation, result validation, open research areas |
-| **[docs/mesh/04-protocol.md](docs/mesh/04-protocol.md)** | Peer discovery, task descriptors, ratio enforcement, reputation, trust revocation |
-| **[docs/mesh/05-implementation.md](docs/mesh/05-implementation.md)** | Build roadmap (5 phases, 18-30 weeks), security validation matrix, stress test requirements |
-| **[docs/mesh/06-scaffold.md](docs/mesh/06-scaffold.md)** | Phase 1 starter code: directory structure, core modules, unit tests, implementation checklist |
-
-> **Status**: Design + scaffold phase. Phase 1 (sandbox isolation, resource governance) is ready to implement. See 06-scaffold.md for the starting template.
+**→ [docs/mesh/](docs/mesh/README.md)** — the complete concept: four deployment modes, cost
+model, threat model, protocol, and the "if we build it" roadmap.
 
 ---
 
@@ -477,7 +475,9 @@ sudo systemctl enable --now nexus
 
 ## Self-Improvement Loop
 
-Optional bi-weekly evaluation cycle:
+> **Status: designed, not yet implemented.** This section describes the intended loop; the module isn't built yet (tracked in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)).
+
+The intended optional bi-weekly evaluation cycle:
 
 1. **Behavioral review** — reads session signals, updates operating profile
 2. **Research phase** — evaluates new AI tools, patterns, techniques

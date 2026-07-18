@@ -1,6 +1,12 @@
 # Nexus Mesh Documentation
 
-Nexus Mesh is an optional extension that connects independent Nexus deployments into a collective inference network. Each node remains sovereign — private data never leaves your machine. The mesh moves tasks and results only.
+> **This is a design concept — not in active development.** Nothing in these documents is
+> built, and the mesh is not on the near-term roadmap. They capture a complete
+> first-principles design so the thinking is ready if the idea is ever pursued. For what
+> Nexus actually runs today, see the main [README](../../README.md) and
+> [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
+Nexus Mesh is a *proposed* optional extension that would connect independent Nexus deployments into a collective inference network. Each node would remain sovereign — private data never leaves your machine. The mesh moves tasks and results only.
 
 ## Documents
 
@@ -31,8 +37,10 @@ Nexus Mesh is an optional extension that connects independent Nexus deployments 
 
 ## Status
 
-Design phase — 2026-06-05. Four-mode architecture defined from first-principles conversation.
+**Concept — not in active development.** This is a fully-documented *design*, not a work item
+on the current roadmap. Nothing here is built. The documents capture the thinking from a
+first-principles design pass (2026-06-05) so it's ready if the concept is ever picked up.
 
-**Build estimate**: 18-30 weeks (4.5-7.5 months) solo developer, Phases 1-5 cover Modes A/B/R.
-Mode 0 (local pool) is Phase 6 — optional, deferred for research-scale deployments.
-See [05-implementation.md](05-implementation.md) for full roadmap, security validation, and stress testing.
+**If it were pursued**, the rough estimate was 18-30 weeks (solo) for Phases 1-5 (Modes A/B/R);
+Mode 0 (local pool) would be a later, optional phase. See [05-implementation.md](05-implementation.md)
+for the full design roadmap, security validation, and stress-testing plan.

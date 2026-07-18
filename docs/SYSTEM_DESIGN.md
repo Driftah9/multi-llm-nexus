@@ -4,6 +4,15 @@
 **Author:** Stryder + Claude  
 **Audience:** Anyone building/extending the provider orchestration layer
 
+> **Reality-check banner (added 2026-07-18).** This is the **original design document** and
+> predates the implementation. Large parts of it are now **built** (tier routing, rollover/
+> failover, quota governance — production-quality), parts were built **differently** than
+> described (see §6 "The Council"), and some file paths named here **never landed under these
+> names** (see §8). Treat this doc as design intent, not current state. For what actually
+> exists today, read **`docs/BUILDOUT_STATUS.md`** (verified status) and
+> **`../KNOWN_LIMITATIONS.md`** (honest gap list) FIRST — where they disagree with this doc,
+> they win.
+
 This is the single source of truth for how the system routes messages to providers, tracks usage, handles failures, and benchmarks providers over time. **Do not build without alignment here.**
 
 ---
@@ -293,6 +302,16 @@ class AnthropicSessionLedger:
 
 ## 6. The Council — Provider Reputation & Routing
 
+> **SUPERSEDED (2026-07-18).** The reputation/benchmarking council described in this section
+> was **never built**. A **different** subsystem that also happens to be called "council" was
+> built instead: a **fixed-role council** (Skeptic / Advocate / Verifier) in
+> `src/orchestration/council_*.py` — see `CHANGELOG.md`. That solves *deliberation* (multiple
+> roles argue one answer, then a judge synthesizes), **not** the *reputation-scoring / per-use-case
+> routing-influence* system described below. Nothing in the code tracks per-provider
+> `success_rate` / `accuracy_score` or re-orders a tier by learned reputation. Read this section
+> as unbuilt design intent; the word "council" elsewhere in the current codebase means the
+> fixed-role model, not this.
+
 **Mechanism (under research — see concurrent search)**
 
 The council is a benchmarking system that tracks:
@@ -350,14 +369,14 @@ Never silently drop a request or hide a failure. The operator always knows who p
 
 **In `claude-brain/adapters/`:**
 1. **Dossier registry** — YAML or JSON file per provider (or one consolidated registry)
-2. **Roster check algorithm** — `orchestration/roster_check.py` (the core dispatcher)
-3. **Session ledger tracker** — `core/session_ledger.py` (Claude) + per-provider rate buckets
+2. **Roster check algorithm** — `orchestration/roster_check.py` *(not ported to Nexus under this name; the real analogs are `src/core/pool_router.py` + `src/core/provider_chain.py`)*
+3. **Session ledger tracker** — `core/session_ledger.py` (Claude) *(not present in Nexus; `src/core/session_window.py` is a different mechanism — rolling Q→A context for stateless providers, not a quota ledger)* + per-provider rate buckets
 4. **Council interface** — placeholder for now; updated once research is in
-5. **Failure handler** — extend `core/error_handler.py` to catch, log, announce, failover
+5. **Failure handler** — `src/core/error_classifier.py` (classify-then-route: `transient|quota|auth|bad_request|unknown`) catches, logs, and drives failover *(this doc's earlier `core/error_handler.py` name never landed)*
 6. **Visibility layer** — heartbeat status, in-channel failure announcements
 
 **In `multi-llm-nexus/`:**
-- The same structure applies (already partially there in `provider_quota.py`, `pool_router.py`)
+- The same structure applies — now implemented (production-quality) in `provider_quota.py`, `pool_router.py`; see `docs/BUILDOUT_STATUS.md`
 - Nexus becomes the OSS version of this design (no personal keys, abstract provider class)
 
 ---

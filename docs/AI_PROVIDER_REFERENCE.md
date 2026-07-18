@@ -4,7 +4,7 @@
 
 **Example tier-1 stack:** A common starting set is Claude (or any subscription/API frontier model), Groq, Cerebras, Gemini, GitHub Models, Mistral, SambaNova, Cohere (RAG), NVIDIA NIM, and a local Ollama for offline fallback. Mix and match based on which keys you have.
 
-**This file is the installer's provider catalog.** The setup wizard draws the selectable-provider list and each provider's auth model + free-tier constraints from the knowledge captured here. When you drop in a key for any provider below, the integration is already known — auth type, OpenAI-compatible `base_url`, and rate/free-tier limits — so it "just works" without new code (the `openai`-compatible type fronts most API providers via `base_url`; native types cover the rest).
+**This file is the human-readable provider catalog.** It documents each provider's auth model, OpenAI-compatible `base_url`, and rate/free-tier constraints. The setup wizard's actual source of truth is **`src/providers/registry.py`** — this doc does *not* feed the wizard; the two should simply agree. When you drop in a key for a provider that's in the registry, the integration is already known — auth type, `base_url`, and limits — so it "just works" without new code (the `openai`-compatible type fronts most API providers via `base_url`; native types cover the rest). If you add a provider here, also register it in `src/providers/registry.py` (see the "adding a new provider" note below).
 
 ### Keeping this current — adding a new provider
 
@@ -22,6 +22,14 @@ Then: add a summary-table row + a full section below, and register it in the wiz
 
 ## Quick Summary Table
 
+> **Reading the Status column.** "✅ Active" here means the provider is a *known, ready-to-use*
+> integration (config + registry entry exist, drop in a key and go) — **not** that it is
+> connected in your install. Several providers marked Active below are filed under "Staged
+> Providers" or "Tier 2" in the body: that reflects the shipped **example config**, where
+> they're present but disabled until you add a key. Your *live* status is whatever your own
+> `config/providers.yaml` has enabled (see `nexus doctor` / the heartbeat), which the
+> reference deployment reports separately in [`docs/BUILDOUT_STATUS.md`](BUILDOUT_STATUS.md).
+
 | Provider | Tier | Free? | RPM | RPD | TPM | TPD | OpenAI Compat | Status |
 |---|---|---|---|---|---|---|---|---|
 | **Claude (Anthropic)** | all | Subscription (Max) | Unrestricted | Unrestricted | — | — | No (CLI) | ✅ Active |
@@ -38,11 +46,14 @@ Then: add a summary-table row + a full section below, and register it in the wiz
 | **OpenRouter** | standard | ⚠️ 50 RPD free | 20 | 50 / 1K* | — | — | ✅ Yes | ⏸ Hold |
 | **HuggingFace** | nano | ✅ Yes | dynamic | dynamic | — | — | Partial | 🔲 DNS issue |
 | **Cloudflare AI** | multimodal | ✅ Yes | — | — | 10K neu/day | — | No (CF) | 🔲 Staged |
-| **DeepInfra** | standard | $5 credits | — | — | — | — | ✅ Yes | 🔲 Staged |
+| **DeepInfra** | standard | $5 credits | — | — | — | — | ✅ Yes | 🔲 Staged † |
 | **Together AI** | standard | ❌ None | — | — | — | — | ✅ Yes | 🔜 Future |
 | **Perplexity** | deep | Trial only | — | — | — | — | Partial | 🔜 Future |
 
 *OpenRouter: 50 RPD without purchase, 1K RPD after one-time $10 deposit (permanent unlock).
+
+† DeepInfra: "Staged" is the example-config default — verify against your own live
+`config/providers.yaml`, where it may already be enabled.
 
 ---
 
@@ -137,7 +148,7 @@ Then: add a summary-table row + a full section below, and register it in the wiz
   - `claude-3.5-sonnet` — Anthropic via GitHub, free
   - `llama-3.2-11b` — Meta, 15 RPM / 150 RPD
   - `phi-4` — Microsoft, 15 RPM / 150 RPD
-- **OpenAI compat:** ✅ `https://models.inference.ai.azure.com/v1`
+- **OpenAI compat:** ✅ `https://models.inference.ai.azure.com` (base_url as shipped in `config/providers.yaml.example`; the SDK appends the OpenAI path. Confirm your own config matches — some setups pin an explicit `/v1` suffix and a specific default model such as `gpt-4o-mini`.)
 - **Key source:** GitHub → Settings → Developer settings → Personal access tokens (classic) → check `api` scope
 - **Setup time:** ~3 min
 - **Unique value:** Only free path to GPT-4o, o3, and Grok-3 without paying OpenAI/xAI. Essential for council diversity.
@@ -503,7 +514,16 @@ DEEPINFRA_API_KEY=xxxxxxxx
 Activating a provider is configuration-only — no code changes required:
 
 1. Add the provider's API key to your project's `.env` (use the env-var names in the reference above).
-2. Set `enabled: true` for that provider in `config/providers.yaml`.
+2. Enable the provider in `config/providers.yaml`.
 3. Restart Nexus. The provider resolver reads the key at startup, runs a key-availability check, and slots the provider into its tier with ordered fallback.
+
+> **Config model:** current installs use the **pool-based** routing model — providers carry
+> `cost_class`, `tier`, and a `role: communicator | worker` field, and are grouped under
+> `tier_pools:` (see `config/providers.yaml.example` and
+> [`POOL_ROUTING_REFACTOR.md`](POOL_ROUTING_REFACTOR.md)). In the shipped example, most
+> providers are **commented out** rather than `enabled: false` — you uncomment the block and
+> supply the key. The simpler `enabled: true/false` flag still works in the **legacy**
+> single-provider mode (used when no `tier_pools:` are defined). Either way, activation stays
+> config-only.
 
 The resolver handles tier → provider → model selection, rate-limit pre-checks before each invoke, and usage logging after each call. Staged providers (config present, key missing) stay dormant until their key appears in `.env`.

@@ -24,6 +24,15 @@ echo "GROQ_API_KEY=gsk_xxxxxxxx" >> .env
 
 ---
 
+> **Which config mode?** The `enabled: true` steps below describe the **simple/legacy**
+> single-provider mode, which the code still supports as a fallback. Current installs
+> typically use the **pool-based** model instead: providers carry `cost_class` / `tier` /
+> `role:` and are grouped under `tier_pools:` in `config/providers.yaml`, where you uncomment
+> a provider block and add its key rather than flipping a boolean. See
+> [`AI_PROVIDER_REFERENCE.md`](AI_PROVIDER_REFERENCE.md) → "How Activation Works" and
+> [`POOL_ROUTING_REFACTOR.md`](POOL_ROUTING_REFACTOR.md). The key-acquisition steps here are
+> identical in either mode.
+
 ## TIER 1: Add in Order (Persistent Free, 10 min total)
 
 ### 1. Google AI Studio (Gemini Flash)
@@ -47,7 +56,8 @@ echo "GROQ_API_KEY=gsk_xxxxxxxx" >> .env
    ```
 7. Verify:
    ```bash
-   curl -s http://localhost:8000/health | grep gemini
+   curl -s http://localhost:8080/health | grep gemini
+   # 8080 is the OpenAI-compatible API adapter's default port (configurable in adapters.yaml)
    ```
 
 **Models Available Free:**
@@ -354,7 +364,7 @@ After enabling each provider, watch the heartbeat:
 
 ```
 Groq · Llama-8B · nano — triage 0.2s
-Cerebras · Qwen3-235B · standard — working 3.1s
+Cerebras · GPT-OSS-120B · standard — working 3.1s
 Google · Gemini-Flash · standard — working 1.8s
 GitHub · GPT-4o · standard — working 2.1s
 Mistral · Mistral-Large · standard — working 2.4s

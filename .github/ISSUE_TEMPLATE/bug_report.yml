@@ -1,0 +1,64 @@
+name: "🐞 Bug report"
+description: "Something that should work doesn't. Crashes, wrong output, failures."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Nexus is Active Beta — real deployments surface edge cases no
+        single developer finds. A good report here directly hardens the project.
+
+        **Before you file:** the fastest way to give us usable context is the built-in
+        self-diagnostic. It reports versions, active-vs-deferred features, provider
+        types/tiers, and service reachability — **and it never phones home** (it only
+        prints a string; you paste it). Run it and drop the output below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what went wrong?
+      placeholder: "I sent a message on the Mattermost adapter and the reply never arrived; the log showed…"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps. If it's intermittent, say so and how often.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: diag
+    attributes:
+      label: Diagnostic report (`nexus doctor`)
+      description: >
+        Paste the output of the self-diagnostic. It is safe to share — API keys are
+        reported only as present/absent, never their values, and nothing is transmitted.
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: Redact anything sensitive. Tracebacks are gold.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Nexus version / commit
+      placeholder: "0.9.0 (or git short SHA)"
+    validations:
+      required: true

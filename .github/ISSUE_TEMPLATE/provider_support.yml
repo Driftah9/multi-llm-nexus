@@ -1,0 +1,38 @@
+name: "🔌 Provider / adapter support"
+description: "Request support for an LLM provider or communication platform, or report one that stopped working (retired model, changed API)."
+labels: ["provider"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Nexus fronts many providers through a few adapter types. Most cloud providers are
+        OpenAI-compatible and reachable via `base_url` — so "new provider" is often a config
+        entry, not new code. Tell us which, and whether it's a *new* request or a *break*.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of request
+      options:
+        - New provider (not yet supported)
+        - New communication adapter (Slack, Matrix, etc.)
+        - Existing provider broke (retired model / changed API / new auth)
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Provider / platform name
+    validations:
+      required: true
+  - type: input
+    id: api-shape
+    attributes:
+      label: API shape (if known)
+      placeholder: "OpenAI-compatible / native SDK / other — and the base_url if applicable"
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Model IDs, tier you'd use it for (nano/standard/deep), auth type (API key / free tier / subscription), anything relevant.
+    validations:
+      required: true

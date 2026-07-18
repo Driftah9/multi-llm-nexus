@@ -1,6 +1,8 @@
 # Nexus Mesh — Implementation Roadmap
 
-**What it takes to go from design docs to functional mesh.**
+> **Design concept — not built, not in active development.** Nothing in this document exists in code today; it is design thinking captured for possible future work. Present-tense descriptions are intended ("would") behavior, not a running system. See the [mesh README](README.md) and the repo's [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
+**If pursued, what it would take to go from design docs to a functional mesh — no timeline is committed.**
 
 ---
 
@@ -15,7 +17,7 @@ Before connecting nodes, build the isolation layer on one Nexus deployment.
 | Task | Description | Dependencies |
 |---|---|---|
 | Sandbox process isolation | Separate process/container that runs inference in isolation from main Nexus | Docker SDK or subprocess + seccomp |
-| Mesh task schema | Define the task descriptor JSON format (see 04-protocol.md) | None — design complete |
+| Mesh task schema | Define the task descriptor JSON format (see 04-protocol.md) | None — spec fully written, no code exists |
 | Inference-only execution | Sandbox loads model weights (read-only), accepts prompt, returns result | ik_llama.cpp or Ollama HTTP endpoint |
 | Output sanitization | Scan results for credential patterns, PII, injection fingerprints before returning | Regex scanner, configurable patterns |
 | Resource governor | Monitor GPU/CPU utilization, enforce throttle limits, hard preempt on owner activity | psutil/nvidia-smi polling, cgroups |
@@ -132,7 +134,7 @@ Mesh is invisible to the end user — it just works.
 | Phase 5 | Integration, UX, dashboard | All modes | 2-4 weeks | 18-30 weeks |
 | **Phase 6** | **Mode 0: Local pool (exo-style layer sharding)** | **Mode 0** | **8-14 weeks** | **Optional** |
 
-**Total estimated build (Phases 1-5): 18-30 weeks for a solo developer.**
+**If this concept were ever greenlit, hypothetical effort (Phases 1-5) would total roughly 18-30 weeks for a solo developer — not a scheduled commitment.**
 
 Phase 6 (Mode 0) is optional — for research-scale deployments with multiple local machines. It adds exo-style pipeline parallelism under Nexus orchestration. Implementation reference: exo (github.com/exo-explore/exo).
 
@@ -144,7 +146,7 @@ With parallel development or multiple contributors, phases 3 and 4 can overlap w
 
 ### Pre-Release Security Requirements
 
-These MUST be validated before any mesh deployment accepts external peers.
+If a mesh deployment were ever built, these would need to be validated before it accepts external peers.
 
 #### 2.1 Sandbox Escape Testing
 

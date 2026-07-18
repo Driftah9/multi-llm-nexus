@@ -1,12 +1,14 @@
-# Nexus Mesh — Implementation Scaffold
+# Nexus Mesh — Implementation Scaffold (concept, not built)
 
-**Concrete starting point for building Phase 1. Files, directories, and initial code structure to implement the first deliverable: a single node that can receive, execute, and return a mesh task in sandbox isolation.**
+> **Design concept — not built, not in active development.** Nothing in this document exists in code today; it is design thinking captured for possible future work. Present-tense descriptions are intended ("would") behavior, not a running system. See the [mesh README](README.md) and the repo's [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
+**Illustrative sketch of what Phase 1 code structure would look like, if this concept were ever pursued — no build has started. Files, directories, and initial code structure for the first deliverable: a single node that can receive, execute, and return a mesh task in sandbox isolation.**
 
 ---
 
 ## Directory Structure
 
-Create this structure in the Nexus project root:
+If pursued, one would create a structure like this in the Nexus project root:
 
 ```
 src/
@@ -706,28 +708,30 @@ class TestResourceGovernor:
 
 ---
 
-## Starting Phase 1 — Checklist
+## Starting Phase 1 — Illustrative Checklist (not scheduled, no work started)
 
-- [ ] Create `src/mesh/` directory and four core modules
-- [ ] Implement task descriptor schema (`task.py`) with JSON serialization
-- [ ] Implement config parser (`config.py`) with validation
-- [ ] Implement resource governor (`governor.py`) with preemption logic
-- [ ] Implement output sanitizer (`sanitizer.py`) with pattern database
-- [ ] Create `config/mesh.yaml.example` template
-- [ ] Write basic unit tests for each module
-- [ ] Implement `nexus mesh test` CLI command that:
+The steps below sketch what a Phase 1 build would involve if pursued. None are underway.
+
+- Create `src/mesh/` directory and four core modules
+- Implement task descriptor schema (`task.py`) with JSON serialization
+- Implement config parser (`config.py`) with validation
+- Implement resource governor (`governor.py`) with preemption logic
+- Implement output sanitizer (`sanitizer.py`) with pattern database
+- Create `config/mesh.yaml.example` template
+- Write basic unit tests for each module
+- Implement `nexus mesh test` CLI command that:
   1. Loads mesh config
   2. Creates a synthetic task descriptor
   3. Validates it
   4. Simulates sandbox execution with sanitization
   5. Reports pass/fail
-- [ ] Document how to run `nexus mesh test` in README
+- Document how to run `nexus mesh test` in README
 
 ---
 
 ## Testing Phase 1 — Validation
 
-Once Phase 1 scaffold is in place, run:
+Example commands one would run if this scaffold were ever implemented (none of this code exists today):
 
 ```bash
 # Unit tests
@@ -751,13 +755,13 @@ pytest tests/test_mesh_load.py::TestMeshSandboxBasic -v --repeat 100
 
 ## Integration with Existing Nexus
 
-The Phase 1 scaffold is **self-contained and non-breaking**:
+If built, the Phase 1 scaffold is designed to be **self-contained and non-breaking**:
 - Existing Nexus code unchanged
 - Mesh only active when `mesh.enabled: true` in config
 - New CLI command doesn't interfere with current adapters
-- Can be merged as a feature branch without affecting production
+- Would be structured as a self-contained feature branch without affecting production (no such branch exists today)
 
-Phase 2 integration (peer discovery, DHT) touches `Bridge` and `Router` — those will be additive extensions, not rewrites.
+Phase 2 integration (peer discovery, DHT) would touch `Bridge` and `Router` — those would be additive extensions, not rewrites.
 
 ---
 

@@ -1,5 +1,10 @@
 # Lineage
 
+> **Last updated: June 2026 convergence.** This account stops at the June 2026 provider-neutral
+> convergence pass. A newer **July 18, 2026** convergence (swarm orchestration loop + capability
+> graduation ladder + fixed-role council, ported live→Nexus and shipped inert behind
+> `SWARM_LOOP_ENABLED=0`) is not covered here — see `AGENTS.md` and `CHANGELOG.md` for that.
+
 ## Where Nexus Came From
 
 Nexus was not built from scratch. It was not coded by a team of AI researchers. It evolved from a single operator's attempt to build something that worked the way they needed it to work.
@@ -79,7 +84,7 @@ The following components do not derive from any external project. They were desi
 
 **Approval gate** — All improvements — memory updates, skill candidates, behavioral rule changes — require operator review before activation. This is a deliberate choice against autonomous self-modification. For a system running production infrastructure, compliance-sensitive workflows, or personal financial data, the operator is the final decision-maker.
 
-**ACTIVE/STANDBY hybrid engine** — The core engine model where one session is active and others are on standby, with idle-triggered distillation and cross-session context injection. This was engineered from observed usage patterns on the claude-brain production system.
+**ACTIVE/STANDBY hybrid engine** — The core engine model where one session is active and others are on standby, with idle-triggered distillation and cross-session context injection. This was engineered from observed usage patterns on the claude-brain production system. *(Currently dormant — the live adapter path calls `bridge.invoke` directly and bypasses the engine's tick loop; see `docs/BUILDOUT_STATUS.md`.)*
 
 **Tier routing** — `nano` / `standard` / `deep` as provider-agnostic tier names that route to whatever model the operator configured. No model names in application logic. When you upgrade from llama3.1:8b to llama3.1:70b, one line changes in `providers.yaml`. The rest of the system is unchanged.
 

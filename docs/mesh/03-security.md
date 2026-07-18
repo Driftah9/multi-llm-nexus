@@ -1,6 +1,8 @@
 # Nexus Mesh — Security
 
-**The mesh is a zero-trust environment. Every incoming task is assumed hostile until executed in isolation.**
+> **Design concept — not built, not in active development.** Nothing in this document exists in code today; it is design thinking captured for possible future work. Present-tense descriptions are intended ("would") behavior, not a running system. See the [mesh README](README.md) and the repo's [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
+**The mesh is designed as a zero-trust environment; every incoming task would be assumed hostile until executed in isolation.**
 
 ---
 

@@ -6,11 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
-- **Swarm + graduation-ladder + fixed-role council convergence — 14/15 (2026-07-18).** The live→Nexus
+- **Swarm + graduation-ladder + fixed-role council convergence — 15/15 (2026-07-18).** The live→Nexus
   port of the swarm orchestration loop, the capability graduation ladder, and the fixed-role council.
-  All modules are ported, tested, and **inert behind `SWARM_LOOP_ENABLED=0`** (default) — only the
-  orchestrator integration seam (step 15) is left, a deliberate architecture decision (see
-  `docs/BUILDOUT_STATUS.md`). New/changed modules, all under `src/orchestration/` unless noted:
+  All 15 steps ported and tested (194 green), **deployed to `nexus.service` inert behind
+  `SWARM_LOOP_ENABLED=0`** (default). Step 15 (the `core/bridge.py` delegation/swarm gate) is wired
+  inert; the ON-path was validated once end-to-end against real providers (planner → parallel workers →
+  deep-tier synthesis, with the safe `[]`→single-shot fallback confirmed). Enabling the flag remains an
+  operator decision; it is **not yet battle-tested**. See `docs/BUILDOUT_STATUS.md`. New/changed
+  modules, all under `src/orchestration/` unless noted:
   - `provider_status.py` — trust-ladder lifecycle (unknown→known→benched + shadow promotion);
     `KNOWN_PROVIDERS`/`FRONTIER_COUNCIL` mapped to `providers.yaml` ids, env-overridable.
   - `worker_pool.py` — the provider-config-model shim: `tier_roster()`/`worker_candidates()`/

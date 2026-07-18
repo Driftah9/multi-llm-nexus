@@ -50,7 +50,24 @@ Please add or update tests under `tests/` for any behavior change to core
    [Conventional Commits](https://www.conventionalcommits.org/) — e.g.
    `feat(core): add pool-aware routing`, `fix(providers): handle cohere rate limit`.
 3. Run `pytest` and confirm it passes.
-4. Open a pull request describing **what** changed and **why**. Link any related issue.
+4. **Reconcile the docs** — run `python scripts/doc_check.py --diff origin/main` and update
+   any doc whose claims your change made stale, **in this same PR** (see the callout below).
+5. Open a pull request describing **what** changed and **why**. Link any related issue.
+
+> **Changing behavior, capabilities, or status? Documentation ships WITH the code.**
+> Nexus docs have drifted before — code changed and the docs didn't move with it, so claims
+> went stale in both directions (aspirations described as done, finished work still marked
+> "planned"). **Step 1, before editing any doc,** is:
+>
+> ```bash
+> python scripts/doc_check.py --diff origin/main
+> ```
+>
+> It lists every doc that makes a claim about what you touched — by direct mention and by the
+> claim map in [`docs/DOC_INDEX.yml`](docs/DOC_INDEX.yml) — plus the current claim that must
+> stay true. Fix the stale ones in the same change and bump each doc's *"Last verified against
+> code"* stamp. This is required for any live→Nexus port. Full rule:
+> [`docs/DOC_SYNC_PROTOCOL.md`](docs/DOC_SYNC_PROTOCOL.md).
 
 > **Editing `config/providers.yaml` or `config/adapters.yaml`?** Both are validated
 > against a Pydantic schema (`src/core/config_schema.py`) at startup — the process exits
@@ -67,9 +84,9 @@ speaks the OpenAI-compatible API can often be reached through the existing OpenA
 with a different base URL rather than a new module — prefer that where it fits.
 
 First, **research the provider and add it to the catalog** at
-[`docs/AI_PROVIDER_REFERENCE.md`](docs/AI_PROVIDER_REFERENCE.md) — that file is the
-installer's source of truth for selectable providers, their auth models, and free-tier
-limits. Its *"Keeping this current — adding a new provider"* section lists the five facts
+[`docs/AI_PROVIDER_REFERENCE.md`](docs/AI_PROVIDER_REFERENCE.md) — the human-facing catalog
+of selectable providers, their auth models, and free-tier limits. (The installer's actual
+source of truth is `src/providers/registry.py`; keep the two in agreement.) Its *"Keeping this current — adding a new provider"* section lists the five facts
 to capture (auth model, endpoint/OpenAI-compat, free-tier limits, models/tier fit, signup).
 Setup steps per provider are in [`docs/api-key-setup-guide.md`](docs/api-key-setup-guide.md);
 the prioritized backlog is in [`docs/provider-integration-roadmap.md`](docs/provider-integration-roadmap.md).

@@ -2,7 +2,20 @@
 
 **Scope:** Unify Nexus provider routing from single-assignment to organizational (pool-based, cost-aware, rate-limited) model.
 
-**Status:** Planning (2026-06-04)
+**Status:** IMPLEMENTED (v0.6.3) — historical design doc.
+
+> **This plan shipped.** Pool-based routing is the current production routing model, not a
+> proposal. The real implementation went **further** than this document: it added a
+> `role: communicator | worker` split (decision **D-009**) — only a high-trust, stateful
+> `communicator` provider may produce a user-facing answer; cheap/stateless `worker`
+> providers are reachable for delegated sub-tasks only. That split is **not** covered
+> below. Treat the pseudocode here as design rationale, not an API reference.
+>
+> For the authoritative built-vs-planned status see
+> [`docs/BUILDOUT_STATUS.md`](BUILDOUT_STATUS.md) (Vision → Code Mapping table) and
+> [`KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md). The one piece of this plan still
+> **not** wired is `parallelism: parallel` (parsed, never branched on) — see the Risks
+> section and KNOWN_LIMITATIONS.
 
 ---
 
@@ -201,6 +214,13 @@ Message: {message}
 ---
 
 ### 4. `pool_router.py` (NEW) or Enhanced `router.py`
+
+> **As-built note:** the shipped `src/core/pool_router.py` diverged from the pseudocode
+> below. The real public API returns an **ordered `list[str]` of provider names** (not a
+> single `BaseProvider`) via `select()` and `select_communicator()`, and pool selection is
+> **capability/urgency/complexity-driven** (`_pool_for_triage()`), not the simple cost-sort
+> shown here. The communicator/worker role filter (D-009) lives in `select_communicator()`.
+> The sketch below is kept for design rationale only.
 
 **Responsibility:** Select from tier pool based on triage + pool state
 
@@ -477,14 +497,19 @@ routing:
 
 ## Success Criteria
 
-- [ ] Router selects from tier pool, not single provider
-- [ ] Rate limit state tracked per provider, per window
-- [ ] Failover works: exhausted provider → next in pool
-- [ ] Triage includes urgency + value + capability
-- [ ] Pool selection respects cost-class priority
-- [ ] No paid tokens burn on tasks free/local could handle
-- [ ] All four existing adapters pass stress test
-- [ ] Config is readable and easy to modify
+> **Satisfied (v0.6.3).** These criteria were met by the shipped implementation. The
+> authoritative living status is [`docs/BUILDOUT_STATUS.md`](BUILDOUT_STATUS.md)
+> (Vision → Code Mapping). The single open item is provider-level `parallel` fan-out —
+> see Risks below and [`KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md).
+
+- [x] Router selects from tier pool, not single provider
+- [x] Rate limit state tracked per provider, per window
+- [x] Failover works: exhausted provider → next in pool
+- [x] Triage includes urgency + value + capability
+- [x] Pool selection respects cost-class priority
+- [x] No paid tokens burn on tasks free/local could handle
+- [x] All four existing adapters pass stress test
+- [x] Config is readable and easy to modify
 
 ---
 
@@ -492,6 +517,9 @@ routing:
 
 **Risk:** Breaking change to config structure
 - **Mitigation:** Provide migration script; support old format with deprecation warning
+- **As-built:** no migration script was needed or built — the legacy `routing:`/`failover:`
+  single-provider format still works as a fallback when no `tier_pools:` are defined
+  (`main.py` logs "using legacy router/chain mode"), so old configs keep running unchanged.
 
 **Risk:** Rate limit tracking adds memory overhead
 - **Mitigation:** Store state in SQLite like triage_validator does; trim windows regularly

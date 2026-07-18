@@ -6,6 +6,8 @@ This document lists the categories of server hardware that meet Citadel requirem
 
 This is not a buying guide — it's a reference for understanding what's available on the secondary market and what each platform class offers. Prices shift quarterly. Always validate current market availability before committing.
 
+> **Status — design target.** Hardware tiers beyond the tested one (single-node local inference) are documented designs, not validated deployments. Nexus's test matrix does not yet include a multi-GPU NVLink server, and the pool-aware routing these builds assume is only partially wired (see [gpu-pool-topology.md](gpu-pool-topology.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)).
+
 ---
 
 ## What Qualifies
@@ -186,7 +188,7 @@ Once your server is running, the hardware maps to Nexus through three configurat
 
 See [gpu-pool-topology.md](gpu-pool-topology.md) for the complete operational playbook — pool modes, operator profiles, launch commands, and metrics configuration.
 
-The key principle: **Nexus doesn't know or care what GPU is behind an endpoint.** A provider entry pointing at `http://localhost:8000/v1` could be a V100 pool, an A100 pool, or a cloud API. The routing, triage, failover, and pool-aware selection all work identically. The hardware is the Operator's domain. The intelligence routing is Nexus's.
+The key principle: **Nexus doesn't know or care what GPU is behind an endpoint.** A provider entry pointing at `http://localhost:8000/v1` could be a V100 pool, an A100 pool, or a cloud API. The routing, triage, and failover all work identically. Pool-aware *load* selection (routing around a busy GPU pool) is only partially wired today — the tier-pool path selects on rate/cost availability, not GPU-busy signal (see [gpu-pool-topology.md](gpu-pool-topology.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)). The hardware is the Operator's domain. The intelligence routing is Nexus's.
 
 ---
 

@@ -6,6 +6,8 @@ This is the operational playbook for [Citadel-tier](citadel-tier.md) deployments
 
 If you have a single GPU or a workstation-class build, this document is not for you — skip it. If you have a server with 4 or more GPUs and are thinking about how to organize them for best results with Nexus, read on.
 
+> **Status — partial (read this first).** GPU-pool topology is *declared* and pool health *is* polled and logged (vLLM `/metrics`), but the **automatic route-around-busy-pool behavior described below is not yet wired into the tier-pool request path**. The tier-pool router (`PoolRouter.select()` → bridge `_invoke_with_pool`) currently selects providers by rate-limit / cost-class availability only — it does not consult the GPU-busy signal. The busy signal is read only by the legacy `ProviderChain` selection path. Where this doc says a pool "routes around busy pools" or "automatically routes to a fallback pool," read that as **intended design, not yet wired**. See [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).
+
 ---
 
 ## What This Document Covers
@@ -78,7 +80,7 @@ You have two pooled groups for the deep tier. When Pool A is serving an active i
 [GPU 6+7] deep_secondary — model B   (pooled, fallback)
 ```
 
-`pool_fallback: true`. Nexus polls vLLM's `/metrics` on each pooled endpoint. When `deep_primary` has requests waiting, new deep-tier requests go to `deep_secondary`.
+`pool_fallback: true`. Nexus polls vLLM's `/metrics` on each pooled endpoint. When `deep_primary` has requests waiting, new deep-tier requests are *intended* to go to `deep_secondary` — **note: this automatic route-around-busy behavior is not yet wired into the tier-pool path (see the status note at the top and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)).**
 
 ---
 
@@ -199,6 +201,8 @@ One endpoint, one provider in `providers.yaml`.
 
 ## How Nexus Routes With Pool Awareness
 
+> **Status — partial.** The flow below describes the *intended* design. Today it is only realized on the legacy `ProviderChain` selection path (steps 4-6 read the GPU-busy signal there). The tier-pool path documented elsewhere in this file (`PoolRouter.select()` → bridge `_invoke_with_pool`) does **not** yet consult the GPU-busy signal — it selects on rate-limit / cost-class availability only. Automatic route-around-busy for tier pools is **not yet wired**. See [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).
+
 When `pools.yaml` is present:
 
 1. A message arrives from any adapter
@@ -225,6 +229,7 @@ To be explicit about the boundary:
 - Nexus does not manage `CUDA_VISIBLE_DEVICES`
 - Nexus does not restart crashed inference servers
 - Nexus does not auto-scale pool size based on demand
+- Nexus does not (yet) automatically route tier-pool requests around a busy GPU pool — pool health is polled and logged, but the route-around-busy path is wired only into the legacy ProviderChain, not the tier-pool router (see the status notes above and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md))
 
 These are operator responsibilities. Nexus is the routing and orchestration layer above them.
 
@@ -309,7 +314,7 @@ routing:
       provider: deep
 ```
 
-With `pools.yaml` declaring `deep` and `deep_b` in separate pools with `pool_fallback: true`, Nexus automatically routes to `deep_b` when `deep` is busy.
+With `pools.yaml` declaring `deep` and `deep_b` in separate pools with `pool_fallback: true`, Nexus is *intended* to route to `deep_b` when `deep` is busy — **not yet wired into the tier-pool path; see the status note at the top and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).**
 
 ---
 

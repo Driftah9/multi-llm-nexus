@@ -1,6 +1,8 @@
 # Nexus Mesh — Protocol
 
-**How nodes find each other, exchange tasks, track contributions, and maintain trust.**
+> **Design concept — not built, not in active development.** Nothing in this document exists in code today; it is design thinking captured for possible future work. Present-tense descriptions are intended ("would") behavior, not a running system. See the [mesh README](README.md) and the repo's [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
+**How nodes would find each other, exchange tasks, track contributions, and maintain trust (design).**
 
 ---
 

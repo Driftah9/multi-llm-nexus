@@ -10,6 +10,12 @@ This document describes the two-layer installer resilience system:
 > repo intentionally has **no GitHub Actions / CI**. Validate the installer on a
 > real Ubuntu VM or container using the manual steps in *Local Testing* below.
 
+> **Not yet wired into `install.sh` (2026-07-18).** Both tools described here —
+> `scripts/preflight_check.sh` and `scripts/install_state.py` — are **standalone tools
+> today**. `install.sh` does **not** currently invoke either one; the "Integration with
+> install.sh" snippets below are the *intended wiring*, a follow-up, not the current state.
+> Run the preflight and checkpoint tools by hand until that wiring lands.
+
 ## Layer 1: Preflight Validator
 
 **File:** `scripts/preflight_check.sh`
@@ -23,9 +29,12 @@ Validates system readiness before `install.sh` begins. Catches missing resources
 | Linux OS | ✓ | — |
 | Root privileges | ✓ | — |
 | ≥2GB disk space | ✓ | — |
-| Network (DNS + GitHub) | — | ⚠️ warn only |
+| ≥1GB memory available | — | ⚠️ warn only |
+| DNS resolution (github.com) | ✓ (contributes to exit 1) | — |
+| GitHub HTTPS reachability | — | ⚠️ warn only |
 | Python 3.11+ | ✓ | — |
 | git, curl, whiptail | ✓ | — |
+| Port availability (53, 8065, 8080) | — | advisory (warn only) |
 | Sudo.d writable | — | ⚠️ warn only |
 
 ### Usage
@@ -33,6 +42,10 @@ Validates system readiness before `install.sh` begins. Catches missing resources
 ```bash
 # Run before install.sh
 sudo bash scripts/preflight_check.sh
+
+# Auto-fix where possible (marks missing apt packages as "will install
+# during setup" instead of failing outright)
+sudo bash scripts/preflight_check.sh --fix
 
 # Exit codes:
 #   0 = all checks passed

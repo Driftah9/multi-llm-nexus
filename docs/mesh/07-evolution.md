@@ -1,5 +1,7 @@
 # Nexus Mesh — Evolution Pathways
 
+> **Design concept — not built, not in active development.** Nothing in this document exists in code today; it is design thinking captured for possible future work. Present-tense descriptions are intended ("would") behavior, not a running system. See the [mesh README](README.md) and the repo's [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
 **Optional architectural extensions that emerge from Mode B trusted sandbox collaboration.**
 
 These are not required for initial mesh deployment but represent natural extensions once Mode B is operational and peer relationships mature.
@@ -79,7 +81,7 @@ If the workload is async and latency-insensitive, Mode R (deferred queue over WA
 
 ### Suggested Timeline
 
-**Phase 6** — after Phases 1-5 are operational and validated. Requires:
+**Phase 6** — if Phases 1-5 were ever built, operational, and validated. Would require:
 - Mode B sandbox isolation proven (Phase 3)
 - libp2p encrypted transport operational (Phase 4)
 - Ratio accounting in place (Phase 2-3)

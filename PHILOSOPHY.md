@@ -59,7 +59,7 @@ Once generalized, the behavior becomes core platform infrastructure, available t
 
 ### Deferred Decisions
 - **Learned quality scoring:** We classify provider errors and route by cost, but *learned quality scores* (this provider is faster / returns better JSON / has higher accuracy on math) are collected but not yet wired into routing. This is a significant gap for operators who want quality optimization over cost.
-- **Cross-provider adversarial council:** The multi-orchestrator failover protects against a single orchestrator dying, but there's no mechanism yet for independent orchestrators to challenge each other's decisions or self-correct via debate. This is designed but not implemented.
+- **Cross-provider adversarial council:** A fixed-role council (Skeptic / Advocate / Verifier) is now ported and tested, but it is **inert by default** — not wired into the standard reply path (behind `SWARM_LOOP_ENABLED=0`). Independent multi-orchestrator debate *at scale* — orchestrators challenging each other and self-correcting across a live cluster — remains unvalidated.
 - **Operator-specific budget policies:** Tasks can be routed by cost, but there's no declarative way to express "spend up to $X per day" or "never hit the expensive model unless quality is explicitly low." Operators implementing this today roll it themselves.
 
 ### Known Limitations (By Design)
@@ -81,7 +81,7 @@ Once generalized, the behavior becomes core platform infrastructure, available t
 **n8n** and **Zapier** are workflow automation platforms. Nexus is an LLM orchestration platform. The differences:
 - **LLM-first:** Nexus is built around routing intelligence across models. n8n treats AI as one node in a workflow. For AI-heavy workloads, Nexus has better semantics; for business process automation, n8n is more mature.
 - **Deployment:** n8n is a GUI-first platform; Nexus is config-first. n8n is easier for non-programmers; Nexus is faster for infrastructure-fluent teams.
-- **Provider coverage:** n8n integrates with 500+ apps. Nexus integrates with 15+ LLMs. These are different problems solved by different tooling.
+- **Provider coverage:** n8n integrates with 500+ apps. Nexus fronts 22 selectable LLM providers (100+ models). These are different problems solved by different tooling.
 
 ### vs. Anthropic's Claude API + System Prompts
 **The Claude API** is the simplest choice if you're building an AI feature in your app. Nexus adds value when you:

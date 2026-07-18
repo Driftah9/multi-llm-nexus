@@ -2,11 +2,13 @@
 
 Using smartphones as distributed inference nodes inside a Nexus deployment.
 
+> **Design concept — not a Nexus-tested deployment.** This is an architectural sketch, not a validated build. The power and capacity figures below are estimates, not benchmarks, and no phone cluster has been run against Nexus. See [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).
+
 ---
 
 ## The Concept
 
-Modern smartphones contain serious inference hardware — NPUs rated at 35–98 TOPS, 6–12GB of unified memory, and efficient mobile SoCs — that sit idle the vast majority of the time. A shelf of used flagship phones running a stripped OS can function as a dedicated, low-power inference fabric, with Nexus acting as the maestro that routes work to it.
+Modern smartphones contain serious inference hardware — NPUs rated at 35–98 TOPS, 6–12GB of unified memory, and efficient mobile SoCs — that sit idle the vast majority of the time. In principle, a shelf of used flagship phones running a stripped OS could function as a dedicated, low-power inference fabric, with Nexus acting as the maestro that routes work to it. This has not been built or benchmarked — treat the design below as a proposal.
 
 The phones are not standalone AI assistants. They are dumb inference nodes. The intelligence, routing, session management, and platform adapters all live on the Nexus machine. The phone cluster is just a pool of distributed compute that Nexus talks to through a single API endpoint.
 
@@ -83,7 +85,7 @@ Alternatively, **stock Android with ADB and minimal background services** works 
 | USB | USB 3.0 tethering | USB 3.1 |
 | OS | Stock Android 10+ (minimal) | LineageOS 20+ |
 
-A 6GB phone with SD845 holds a 3B model entirely in memory with room for the OS overhead. An 8GB phone runs a 7B shard comfortably. Six 8GB phones = ~48GB distributed unified memory.
+On paper, a 6GB phone with SD845 should hold a 3B model entirely in memory with room for the OS overhead, and an 8GB phone should run a 7B shard comfortably. Six 8GB phones would sum to ~48GB of distributed unified memory. These are back-of-envelope capacity estimates, not measured results — usable memory after OS and runtime overhead will be lower.
 
 ---
 
@@ -115,11 +117,9 @@ Running the coordinator in Docker on the Nexus machine means:
 
 ## Power Profile
 
-A 6-phone cluster at ~8–12W per device = **50–72W total** running a distributed 70B inference workload.
+The following figures are estimates, not measured draw. A 6-phone cluster at an assumed ~8–12W per device would be roughly **50–72W total** running a distributed inference workload, versus a single V100 SXM2 at full load = 250–300W (published TDP).
 
-A single V100 SXM2 at full load = 250–300W.
-
-For always-on operation (triage node never sleeps, standard and deep available on demand), the phone cluster is a low-power inference appliance that fits on a shelf and runs on a single power strip.
+If those estimates hold, then for always-on operation (triage node never sleeps, standard and deep available on demand), the phone cluster would be a low-power inference appliance that fits on a shelf and runs on a single power strip. This has not been measured on a real build.
 
 ---
 

@@ -71,7 +71,20 @@ rejects a valid response.
 
 ---
 
-## Multi-orchestrator failover (`core/council_lease`, `council_checkpoint`, `council_resumer`)
+## Multi-orchestrator failover (leader election — distinct from the fixed-role council) (`core/council_lease`, `council_checkpoint`, `council_resumer`)
+
+> **Naming note.** This "council" means **leader election among orchestrators** (lease + fencing
+> + handoff). It is a **different subsystem** from the fixed-role council (Skeptic / Advocate /
+> Verifier) in `src/orchestration/council_*.py` that the July 2026 swarm convergence added — same
+> word, unrelated mechanism.
+>
+> **Status (inert / not wired, 2026-07-18).** These modules are **implemented as standalone
+> building blocks** — the lease/checkpoint/resumer classes, a `CapabilityRequirement` example,
+> and diagnostic reporting (`core/diag_report.py` reads the requirement to show whether the
+> feature would gate on). They are **not wired into the live dispatch loop**: `engine.py`,
+> `bridge.py`, `orchestrator.py`, and `main.py` never import them, so no lease is ever acquired
+> and no checkpoint is ever written on the normal reply path — even on hardware that clears the
+> capability bar. Treat this as **present-but-inert**, the same honesty the swarm loop carries.
 
 For deployments with several capable models acting as orchestrators: a single-leader **lease**
 (auto-expires if the holder dies) + a monotonic **fencing token** (rejects a stale,

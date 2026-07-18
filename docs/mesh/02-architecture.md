@@ -1,5 +1,7 @@
 # Nexus Mesh — Architecture
 
+> **Design concept — not built, not in active development.** Nothing in this document exists in code today; it is design thinking captured for possible future work. Present-tense descriptions are intended ("would") behavior, not a running system. See the [mesh README](README.md) and the repo's [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
 ---
 
 ## Full Stack Diagram
@@ -114,18 +116,18 @@ mesh:
 
 ### GPU Idle Detection
 
-The mesh controller monitors GPU utilization on a configurable interval (default: 5 seconds). States:
+As designed, the mesh controller would monitor GPU utilization on a configurable interval (default: 5 seconds). States:
 
 - **ACTIVE** (>60% utilization or owner process detected): Mesh suspended
 - **TRANSITIONING** (30-60%): Mesh held pending, not yet allocated
 - **IDLE** (<30%): Mesh may allocate up to `gpu_idle_percent`
 
-When owner activity returns:
+When owner activity returns (designed behavior, not implemented):
 1. Mesh tasks receive SIGTERM (graceful attempt, 2 second window)
 2. If not cleared: SIGKILL
 3. GPU reallocated to owner
 
-The mesh coordinator is notified that the node is unavailable. It re-routes pending tasks to other available nodes.
+The mesh coordinator would be notified that the node is unavailable, and would re-route pending tasks to other available nodes.
 
 ---
 
@@ -171,7 +173,7 @@ Operators are encouraged to specialize their node's model library around their h
 - **LAN only** — activation streaming over WAN adds 30–160s per inference pass
 
 **Reference**: exo (exo-explore/exo) implements this pattern. Mode 0 adds Nexus orchestration.
-**Status**: Phase 6 — deferred for research-scale deployments.
+**Status**: Not built. If ever pursued, this would be a deferred phase for research-scale deployments.
 
 ---
 
@@ -258,14 +260,14 @@ Each node: 8× V100 32GB, 2× EPYC 7742, 128GB RAM
 - Aggregate VRAM: 2,560GB (80 GPUs)
 - Aggregate RAM: 1,280GB
 - Aggregate CPU cores: 1,280 (at full mesh participation)
-- Capability: rivals a small AI research cluster
+- Capability (hypothetical, if 10 such nodes were ever deployed): would rival a small AI research cluster
 - Cost: electricity per operator, zero marginal inference
 
 ### The Parallel Reasoning Advantage
 
 A datacenter cluster serves ONE model to many users. The clustering exists to make one model faster.
 
-A Nexus mesh runs MANY different models, each independently. The clustering produces diversity of perspective, not just speed.
+A Nexus mesh, if built, would run MANY different models, each independently. The clustering would produce diversity of perspective, not just speed.
 
 **10 nodes running DeepSeek-R1 671B independently on the same complex question produces 10 distinct reasoning chains.** No single datacenter model can do this — it can only produce one chain, however many machines support it. Synthesizing 10 independent reasoning chains is a qualitatively different output.
 

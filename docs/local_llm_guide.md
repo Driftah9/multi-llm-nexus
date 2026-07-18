@@ -17,22 +17,23 @@ During setup, the wizard scans your system:
   RAM: 16 GB
   GPU: None (CPU-only)
 
-✓ Local LLM recommended — llama3.2:3b
+✓ Local LLM recommended — llama3.1:8b
   (CPU inference — slower but still useful for triage.)
 ```
 
 ### Recommendations by Hardware
 
-| RAM | CPU Cores | GPU | Recommended Model | Use Case |
-|---|---|---|---|---|
-| < 8 GB | — | — | Not recommended | Insufficient for local LLM |
-| 8 GB | 2-4 | — | `phi4-mini` (3.8B) | Triage, embeddings, simple Q&A |
-| 8 GB | 4+ | — | `tinyllama` (1B) | Triage, reminders, status checks |
-| 16 GB | 4+ | — | `llama3.2:3b` | All lightweight tasks |
-| 32+ GB | — | — | `llama3.1:8b` | More capable local inference |
-| Any | Any | NVIDIA 3GB+ | `llama3.2:3b` | GPU-accelerated, very fast |
-| Any | Any | NVIDIA 6GB+ | `llama3.1:8b` | Full-powered local |
-| Any | Any | AMD/Intel | `phi4-mini` | Varies by GPU |
+The wizard's shown recommendation (`src/setup/wizard.py`) is driven by total RAM plus whether *any* GPU is present:
+
+| RAM | GPU present? | Recommended Model |
+|---|---|---|
+| < 8 GB | — | Not recommended (insufficient for local LLM) |
+| 8–15 GB | any | `llama3.2:3b` |
+| 16–31 GB | any | `llama3.1:8b` |
+| 32+ GB | GPU | `llama3.1:70b` |
+| 32+ GB | CPU-only | `llama3.1:8b` |
+
+> **Note:** `src/setup/hardware_detect.py` contains a richer per-GPU-vendor/VRAM recommendation path (e.g. NVIDIA 16GB+ → `qwen2.5-coder-32b-iq3_k` via `ik_llama`; AMD/Intel → vLLM with ROCm/XPU). That logic is computed but is **not currently wired into the wizard's displayed recommendation** — the wizard uses the simpler RAM+GPU-presence table above. This is a known gap, not a documented feature.
 
 ---
 
@@ -266,6 +267,8 @@ ollama run phi4-mini "what is 2+2?"
 
 ### CPU vs GPU
 
+Approximate, illustrative throughput (not measured on any specific reference machine):
+
 - **CPU**: Slow but free. ~1-2 tokens/sec depending on model and hardware
 - **GPU**: Fast. 10-100+ tokens/sec depending on VRAM and model
 
@@ -273,9 +276,11 @@ For triage (short classifier queries), CPU is fine. For longer tasks, GPU is str
 
 ### Model Sizes
 
-- **1B params** (phi4-mini, tinyllama): Fast, fit in 1-2GB RAM, ~60% accuracy
-- **3B params** (llama3.2:3b): Balanced, 4-6GB, ~75% accuracy
-- **8B params** (llama3.1:8b): Good quality, 8-16GB, ~85% accuracy
+Approximate RAM/VRAM footprints. The "accuracy" characterizations below are **illustrative, not measured** — Nexus does not compute a model-accuracy metric:
+
+- **~1-4B params** (phi4-mini ~3.8B): Fast, fit in ~2-4GB RAM, lowest quality
+- **3B params** (llama3.2:3b): Balanced, 4-6GB
+- **8B params** (llama3.1:8b): Good quality, 8-16GB
 - **70B params**: Excellent, need 40GB+ VRAM (GPU only)
 
 For triage, nano-tier models (1-3B) are sufficient. Larger models are over-qualified for simple classification.
@@ -336,7 +341,7 @@ Local LLMs load the entire model into RAM. To reduce:
 
 ## Cost Comparison
 
-Approximate token costs (US list pricing, 2026 — verify current rates at each provider's pricing page before planning a budget):
+Illustrative example only — the dollar figures below are worked estimates, not measured savings, and depend entirely on your usage mix and current provider pricing (US list pricing, 2026 — verify current rates at each provider's pricing page before planning a budget):
 
 | Task | Provider | Cost | Local |
 |---|---|---|---|
@@ -346,7 +351,7 @@ Approximate token costs (US list pricing, 2026 — verify current rates at each 
 | Weekly self-eval | Sonnet | $0.05 | $0 |
 | **Weekly savings** | — | **$1-5** | **$0** |
 
-Over a month: **$5-20 saved** by offloading 20-30% of queries to local.
+As an illustration, offloading 20-30% of queries to local might save on the order of **$5-20/month** — your actual result will vary.
 
 ---
 

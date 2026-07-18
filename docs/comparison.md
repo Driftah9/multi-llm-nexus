@@ -89,11 +89,20 @@ If you want a platform where every architectural decision is auditable, operator
 
 ---
 
-## Hyperspace Pods: The Distributed Inference Comparison
+## Hyperspace Pods: A Distributed-Inference Comparison (aspirational)
 
-Hyperspace Pods is the only other distributed inference system in production at the scale Nexus Mesh targets. As of early 2026: 2M+ autonomous nodes, libp2p peer discovery, tensor/pipeline parallelism for sharding large models across machines.
+> **This compares a *concept* against a *deployed system*.** Nexus Mesh is a design idea for
+> where Nexus *could* go — see [docs/mesh/](mesh/README.md); it is **not built and not in active
+> development**. Hyperspace Pods is in production at scale. The table below is a design-intent
+> comparison — a sketch of how the mesh *would* line up if it were built and adopted — not a
+> claim that Nexus Mesh competes with Hyperspace today. Whether it could actually go
+> head-to-head is **unproven until it exists and people run it.**
 
-| Dimension | **Nexus Mesh** | **Hyperspace Pods** |
+Hyperspace Pods is a distributed inference system in production at the scale Nexus Mesh *would*
+target if built. As of early 2026: 2M+ autonomous nodes, libp2p peer discovery, tensor/pipeline
+parallelism for sharding large models across machines.
+
+| Dimension | **Nexus Mesh** *(proposed design)* | **Hyperspace Pods** *(deployed)* |
 |---|---|---|
 | **Core problem solved** | Run many different models in parallel; aggregate reasoning | Run one model that doesn't fit in a single GPU across multiple machines |
 | **Parallelism model** | Independent models, independent reasoning chains | Pipeline parallelism — activations stream between layer slices on different nodes |
@@ -104,18 +113,26 @@ Hyperspace Pods is the only other distributed inference system in production at 
 | **VRAM requirement** | Each node runs its own models independently | Minimum VRAM determined by the largest layer slice required |
 | **Result** | Composite reasoning from specialized models | Single large model output, distributed across hardware |
 | **Self-hosted control** | Full (operator runs all mesh logic) | Partial (joining network, not controlling it) |
-| **Status** | Design phase, 2026 | Deployed production, 2M+ nodes |
+| **Status** | **Concept — not built** | Deployed production, 2M+ nodes |
 
-### What Hyperspace Proves
+### What Hyperspace Proves (and why the concept is worth keeping)
 
-Hyperspace validates that consumer hardware nodes can collectively serve inference workloads that exceed any single node's capacity. The 2M-node scale is not a demo — it's a working production network running research workloads. This is the strongest external validation that the distributed inference premise is sound.
+Hyperspace validates that consumer-hardware nodes can collectively serve inference workloads
+that exceed any single node's capacity — the 2M-node scale is a working production network, not
+a demo. That's the strongest external evidence that the distributed-inference *premise* is sound,
+which is exactly why the Nexus Mesh concept is worth keeping on paper. It is evidence the idea
+*could* work — not evidence that Nexus Mesh does.
 
-### Why the Approaches Are Complementary, Not Competing
+### How the Approaches Would Differ (if the mesh were built)
 
 Hyperspace answers: "I have two 16GB cards and want to run DeepSeek-R1 671B."
-Nexus Mesh answers: "I have a code specialist, a reasoning specialist, and a domain specialist — run all three in parallel and combine their outputs."
+Nexus Mesh *would* answer: "I have a code specialist, a reasoning specialist, and a domain
+specialist — run all three in parallel and combine their outputs."
 
-These are different problems. Mode B's VRAM pooling extension (E1, documented in `07-evolution.md`) covers the Hyperspace use case too — two trusted peers co-hosting a model neither fits alone. But this is an optional post-Phase-3 extension in Nexus, not the primary design. The primary design is diverse parallel reasoning, which Hyperspace's architecture doesn't address.
+Different problems. Mode B's VRAM-pooling extension (E1, in `07-evolution.md`) would also cover
+the Hyperspace use case — two trusted peers co-hosting a model neither fits alone — but that's a
+later optional extension in the design, not its core. The core intent is diverse parallel
+reasoning. All of this is design intent; none of it is running.
 
 ---
 
@@ -131,10 +148,10 @@ These are different problems. Mode B's VRAM pooling extension (E1, documented in
 | Telegram adapter | ✅ | ❌ | ❌ | Webhook only | ❌ |
 | Auto tier routing | ✅ nano/standard/deep | ❌ | ❌ | Manual flows | Code only |
 | No browser required | ✅ | ❌ | ❌ | ❌ | ✅ (code) |
-| Local hardware flexibility | ✅ GPU, phones, any endpoint | Limited | Limited | ❌ | ❌ |
+| Local hardware flexibility | ✅ GPU, CPU, any OpenAI-compatible endpoint | Limited | Limited | ❌ | ❌ |
 | Identity belongs to operator | ✅ | ❌ | ❌ | ❌ | N/A |
 | Config-based (no visual builder) | ✅ YAML | Partial | Partial | ❌ GUI-first | ✅ (code) |
-| Self-improvement loop | ✅ Built in | ❌ | ❌ | ❌ | ❌ |
+| Self-improvement loop | ◐ Designed (not yet built) | ❌ | ❌ | ❌ | ❌ |
 
 ---
 

@@ -1,9 +1,18 @@
 # AI Provider Integration Roadmap
+
+> **Status banner (2026-07-18).** This roadmap is retained as **historical record**. The
+> per-provider "Status: Not connected" lines below are **stale** — as of the PW-3 → PW-8
+> hardening, most Tier 1/2 providers are already connected and health-monitoring in the
+> reference deployment (`BUILDOUT_STATUS.md`: "9 providers load and health-monitor"). Read
+> [`docs/BUILDOUT_STATUS.md`](BUILDOUT_STATUS.md) and [`KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md)
+> for the authoritative built-vs-planned status; this file is kept for the integration
+> rationale and per-provider setup notes, not for current connection state.
+
 **Goal:** Harness ALL providers (free, paid, subscription, local, gateway) within their rate limit constraints. Offload token burn from Claude to cheaper/free alternatives while monitoring usage.
 
 **The landscape:**
 - A typical starting stack is a frontier model (e.g. Claude via CLI or API) plus a couple of fast free tiers like Cerebras and Groq.
-- Beyond that there are 20+ more providers with persistent free tiers and paid options to layer in.
+- The registry covers **22 selectable providers** (8 provider-type adapters, 100+ models) — a mix of persistent free tiers, subscription, and paid options to layer in.
 - Architecture ready: Multi-LLM-Nexus can route across any provider count.
 
 ---
@@ -466,6 +475,12 @@ export NVIDIA_NIM_API_KEY="..."      # From api.nvidia.com/nim
 
 All providers in this list are OpenAI-compatible or have clear APIs. Implement per-provider tracking:
 
+> **Superseded.** The `src/core/rate_limiter.py` sketch below was never created as a
+> separate module. Its job is done by the shipped `src/core/provider_quota.py`
+> (RPM/RPD/TPM/TPD budgets, `can_use`/`headroom`/`should_conserve`) plus
+> `pool_manager.py`'s `ProviderRateState` (sliding-window rate tracking). Kept below as
+> design rationale only.
+
 ```python
 # In src/core/rate_limiter.py
 
@@ -513,6 +528,11 @@ class ProviderRateLimiter:
 ## Routing Strategy (Token Burn Offload)
 
 **Goal:** Use free/cheap tiers for 80% of requests. Save Claude for 20%.
+
+> **Note:** the standalone `config/routing_rules.yaml` file below was never created.
+> Routing lives in `config/providers.yaml` — either the `routing:` / `patterns:` block
+> (legacy pattern routing) or the `tier_pools:` section (current pool-based model). The
+> YAML below is illustrative of the routing intent, not a real file path.
 
 ```yaml
 # config/routing_rules.yaml
@@ -562,6 +582,10 @@ patterns:
 ---
 
 ## Cost Savings Projection
+
+> **Illustrative estimate, not measured.** The figures below are modelled projections, not
+> observed billing data. Actual savings depend on your provider mix, task distribution, and
+> free-tier saturation. Treat as directional only.
 
 Assuming 1M tokens/day across the harness:
 

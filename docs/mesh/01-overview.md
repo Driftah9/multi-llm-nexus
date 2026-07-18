@@ -1,12 +1,14 @@
 # Nexus Mesh — Overview
 
+> **Design concept — not built, not in active development.** Nothing in this document exists in code today; it is design thinking captured for possible future work. Present-tense descriptions are intended ("would") behavior, not a running system. See the [mesh README](README.md) and the repo's [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md).
+
 **The point where individual Nexus deployments stop being isolated and become a collective intelligence.**
 
 ---
 
 ## What Is Nexus Mesh?
 
-Nexus Mesh is an optional extension to any Nexus deployment that allows operators to:
+Nexus Mesh is a design concept for an optional extension that would allow operators to:
 
 1. **Contribute** idle inference compute to a shared pool
 2. **Consume** inference from the pool when their local resources are saturated or insufficient
@@ -92,7 +94,7 @@ Your machines, your LAN, your Nexus as the hub. No external network required.
 
 **Reference implementation**: exo (github.com/exo-explore/exo) — same pipeline parallelism pattern. Mode 0 adds Nexus orchestration and multi-operator capability for LAN trusted peers.
 
-**Status**: Phase 6 — deferred. Designed for research-scale deployments with multiple local machines.
+**Status**: Not built. If ever pursued, this would be the last (deferred) phase of a hypothetical build sequence — aimed at research-scale deployments with multiple local machines.
 
 ---
 
@@ -188,6 +190,8 @@ No deployed system combines: multi-operator federation + data sovereignty + rati
 ## What Makes This Different
 
 No commercial or open-source system in 2026 combines all of the following:
+
+*Target capabilities — not yet built; compared against existing deployed systems.*
 
 | Capability | Nexus Mesh | Commercial AI | Open Source Alt |
 |---|---|---|---|

@@ -1,0 +1,47 @@
+# Label taxonomy for multi-llm-nexus issue tracking.
+# Manifest only — this repo runs no GitHub Actions (see CONTRIBUTING/AGENTS: repos are
+# storage, no CI). Apply these by hand or with `gh label create`, e.g.:
+#   gh label create edge-case -c "#5319e7" -d "Rough edge / unexpected interaction"
+# Kept as a doc so the vocabulary is shared and stable.
+
+# ── Type ─────────────────────────────────────────────────────────────────────
+- name: bug
+  color: "d73a4a"
+  description: "Something that should work doesn't"
+- name: edge-case
+  color: "5319e7"
+  description: "Rough edge / surprising interaction / untested corner"
+- name: roadmap
+  color: "0e8a16"
+  description: "Designed-but-not-built, direction, or architecture discussion"
+- name: provider
+  color: "1d76db"
+  description: "LLM provider support — new, or broke (retired model / API change)"
+- name: adapter
+  color: "1d76db"
+  description: "Communication platform connector (Mattermost/Discord/Telegram/Slack/Matrix)"
+- name: docs
+  color: "0075ca"
+  description: "Documentation correction or gap"
+
+# ── Honesty / status (self-audit vocabulary) ─────────────────────────────────
+- name: overclaim
+  color: "b60205"
+  description: "Docs describe something as more done/working than the code is"
+- name: by-design
+  color: "cccccc"
+  description: "Working as intended — a limitation we chose, not a bug"
+- name: flag-gated
+  color: "fbca04"
+  description: "Feature exists but is inert behind a flag (e.g. SWARM_LOOP_ENABLED)"
+
+# ── Severity / triage ────────────────────────────────────────────────────────
+- name: blocker
+  color: "b60205"
+  description: "Prevents Nexus from running / answering at all"
+- name: data-safety
+  color: "d93f0b"
+  description: "An edge case that could damage operator data — highest priority"
+- name: good-first-hardening
+  color: "7057ff"
+  description: "Well-scoped fix suitable for a first contribution"

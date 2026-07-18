@@ -1,0 +1,23 @@
+name: "🧭 Roadmap / design discussion"
+description: "A capability that's designed but not yet built, an architectural idea, or a question about direction."
+labels: ["roadmap"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Nexus has a large north star and a smaller live core. Much is **designed but not yet
+        built** — see [KNOWN_LIMITATIONS.md](../blob/main/KNOWN_LIMITATIONS.md) and
+        [docs/BUILDOUT_STATUS.md](../blob/main/docs/BUILDOUT_STATUS.md) for the honest line
+        between the two. Use this for direction, design, and roadmap — not bugs.
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea / question
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Why it matters / what it unlocks
+    validations:
+      required: false

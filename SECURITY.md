@@ -21,8 +21,8 @@ Report privately through GitHub's built-in private vulnerability reporting:
 1. Go to the repository's **Security** tab → **Report a vulnerability**
    (Security Advisories), or visit
    <https://github.com/Driftah9/multi-llm-nexus/security/advisories/new>.
-2. Describe the issue, the affected component (provider, adapter, core, wizard, or
-   mesh), steps to reproduce, and the potential impact.
+2. Describe the issue, the affected component (provider, adapter, core, or
+   wizard), steps to reproduce, and the potential impact.
 
 You can expect an acknowledgement within a few days. Because this is a solo-maintained
 beta project, please allow reasonable time for a fix before any public disclosure —
@@ -38,7 +38,9 @@ defaults are unsafe:
   Reports about secrets accidentally committed to *this* repo are always in scope.
 - **Adapter exposure:** chat-platform connectors (Mattermost, Discord, Telegram) and any
   network-listening component should bind only where you intend. Report unsafe defaults.
-- **Local LLM / mesh transport:** issues in the provider abstraction, the OpenAI-compatible
-  API adapter, or mesh networking that could leak data across operators are in scope.
+- **Local LLM / provider transport:** issues in the provider abstraction or the
+  OpenAI-compatible API adapter that could leak data are in scope. (Nexus Mesh — cross-operator
+  networking — is a design concept with no code yet; see `docs/mesh/`. It has no running attack
+  surface to report against.)
 
 Thank you for helping keep Nexus and its operators safe.

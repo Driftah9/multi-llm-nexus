@@ -1,0 +1,49 @@
+name: "🧪 Edge case / unexpected behavior"
+description: "Not quite a crash — a rough edge, a surprising interaction, a config that broke in a way you didn't expect."
+labels: ["edge-case"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Edge cases are the point. Nexus is built to fail **closed and loud** so the odd
+        input cuts the input, not your data. If you hit a corner the developer never
+        imagined — an unusual provider mix, a hardware tier, a message pattern, a config
+        combination — this is exactly what we want to hear.
+  - type: textarea
+    id: situation
+    attributes:
+      label: The situation
+      description: What setup / input / sequence produced the surprise?
+    validations:
+      required: true
+  - type: textarea
+    id: surprise
+    attributes:
+      label: What surprised you
+      description: What did you expect vs. what actually happened? Was it recoverable?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Rough area (best guess is fine)
+      options:
+        - Provider routing / failover
+        - Tier classification (triage)
+        - Adapter (Mattermost / Discord / Telegram)
+        - Local model (Ollama / vLLM / LM Studio)
+        - Install / setup wizard
+        - Swarm / council / capability ladder (experimental)
+        - Memory / session
+        - Heartbeat / status display
+        - Config / schema
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: diag
+    attributes:
+      label: Diagnostic report (`nexus doctor`) — optional but helpful
+      render: markdown
+    validations:
+      required: false

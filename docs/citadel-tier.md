@@ -2,6 +2,8 @@
 
 **The point where local AI stops being a compromise and becomes a fortress.**
 
+> **Status — design target.** Citadel-tier hardware is a documented design, not a validated deployment: Nexus's test matrix does not yet include a multi-GPU NVLink deployment. The hardware, VRAM, and cost tables below are planning references, and the pool-aware routing this tier assumes is only partially wired (see [gpu-pool-topology.md](gpu-pool-topology.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)).
+
 ---
 
 ## What the Citadel Tier Is
@@ -97,7 +99,7 @@ From Nexus's perspective, a Citadel deployment is a set of provider endpoints or
 
 See [gpu-pool-topology.md](gpu-pool-topology.md) for the complete configuration guide, operator profiles, and inference server launch patterns.
 
-The key architectural point: **moving from Dreadnought to Citadel is a config change, not a code change.** Nexus's tier routing, provider chain failover, and pool-aware selection all work the same way regardless of whether the provider is one GPU, eight GPUs, or a cloud API. The operator changes their hardware, updates two YAML files, and Nexus adapts.
+The key architectural point: **moving from Dreadnought to Citadel is a config change, not a code change.** Nexus's tier routing and provider-chain failover work the same way regardless of whether the provider is one GPU, eight GPUs, or a cloud API. Pool-aware *load* routing (routing around a busy GPU pool) is only partially wired today — the tier-pool path selects on rate/cost availability, not GPU-busy signal (see [gpu-pool-topology.md](gpu-pool-topology.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)). The operator changes their hardware, updates two YAML files, and Nexus adapts.
 
 ---
 
