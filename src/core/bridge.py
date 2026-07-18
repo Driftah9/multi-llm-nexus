@@ -184,6 +184,33 @@ class NexusBridge:
             except Exception as e:
                 logger.debug(f"memory injection skipped: {e}")
 
+        # ── Swarm delegation gate (convergence step 15) — INERT by default ──────
+        # When SWARM_LOOP_ENABLED=1 AND triage marks the task complex + high-value,
+        # decompose it into capability-routed, graded worker sub-steps and synthesize
+        # their findings, instead of one single-shot call. On empty findings / any
+        # issue, fall through to the normal path — enabling the flag can never strand
+        # a task. The flag check is FIRST, so at SWARM_LOOP_ENABLED=0 (default) this
+        # whole block is skipped and behavior is byte-identical to before.
+        # NOTE: the ON-path (flag=1) is first-cut — validate end-to-end before enabling.
+        if not ephemeral and triage:
+            try:
+                from ..orchestration import swarm_loop
+                if swarm_loop.enabled() and self._swarm_task_eligible(triage):
+                    from ..orchestration.swarm_wiring import run_swarm_delegation
+                    domain = getattr(triage, "capability_required", None) or "general"
+                    findings = await run_swarm_delegation(prompt, domain, session_key)
+                    if findings:
+                        syn = await self._synthesize_swarm_findings(
+                            prompt, findings, session_key, on_output,
+                            effective_system, on_provider_change, triage)
+                        if syn is not None:
+                            syn.elapsed = time.time() - start
+                            self._last_provider_used[session_key] = syn.provider_type
+                            logger.info(f"swarm gate: synthesized {len(findings)} finding(s)")
+                            return syn
+            except Exception as e:
+                logger.debug(f"swarm gate skipped ({e}) — using normal path")
+
         # Pool routing takes priority when configured and triage data is present
         if self.pool_router and triage:
             result = await self._invoke_with_pool(
@@ -203,6 +230,51 @@ class NexusBridge:
         result.elapsed = time.time() - start
         self._last_provider_used[session_key] = result.provider_type
         return result
+
+    @staticmethod
+    def _swarm_task_eligible(triage) -> bool:
+        """Only spend multiple workers when the task justifies it: complex (deep)
+        AND high-value (important/critical). Mirrors live's task_value + headroom
+        gate — the swarm is insurance for hard work, not the default lane."""
+        complexity = getattr(triage, "estimated_complexity", "standard")
+        value = getattr(triage, "task_value", "routine")
+        return complexity == "deep" and value in ("important", "critical")
+
+    async def _synthesize_swarm_findings(
+        self, prompt, findings, session_key, on_output,
+        effective_system, on_provider_change, triage,
+    ):
+        """Compile worker findings and route ONE synthesis call through the normal
+        path (bypassing the gate, so no recursion). Returns a BridgeResult or None
+        (None → caller falls through to the normal single-shot path)."""
+        blocks = []
+        for i, f in enumerate(findings, 1):
+            text = (f.get("finding") or "").strip() if isinstance(f, dict) else str(f)
+            if text:
+                blocks.append(f"[Worker {i}]\n{text}")
+        if not blocks:
+            return None
+        compiled = "\n\n".join(blocks)
+        syn_prompt = (
+            f"Original task:\n{prompt}\n\nWorker findings (independent sub-results):\n"
+            f"{compiled}\n\nSynthesize ONE authoritative answer from these findings. "
+            "Where they agree, state the consensus; where they conflict, surface both "
+            "positions and the tradeoff — do not blend disagreement away. Lead with the "
+            "answer, then the supporting detail. Do not mention the worker process."
+        )
+        syn_system = effective_system
+        # One-shot synthesis: ephemeral so it doesn't pollute session history, and
+        # routed through the same providers the normal path would use.
+        if self.pool_router and triage:
+            return await self._invoke_with_pool(
+                syn_prompt, session_key, on_output, syn_system,
+                True, on_provider_change, triage)
+        if self.chain:
+            return await self._invoke_with_chain(
+                syn_prompt, session_key, "deep", on_output, syn_system,
+                True, on_provider_change)
+        return await self._invoke_with_router(
+            syn_prompt, session_key, "deep", None, on_output, syn_system, True)
 
     async def _invoke_with_pool(
         self,

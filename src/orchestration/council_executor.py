@@ -1,77 +1,131 @@
-"""Council executor — fan-out, anonymize, peer-review, synthesize.
+"""Council executor — fixed-role fan-out, live-system check, synthesize.
 
-Given a RoutePlan with mode="council", this module:
-  1. Fans out the user prompt to all council members in parallel
-  2. Anonymizes responses (strips provider identity → labels A/B/C)
-  3. Sends anonymized responses back to each member for peer ranking
-  4. Aggregates rankings via EWMA-weighted Borda count
-  5. Returns a CouncilResult with the synthesis_prompt for the chairman
+Given a RoutePlan from council_router, this module:
+  1. Assigns 3 of the available members to fixed roles: Skeptic, Advocate, Verifier
+  2. Fans out the user prompt to those 3 roles in parallel (role-specific prompts)
+  3. Resolves grounding tags on every role: `[CHECK: term]` → read-only local grep
+     of the deployment's own code/memory; `[WEB: query]` → cited external lookup
+     (no LLM call for grep, no write/edit capability anywhere)
+  4. Returns a CouncilResult with the synthesis_prompt for the chairman
+     (chairman synthesis happens in the caller/bridge — not here)
 
-The chairman (primary orchestrator) is NEVER called here. The caller routes
-synthesis_prompt back through the main bridge after run() returns.
+The chairman is NEVER called here. This module is pure council work; the caller
+routes synthesis_prompt to the chairman after run() returns.
 
-Design principle: SURFACE, don't BLEND. Where the council agrees, state
-consensus. Where it conflicts, present BOTH positions with the tradeoff —
-never silently average disagreement into one smooth answer.
+Previously this ran an N-member "answer then peer-rank" tournament (anonymize.py
++ aggregate_rankings). That assumed members were interchangeable, which breaks
+once roles have different jobs (a Skeptic and an Advocate aren't competing on
+the same task, so ranking them is meaningless) and it fanned out to every
+eligible provider twice (~30 calls). Fixed roles cut that to ~4 calls and match
+what the roles are actually for. anonymize.py / aggregate_rankings remain in the
+tree (blinding compiled findings in review mode still uses anonymize); the
+tournament ranking path is simply no longer wired into run().
+
+Ported from the live claude-brain fixed-role council. NEXUS:PORTABLE — the
+role model + grounding brokers are generic; provider ids come from providers.yaml.
+Design: multi-llm-orchestration.md §1–§4, §8
 """
 
-import asyncio
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from .anonymize import anonymize, aggregate_rankings
+from .anonymize import anonymize, deanonymize
 from .capability_map import CapabilityMap
+from .council_roles import assign_roles, role_prompt, resolve_grounding_tags
 from .council_router import RoutePlan
+from .council_judge import grade_council_roles
+from .council_session import CouncilSession
 from .providers import ProviderClient
 
 logger = logging.getLogger(__name__)
 
-# Max council member responses to include in synthesis prompt.
-MAX_SYNTHESIS_RESPONSES = 3
+# Phrases that indicate a role has drifted into architect/builder territory.
+# Responses containing these get their off-scope lines stripped before the
+# chairman sees them — roles report findings, they don't propose builds.
+_SCOPE_VIOLATION_PATTERNS = [
+    r"(?i)(i can wire|i can implement|let me implement|let me create|i will create|i'll create)",
+    r"(?i)(you should build|you should add|you should configure|we could build|we should build)",
+    r"(?i)(here'?s? (how|a) (to|plan|system|approach|implementation|solution|fix))",
+    r"(?i)(happy to (help|implement|wire|build|set up))",
+    r"(?i)(next step[s]? (is|are|would be))",
+    r"(?i)(i'?ll? (write|draft|scaffold|set up|wire))",
+]
 
-_RANK_PROMPT = """\
-Below are {n} responses to the same question, labeled {labels}.
-Rank them from BEST to WORST on accuracy, clarity, and completeness.
-
-{anon_block}
-
-Reply with ONLY the ranking, one label per line, best first. Example:
-Response B
-Response A
-Response C"""
-
+# Synthesis prompt template. Chairman receives this after all 3 roles respond.
+# SURFACE-don't-BLEND: where the council agrees, state the consensus; where it
+# conflicts, present BOTH positions with the tradeoff — never silently average
+# disagreement into one smooth answer.
 _SYNTHESIS_PROMPT = """\
-You are the chairman synthesizing a council of independent AI responses.
+You are the chairman synthesizing a role-based council of independent AI responses.
 
 Original question:
 {user_prompt}
 
-The following {n} independent responses were ranked by peer review (best to worst):
+The council's perspectives:
 
-{ranked_block}
+{role_block}
 
 Produce one authoritative answer, but do NOT blend disagreement away:
-- Where the responses AGREE, state it directly as the consensus.
+- Where the roles AGREE, state it directly as the consensus.
 - Where they CONFLICT or diverge on a material point, SURFACE both positions and
   the tradeoff between them — name the disagreement, don't silently pick one or
   average them into mush. If the evidence favours one side, say so and why.
-- Flag anything no response could establish as an open question.
+- The Verifier's [VERIFIED]/[NOT FOUND] results are live-codebase ground truth —
+  treat them as authoritative over any unverified claim from the Skeptic or
+  Advocate, and flag anything neither role nor the live check could establish.
 
 Lead with the recommendation/answer, then the supporting analysis. Do not mention
-the ranking process or label the responses — speak as a single authoritative voice."""
+the council process — speak as a single authoritative voice."""
+
+# Review-mode synthesis prompt (D4). Used when compiled_findings was supplied —
+# roles validated already-delegated findings instead of re-deriving an answer.
+_REVIEW_SYNTHESIS_PROMPT = """\
+You are the chairman reconciling a council's validation of already-gathered findings.
+
+Original question:
+{user_prompt}
+
+Findings that were delegated to workers and compiled (labeled anonymously A/B/C \
+so the council could not be biased by which model produced which):
+
+{findings_block}
+
+The council's verdicts on those findings:
+
+{role_block}
+
+Produce one authoritative answer built FROM THE VALIDATED FINDINGS, but do NOT
+blend disagreement away:
+- Where the council CONFIRMS a finding, treat it as established and use it.
+- Where the council DENIES a finding, discard it — do not present it as fact.
+- Where the council FLAGS a finding (uncertain), say so explicitly rather than
+  asserting it either way.
+- Where roles CONFLICT on the same finding, SURFACE both verdicts and the
+  reasoning — don't silently pick one.
+
+Lead with the recommendation/answer, then the supporting analysis. Do not mention
+the council process or the anonymized labels — speak as a single authoritative voice."""
 
 
 @dataclass
 class CouncilResult:
-    synthesis_prompt: str                     # pass to chairman
-    raw_responses: Dict[str, str]             # provider -> first-pass response text
-    rankings: List[Dict]                      # [{provider, average_rank, votes}]
-    label_map: Dict[str, str]                 # "Response A" -> provider name
-    top_provider: str                         # winner (lowest average_rank)
+    synthesis_prompt: str                    # pass to chairman
+    raw_responses: Dict[str, str]            # provider -> role response text
+    roles: Dict[str, str]                    # role name -> provider assigned to it
+    top_provider: str                        # verifier's provider (the fact-checked role)
     failed_providers: List[str] = field(default_factory=list)
-    peer_review_skipped: bool = False         # True if <2 members responded
+    peer_review_skipped: bool = True         # always True now — roles aren't ranked against each other
+    rankings: List[Dict] = field(default_factory=list)   # unused, kept for callers that still read it
+    label_map: Dict[str, str] = field(default_factory=dict)  # unused, kept for callers that still read it
+    session_path: str = ""                   # council_session_<ts>.json audit record (empty on fallback)
+    # Deferred-judge context (set when run(defer_judge=True)): the caller fires
+    # grade_council_roles AFTER the chairman replies, grading against the real
+    # synthesis instead of the synthesis prompt. No chairman output → no grade.
+    judge_deferred: bool = False
+    question: str = ""                       # original user prompt (for the deferred judge)
+    complexity: float = 0.5                  # triage complexity (for judge model selection)
+    session: Optional[object] = None         # CouncilSession recorder handle
 
 
 async def run(
@@ -81,16 +135,29 @@ async def run(
     domain: str = "general",
     capability_map: Optional[CapabilityMap] = None,
     timeout: float = 60.0,
+    complexity: float = 0.5,
+    compiled_findings: Optional[List[Dict[str, str]]] = None,
+    defer_judge: bool = False,
 ) -> CouncilResult:
-    """Execute the council flow for a given RoutePlan.
+    """Execute the role-based council flow for a given RoutePlan.
 
     Args:
-        plan:           RoutePlan with mode="council", chairman, members
-        user_prompt:    the user's message (already context-expanded if needed)
-        system_prompt:  optional system context passed to all members
-        domain:         domain string for capability_map updates
-        capability_map: optional CapabilityMap; updated in-place if provided
-        timeout:        per-call timeout in seconds
+        plan:              RoutePlan with mode="council", chairman, members
+        user_prompt:       the user's message (already context-expanded if needed)
+        system_prompt:     optional system context passed to all roles
+        domain:            domain string, used to pick the best provider per role
+        capability_map:    optional CapabilityMap; used for role assignment
+        timeout:           per-call timeout in seconds
+        complexity:        task complexity [0,1] for judge model selection
+        compiled_findings: (D2-D5) list of {"provider", "finding"} dicts staged by
+                           orchestration/delegator.py. When supplied, council
+                           switches to REVIEW mode: findings are blinded by source
+                           (anonymize.py) and roles validate them (CONFIRM/DENY/
+                           FLAG) instead of re-deriving an answer. When None, falls
+                           back to debate-from-scratch.
+        defer_judge:       when True the judge is NOT spawned here; the caller fires
+                           grade_council_roles after the chairman actually replies,
+                           using the real chairman output as reference.
 
     Returns:
         CouncilResult — pass .synthesis_prompt to the chairman.
@@ -102,83 +169,149 @@ async def run(
         logger.warning("council_executor: no available members, falling back to empty council")
         return _empty_result(user_prompt)
 
-    # ── Step 1: Fan out to all members in parallel ─────────────────────────
-    logger.info(f"council_executor: fanning out to {len(members)} members: {members}")
-    raw = await client.fan_out(members, user_prompt)
+    review_mode = bool(compiled_findings)
 
-    successes: Dict[str, str] = {}
-    failures: List[str] = []
-    for provider, result in raw.items():
+    # ── Step 1: Assign Skeptic / Advocate / Verifier to distinct members ────
+    roles = assign_roles(members, domain=domain, capability_map=capability_map)
+    if not roles:
+        logger.warning("council_executor: role assignment produced nothing, falling back")
+        return _empty_result(user_prompt)
+    logger.info(f"council_executor: roles assigned: {roles} (review_mode={review_mode})")
+
+    # ── Step 1b (D5): blind compiled findings by source before roles see them.
+    findings_block = ""
+    label_to_provider: Dict[str, str] = {}
+    if review_mode:
+        anon_input = [
+            {"provider": f["provider"], "response": f["finding"]}
+            for f in compiled_findings
+        ]
+        findings_block, label_to_provider = anonymize(anon_input)
+
+    # ── Step 2: Fan out to each role in parallel, role-specific prompt ──────
+    base_system = (system_prompt + "\n\n") if system_prompt else ""
+    role_mode = "review" if review_mode else "debate"
+    role_input = (
+        f"Original question:\n{user_prompt}\n\nFindings to review:\n{findings_block}"
+        if review_mode else user_prompt
+    )
+    calls = {
+        role: client.complete(provider, role_input, system=base_system + role_prompt(role, mode=role_mode))
+        for role, provider in roles.items()
+    }
+    import asyncio as _asyncio
+    raw_results = await _asyncio.gather(*calls.values(), return_exceptions=True)
+
+    successes: Dict[str, str] = {}   # role -> text
+    failures: List[str] = []         # providers that failed
+    all_violations: Dict[str, List[str]] = {}  # role -> stripped snippets (for the session record)
+    for (role, provider), result in zip(roles.items(), raw_results):
         if isinstance(result, Exception):
-            logger.warning(f"council_executor: {provider} failed: {result}")
+            logger.warning(f"council_executor: {role} ({provider}) failed: {result}")
             failures.append(provider)
         else:
-            successes[provider] = str(result)
+            clamped, violations = _clamp_member_output(str(result), provider)
+            if violations:
+                logger.warning(f"council_executor: {role} ({provider}) scope violations stripped: {violations}")
+                all_violations[role] = violations
+            successes[role] = clamped
 
     if not successes:
-        logger.error("council_executor: all members failed, returning empty result")
+        logger.error("council_executor: all roles failed, returning empty result")
         return _empty_result(user_prompt, failed=failures)
 
-    # ── Step 2: Anonymize ──────────────────────────────────────────────────
-    response_list = [{"provider": p, "response": r} for p, r in successes.items()]
-    anon_block, label_map = anonymize(response_list)
+    # ── Step 3: Resolve grounding tags on EVERY role, not just the Verifier.
+    #    `[CHECK: term]` → local grep; `[WEB: query]` → cited external lookup.
+    #    All read-only, no writes. ───────────────────────────────────────────
+    import asyncio as _asyncio_ground
+    _ground_roles = list(successes.keys())
+    _ground_results = await _asyncio_ground.gather(
+        *[resolve_grounding_tags(successes[r]) for r in _ground_roles]
+    )
+    for _r, _grounded in zip(_ground_roles, _ground_results):
+        successes[_r] = _grounded
 
-    # ── Step 3: Peer review ────────────────────────────────────────────────
-    rankings: List[Dict] = []
-    if len(successes) >= 2:
-        label_list = list(label_map.keys())
-        labels_str = ", ".join(label_list)
-        rank_prompt = _RANK_PROMPT.format(
-            n=len(successes),
-            labels=labels_str,
-            anon_block=anon_block,
+    # ── Step 4: Build synthesis prompt, labeled by role (roles are NOT
+    #    anonymized — the chairman needs to know which role said what; only the
+    #    FINDINGS were blinded) ─────────────────────────────────────────────
+    role_block = "\n\n".join(
+        f"**{role.title()}**:\n{text}" for role, text in successes.items()
+    )
+    if review_mode:
+        synthesis_prompt = _REVIEW_SYNTHESIS_PROMPT.format(
+            user_prompt=user_prompt,
+            findings_block=findings_block,
+            role_block=role_block,
         )
-        rank_raw = await client.fan_out(list(successes.keys()), rank_prompt)
-
-        parsed: List[List[str]] = []
-        for provider, result in rank_raw.items():
-            if isinstance(result, Exception):
-                logger.debug(f"council_executor: {provider} failed peer review: {result}")
-                continue
-            ranking = _parse_ranking(str(result), label_list)
-            if ranking:
-                parsed.append(ranking)
-
-        if parsed:
-            rankings = aggregate_rankings(parsed, label_map)
-            logger.info(f"council_executor: aggregate rankings: {rankings}")
     else:
-        logger.info("council_executor: only 1 member responded, skipping peer review")
+        synthesis_prompt = _SYNTHESIS_PROMPT.format(
+            user_prompt=user_prompt,
+            role_block=role_block,
+        )
 
-    # ── Step 4: Build synthesis prompt ─────────────────────────────────────
-    top_providers = _top_providers(rankings, successes, MAX_SYNTHESIS_RESPONSES)
-    top_provider = top_providers[0] if top_providers else list(successes.keys())[0]
+    raw_responses = {roles[role]: text for role, text in successes.items()}
+    top_provider = roles.get("verifier") or next(iter(raw_responses))
 
-    ranked_block = _build_ranked_block(top_providers, successes, rankings, label_map)
-    synthesis_prompt = _SYNTHESIS_PROMPT.format(
-        user_prompt=user_prompt,
-        n=len(top_providers),
-        ranked_block=ranked_block,
+    # ── Session record: persist this run before the judge fires. ────────────
+    session = CouncilSession(
+        question=user_prompt,
+        domain=domain,
+        complexity=complexity,
+        review_mode=review_mode,
+    )
+    session.record_council(
+        roles={role: roles[role] for role in successes},
+        role_responses=successes,
+        scope_violations=all_violations,
+        failed_providers=failures,
+        synthesis_prompt=synthesis_prompt,
+        finding_attribution=dict(label_to_provider) if review_mode else None,
     )
 
-    # ── Step 5: Update capability_map ──────────────────────────────────────
-    if capability_map is not None and rankings:
-        _update_capability_map(capability_map, rankings, domain)
-
-    return CouncilResult(
+    result = CouncilResult(
         synthesis_prompt=synthesis_prompt,
-        raw_responses=successes,
-        rankings=rankings,
-        label_map=label_map,
+        raw_responses=raw_responses,
+        roles={role: roles[role] for role in successes},
         top_provider=top_provider,
         failed_providers=failures,
-        peer_review_skipped=(len(successes) < 2),
+        label_map=dict(label_to_provider) if review_mode else {},
+        session_path=str(session.path),
+        judge_deferred=defer_judge,
+        question=user_prompt,
+        complexity=complexity,
+        session=session,
     )
+
+    # De-anonymize for attribution logging only (D5) — never surfaced to roles/chairman.
+    if review_mode and label_to_provider:
+        attributed = {label: deanonymize(label_to_provider, label) for label in label_to_provider}
+        logger.debug(f"council_executor: reviewed findings attribution: {attributed}")
+
+    # ── Async judge: grade Skeptic/Advocate (fire-and-forget) ──────────────
+    if not defer_judge:
+        try:
+            import asyncio as _asyncio
+            _asyncio.create_task(
+                grade_council_roles(
+                    question=user_prompt,
+                    role_responses=successes,     # {role: text, ...}
+                    role_providers=roles,         # {role: provider, ...}
+                    synthesis=synthesis_prompt,
+                    complexity=complexity,
+                    enable_fable=False,
+                    session=session,
+                )
+            )
+        except Exception as e:
+            logger.debug(f"council_executor: judge spawn failed (non-blocking): {e}")
+
+    return result
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _member_available(provider: str, client: ProviderClient) -> bool:
+    """True if the provider is in the registry and has a key configured."""
     if provider not in client.registry:
         logger.debug(f"council_executor: {provider} not in registry, skipping")
         return False
@@ -189,71 +322,36 @@ def _member_available(provider: str, client: ProviderClient) -> bool:
     return bool(os.getenv(spec.api_key_env))
 
 
-def _parse_ranking(text: str, valid_labels: List[str]) -> List[str]:
-    found = []
-    seen = set()
-    for line in text.splitlines():
-        line = line.strip()
-        for label in valid_labels:
-            if label in line and label not in seen:
-                found.append(label)
-                seen.add(label)
-    if not found:
-        positions = {label: text.find(label) for label in valid_labels if label in text}
-        found = [label for label, _ in sorted(positions.items(), key=lambda x: x[1]) if x[1] >= 0]
-    return found
+def _clamp_member_output(text: str, provider: str) -> tuple:
+    """Strip scope violations from a member's Stage 1 response.
 
+    Council members must return findings only. Sentences containing architect/
+    builder language are removed before the response reaches the chairman.
 
-def _top_providers(
-    rankings: List[Dict],
-    successes: Dict[str, str],
-    n: int,
-) -> List[str]:
-    if rankings:
-        ordered = [r["provider"] for r in rankings if r["provider"] in successes]
-    else:
-        ordered = list(successes.keys())
-    return ordered[:n]
-
-
-def _build_ranked_block(
-    ordered_providers: List[str],
-    successes: Dict[str, str],
-    rankings: List[Dict],
-    label_map: Dict[str, str],
-) -> str:
-    provider_to_label = {v: k for k, v in label_map.items()}
-    blocks = []
-    for rank, provider in enumerate(ordered_providers, start=1):
-        label = provider_to_label.get(provider, provider)
-        blocks.append(f"#{rank} ({label}):\n{successes[provider]}")
-    return "\n\n".join(blocks)
-
-
-def _update_capability_map(
-    cm: CapabilityMap,
-    rankings: List[Dict],
-    domain: str,
-) -> None:
-    n = len(rankings)
-    if n == 0:
-        return
-    for i, entry in enumerate(rankings):
-        score = 1.0 - (i / max(1, n - 1)) if n > 1 else 0.7
-        cm.update(domain, entry["provider"], score)
-    try:
-        cm.save()
-    except Exception as e:
-        logger.warning(f"council_executor: capability_map save failed: {e}")
+    Returns (clamped_text, list_of_violation_snippets).
+    """
+    import re as _re
+    violations = []
+    lines = text.splitlines()
+    clean_lines = []
+    for line in lines:
+        matched = False
+        for pattern in _SCOPE_VIOLATION_PATTERNS:
+            if _re.search(pattern, line):
+                violations.append(line.strip()[:120])
+                matched = True
+                break
+        if not matched:
+            clean_lines.append(line)
+    return "\n".join(clean_lines).strip(), violations
 
 
 def _empty_result(user_prompt: str, failed: List[str] = None) -> CouncilResult:
+    """Fallback result when all members fail — chairman gets the raw prompt."""
     return CouncilResult(
         synthesis_prompt=user_prompt,
         raw_responses={},
-        rankings=[],
-        label_map={},
+        roles={},
         top_provider="",
         failed_providers=failed or [],
-        peer_review_skipped=True,
     )

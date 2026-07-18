@@ -163,10 +163,15 @@ class ProviderClient:
             return r.json()["choices"][0]["message"]["content"].strip()
 
     async def fan_out(self, providers: List[str],
-                      prompt: str) -> Dict[str, object]:
-        """Query several providers in parallel. Returns {provider: text|Exception}."""
+                      prompt: str,
+                      system: Optional[str] = None) -> Dict[str, object]:
+        """Query several providers in parallel. Returns {provider: text|Exception}.
+
+        `system` is forwarded to each `complete()` call — the council roles and the
+        swarm delegator hand every member the same system framing (role prompt),
+        so it must reach the provider, not just the user turn."""
         results = await asyncio.gather(
-            *[self.complete(p, prompt) for p in providers],
+            *[self.complete(p, prompt, system=system) for p in providers],
             return_exceptions=True,
         )
         return dict(zip(providers, results))

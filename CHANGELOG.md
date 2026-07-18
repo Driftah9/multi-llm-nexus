@@ -6,6 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Swarm + graduation-ladder + fixed-role council convergence — 14/15 (2026-07-18).** The live→Nexus
+  port of the swarm orchestration loop, the capability graduation ladder, and the fixed-role council.
+  All modules are ported, tested, and **inert behind `SWARM_LOOP_ENABLED=0`** (default) — only the
+  orchestrator integration seam (step 15) is left, a deliberate architecture decision (see
+  `docs/BUILDOUT_STATUS.md`). New/changed modules, all under `src/orchestration/` unless noted:
+  - `provider_status.py` — trust-ladder lifecycle (unknown→known→benched + shadow promotion);
+    `KNOWN_PROVIDERS`/`FRONTIER_COUNCIL` mapped to `providers.yaml` ids, env-overridable.
+  - `worker_pool.py` — the provider-config-model shim: `tier_roster()`/`worker_candidates()`/
+    `is_nano_tier()`/`communicator_providers()` derived from `providers.yaml` `tier:`/`priority:`;
+    deep tier reserved as the synthesis voice (the Nexus form of live's Claude reservation).
+  - `scribe.py` — house-model lane for internal chores; agnostic default backend is Nexus's own
+    `nexus-nano` endpoint (replaces live's `claude-cli` backstop), ollama lane opt-in.
+  - `staging.py` / `council_session.py` — worker-finding staging + per-council-run JSON audit record.
+  - `council_roles.py` / `council_judge.py` — fixed-role prompts + read-only grounding brokers
+    (`[CHECK:]` local grep, `[WEB:]` cited lookup) + the deferred multi-candidate judge.
+  - `council_executor.py` — **replaced** the retired tournament model (anonymize + Borda peer-rank,
+    ~30 calls) with the fixed-role Skeptic/Advocate/Verifier model (~4 calls). `CouncilResult` is a
+    superset of the old shape, so no caller broke.
+  - `delegator.py` / `swarm_loop.py` / `swarm_grading.py` / `swarm_wiring.py` — task→worker fan-out,
+    dependency-wave execution, sampled worker grading (climb/sink), and the Nexus wiring/entry point.
+  - `orchestration/providers.py` — `fan_out()` now forwards `system=` (council/delegator rely on it).
+  - Boot: `capability_map` ladder foundation (below) plus these are all additive; 185 tests green.
+- **Capability graduation ladder — foundation** (`orchestration/capability_map.py`) — first
+  slice of the live→Nexus convergence for the swarm/graduation work (2026-07-18). Added the
+  per-(domain, provider) observation counter (`data["grades"]`, incremented in `update()`,
+  persisted via `load`/`save`) plus the qualification layer: `grade_count()`, `is_qualified()`,
+  `qualified()`, `probe_candidates()` and the constants `QUALIFY_BAR` (0.6, `CAP_QUALIFY_BAR`),
+  `QUALIFY_MIN_SAMPLES` (5), `DEMANDING_DOMAINS`, `PROBE_BAND`, `PROBE_RATE`. A model qualifies
+  for a demanding role (planner/reviewer/builder) in a domain only when PROVEN — enough graded
+  samples AND score ≥ the bar; unproven (no samples) never qualifies (cold-start-low). Pure
+  additions, no new deps; 53/53 tests green. The rest of the ladder (swarm loop, worker grading,
+  council-roles/judge/session, scribe, provider_status) is a sequenced multi-step convergence —
+  see `docs/BUILDOUT_STATUS.md` → "Swarm + Graduation Ladder convergence".
 - **Config schema validation at boot** (`core/config_schema`, PW-5) — `providers.yaml`
   and `adapters.yaml` are validated against Pydantic models in `main.run()` before any
   provider or adapter is built. Catches missing/typo'd fields, wrong types (e.g. `rpm`

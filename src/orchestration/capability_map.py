@@ -26,6 +26,20 @@ DEFAULT_PATH = _DATA_DIR / "capability_map.json"
 
 # EWMA weight for a new observation. 0.2 => ~last 5 results dominate.
 ALPHA = 0.2
+
+# ── Capability graduation ladder ──────────────────────────────────────────────
+# A model qualifies for a DEMANDING role (planner/reviewer/builder) in a domain
+# only when it has PROVEN it: enough graded samples AND a score at/above a bar
+# representing trusted-baseline competence. Unproven models (no samples) are NOT
+# qualified — cold-start-low: a demanding role is earned, not granted. Near-qualified
+# models (probe band) get occasional graded probes to earn their way over the bar.
+# NEXUS:PORTABLE — the ladder is generic; each install tunes the bar via env.
+import os as _os
+QUALIFY_BAR = float(_os.environ.get("CAP_QUALIFY_BAR", "0.6"))
+QUALIFY_MIN_SAMPLES = int(_os.environ.get("CAP_QUALIFY_MIN_SAMPLES", "5"))
+DEMANDING_DOMAINS = ("coding", "reasoning", "analysis")
+PROBE_BAND = float(_os.environ.get("CAP_PROBE_BAND", "0.15"))
+PROBE_RATE = float(_os.environ.get("CAP_PROBE_RATE", "0.15"))
 # Fraction of routing decisions that explore instead of exploit.
 EXPLORE_RATE = 0.12
 # Neutral starting score for an unseen (domain, provider).
@@ -41,6 +55,8 @@ class CapabilityMap:
             "orchestration": {},    # provider -> score
             "pair_affinity": {},    # "provA+provB" -> delta
             "profiles": {},         # provider -> capability profile
+            "grades": {},           # domain -> {provider: count} per-(domain,provider) observation count;
+                                    # confidence/solidity signal for the graduation-ladder qualification gate
         }
         if self.path.exists():
             self.load()
@@ -48,7 +64,7 @@ class CapabilityMap:
     def load(self) -> None:
         with open(self.path) as f:
             loaded = json.load(f)
-        for k in ("research", "orchestration", "pair_affinity", "profiles"):
+        for k in ("research", "orchestration", "pair_affinity", "profiles", "grades"):
             if k in loaded:
                 self.data[k] = loaded[k]
 
@@ -69,6 +85,10 @@ class CapabilityMap:
         row = self.data["research"].setdefault(domain, {})
         prev = row.get(provider, NEUTRAL)
         row[provider] = round((1 - ALPHA) * prev + ALPHA * result, 4)
+        # Count this observation per (domain, provider) — the single honest count
+        # point every real grade/ranking flows through; read by the graduation gate.
+        grow = self.data.setdefault("grades", {}).setdefault(domain, {})
+        grow[provider] = int(grow.get(provider, 0)) + 1
         return row[provider]
 
     def rank(self, domain: str) -> List[Dict[str, float]]:
@@ -76,6 +96,39 @@ class CapabilityMap:
         row = self.data["research"].get(domain, {})
         out = [{"provider": p, "score": s} for p, s in row.items()]
         out.sort(key=lambda d: d["score"], reverse=True)
+        return out
+
+    # ── Graduation-ladder qualification (demanding-role gating) ───────────────
+    def grade_count(self, domain: str, provider: str) -> int:
+        """How many graded observations a (domain, provider) has — confidence signal."""
+        return int(self.data.get("grades", {}).get(domain, {}).get(provider, 0))
+
+    def is_qualified(self, domain: str, provider: str,
+                     bar: float = QUALIFY_BAR, min_samples: int = QUALIFY_MIN_SAMPLES) -> bool:
+        """True only if PROVEN: >= min_samples graded observations AND score >= bar.
+        Unproven (no samples) => False (cold-start-low: earned, not granted)."""
+        return self.grade_count(domain, provider) >= min_samples and self.score(domain, provider) >= bar
+
+    def qualified(self, domain: str, candidates: List[str],
+                  bar: float = QUALIFY_BAR, min_samples: int = QUALIFY_MIN_SAMPLES) -> List[str]:
+        """Candidates that have EARNED demanding-role standing in this domain, best-first."""
+        ok = [c for c in candidates if self.is_qualified(domain, c, bar, min_samples)]
+        ok.sort(key=lambda p: self.score(domain, p), reverse=True)
+        return ok
+
+    def probe_candidates(self, domain: str, candidates: List[str],
+                         bar: float = QUALIFY_BAR, band: float = PROBE_BAND,
+                         min_samples: int = QUALIFY_MIN_SAMPLES) -> List[str]:
+        """Near-qualified models (score in [bar-band, bar) with >= min_samples) — the
+        CANDIDATE zone, handed occasional graded probes on demanding steps to earn up."""
+        out = []
+        for c in candidates:
+            if self.grade_count(domain, c) < min_samples:
+                continue
+            s = self.score(domain, c)
+            if (bar - band) <= s < bar:
+                out.append(c)
+        out.sort(key=lambda p: self.score(domain, p), reverse=True)
         return out
 
     def choose(self, domain: str, candidates: List[str]) -> Dict[str, object]:
