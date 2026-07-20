@@ -35,7 +35,11 @@ class AnthropicProvider(BaseProvider):
         # accumulates cache reads rather than being re-sent uncached each turn.
         self.cache_history_tail = config.get("cache_history_tail", 2)
 
-    async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
+    async def send(self, messages: list[Message], system: str = "",
+               tools: Optional[list[dict]] = None) -> ProviderResponse:
+        # tools accepted for BaseProvider signature parity; native passthrough
+        # not implemented for this provider yet — the agent loop targets the
+        # openai-compatible type first (see core/agent_loop.py, 2026-07-20).
         sdk_messages = self._convert_messages(messages)
         system_blocks = self._build_system(system)
         response = await self.client.messages.create(

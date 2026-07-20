@@ -75,7 +75,11 @@ class BedrockProvider(BaseProvider):
             })
         return converse_msgs, system_prompt
 
-    async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
+    async def send(self, messages: list[Message], system: str = "",
+               tools: Optional[list[dict]] = None) -> ProviderResponse:
+        # tools accepted for BaseProvider signature parity; native passthrough
+        # not implemented for this provider yet — the agent loop targets the
+        # openai-compatible type first (see core/agent_loop.py, 2026-07-20).
         import asyncio
         converse_msgs, inline_system = self._convert_messages(messages)
         effective_system = system or inline_system

@@ -25,7 +25,7 @@ Draw from design patterns. Do not copy VM-specific config, hardcoded IPs, or pro
 
 ### providers/ — LLM Abstraction (20+ providers)
 Abstract BaseProvider interface. Each provider implements:
-- `send(messages, system) -> ProviderResponse`
+- `send(messages, system, tools=None) -> ProviderResponse` (tools = OpenAI-format schemas, 2026-07-20)
 - `supports_tools() -> bool`
 - `format_tool_call(name, args) -> dict`
 - `parse_tool_response(response) -> ToolResult`
@@ -56,7 +56,18 @@ Planned: Slack, Matrix.
 
 ### tools/ — Tool Call Abstraction
 MCP is Claude Code specific. Other providers use function_call (OpenAI format) or Ollama tools format.
-`base.py` defines ToolCall/ToolResult. Bridges translate to provider-native format.
+`providers/base.py` defines ToolCall/ToolResult; `tools/definitions.py` defines ToolDef/ToolRegistry
+(OpenAI-format schemas + async executor + operator YAML tools in `config/tools/`).
+
+**Agent loop (2026-07-20, ported down from live claude-brain after live validation):**
+`core/agent_loop.py::run_agent(provider, prompt, registry=…)` is the execution engine that makes
+`supports_tools()` real — `BaseProvider.send()` now takes `tools=` (schemas in), each provider parses
+`tool_calls` out into `ProviderResponse`, and the loop confirms → executes → feeds results back until a
+plain-text answer (max-iters / wall-clock / token-budget cuts each end in one tool-less summarize call).
+`requires_confirmation` is enforced FAIL-CLOSED: such tools run only if the caller's `confirm_fn`
+approves (wire operator guard scripts there — see live `adapters/core/agent_guards.py` for the shape).
+Full wire passthrough: the `openai` provider type (covers Groq/Mistral/Cerebras/Gemini-openai/etc. —
+the combos live-validated). Other providers accept-and-ignore `tools` until implemented.
 
 ### config/ — Operator Configuration
 - `providers.yaml` — provider definitions and routing rules

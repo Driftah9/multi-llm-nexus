@@ -162,6 +162,23 @@ Phase 2+ should converge on one so a provider's health + headroom is read from a
 
 ---
 
+## Agent loop — tools layer made real (live→Nexus, 2026-07-20)
+
+**Status: BUILT + TESTED (9 tests), engine wiring pending.** Before this, the tools layer was an
+inert scaffold: `ToolRegistry` had no importers, `send()` took no tools argument, no provider ever
+received a schema, and `requires_confirmation` was never checked. The live claude-brain built and
+live-validated the executor (gemini-flash + groq-70b, guard-refusal test included), then ported it
+down: `src/core/agent_loop.py` (the loop), `BaseProvider.send(tools=…)` (the channel in),
+`openai`-type transcript serialization (the wire format), fail-closed `requires_confirmation` via
+`confirm_fn` (the safety gate). NOT yet wired into `bridge.invoke()`/engine — the loop is callable
+by orchestration code (swarm P3 tool-steps are the intended first consumer); solo-path wiring is a
+deliberate later step. Non-openai providers accept-and-ignore `tools` until implemented
+(`supports_tools()` remains advertised-vs-actual for them — see each file's send() comment).
+
+Last verified against code: 2026-07-20
+
+---
+
 ## Swarm + Graduation Ladder convergence (live→Nexus, started 2026-07-18)
 
 The live brain shipped a **swarm orchestration loop** (plan → capability-route → parallel DAG

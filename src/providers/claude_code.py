@@ -25,7 +25,11 @@ class ClaudeCodeProvider(BaseProvider):
         self.effort = config.get("effort", "")
         self.max_turns = config.get("max_turns", 10)
 
-    async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
+    async def send(self, messages: list[Message], system: str = "",
+               tools: Optional[list[dict]] = None) -> ProviderResponse:
+        # tools accepted for BaseProvider signature parity; native passthrough
+        # not implemented for this provider yet — the agent loop targets the
+        # openai-compatible type first (see core/agent_loop.py, 2026-07-20).
         prompt = self._build_prompt(messages, system)
         # stream-json (not buffered json) so we can surface incremental output AND capture
         # the session_id the bridge needs to persist for --resume continuity.

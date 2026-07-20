@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Agent loop — the tool layer is now real (2026-07-20, live→Nexus port).** `core/agent_loop.py::
+  run_agent()` gives any `supports_tools()` provider an execution engine: `BaseProvider.send()` gained
+  `tools=` (OpenAI-format schemas from `ToolRegistry.schemas()`), the `openai` provider type passes
+  them through and serializes agent transcripts (assistant `tool_calls` + `role:"tool"` results —
+  the type covering Groq/Mistral/Cerebras/Gemini-openai, live-validated on the source system);
+  the loop confirms → executes → feeds back until plain text, with max-iters / wall-clock /
+  token-budget cutoffs each ending in a tool-less summarize call. `ToolDef.requires_confirmation`
+  is now ENFORCED fail-closed via `confirm_fn`. Closes the gap where schemas had no channel into
+  providers, nothing executed a returned tool_call, and `requires_confirmation` was decorative.
+  9 new tests (`tests/test_agent_loop.py`); other providers accept-and-ignore `tools` until
+  implemented.
 - **Swarm + graduation-ladder + fixed-role council convergence — 15/15 (2026-07-18).** The live→Nexus
   port of the swarm orchestration loop, the capability graduation ladder, and the fixed-role council.
   All 15 steps ported and tested (194 green), **deployed to `nexus.service` inert behind

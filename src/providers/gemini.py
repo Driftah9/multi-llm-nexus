@@ -89,7 +89,11 @@ class GeminiProvider(BaseProvider):
             )
         return result
 
-    async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
+    async def send(self, messages: list[Message], system: str = "",
+               tools: Optional[list[dict]] = None) -> ProviderResponse:
+        # tools accepted for BaseProvider signature parity; native passthrough
+        # not implemented for this provider yet — the agent loop targets the
+        # openai-compatible type first (see core/agent_loop.py, 2026-07-20).
         contents = self._convert_messages(messages)
 
         config = genai_types.GenerateContentConfig(

@@ -46,8 +46,18 @@ class BaseProvider(ABC):
         self.model = config.get("model", "")
 
     @abstractmethod
-    async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
-        """Send a conversation to the LLM and return the response."""
+    async def send(self, messages: list[Message], system: str = "",
+                   tools: Optional[list[dict]] = None) -> ProviderResponse:
+        """Send a conversation to the LLM and return the response.
+
+        tools — OpenAI-function-format schemas (ToolDef.schema()). When given,
+        a tools-capable provider MUST pass them through so the model can emit
+        tool_calls (parsed into ProviderResponse.tool_calls); providers that
+        can't pass tools accept-and-ignore the argument (and should return
+        supports_tools()=False so the agent loop never selects them).
+        Added 2026-07-20 with core/agent_loop — before this, tool schemas had
+        no channel into any provider and supports_tools() was aspirational.
+        """
         ...
 
     @abstractmethod

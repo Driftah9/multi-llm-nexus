@@ -54,14 +54,20 @@ class OpenAIProvider(BaseProvider):
         self.temperature = config.get("temperature", 0.7)
         self.timeout = config.get("timeout", 120)
 
-    async def send(self, messages: list[Message], system: str = "") -> ProviderResponse:
+    async def send(self, messages: list[Message], system: str = "",
+                   tools: Optional[list[dict]] = None) -> ProviderResponse:
         oai_messages = self._convert_messages(messages, system)
+        kwargs: dict = {}
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=oai_messages,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             timeout=self.timeout,
+            **kwargs,
         )
         choice = response.choices[0]
         content = choice.message.content or ""
@@ -90,7 +96,25 @@ class OpenAIProvider(BaseProvider):
         if system:
             result.append({"role": "system", "content": system})
         for msg in messages:
-            result.append({"role": msg.role, "content": msg.content})
+            if msg.role == "assistant" and msg.tool_calls:
+                # Agent-loop transcript: assistant turn carrying tool_calls must
+                # round-trip in wire format so the API accepts the tool replies.
+                result.append({
+                    "role": "assistant",
+                    "content": msg.content or None,
+                    "tool_calls": [{
+                        "id": tc.call_id or f"call_{i}",
+                        "type": "function",
+                        "function": {"name": tc.name,
+                                     "arguments": json.dumps(tc.arguments)},
+                    } for i, tc in enumerate(msg.tool_calls)],
+                })
+            elif msg.role == "tool":
+                for tr in msg.tool_results:
+                    result.append({"role": "tool", "tool_call_id": tr.call_id,
+                                   "content": tr.content})
+            else:
+                result.append({"role": msg.role, "content": msg.content})
         return result
 
     def supports_tools(self) -> bool:
