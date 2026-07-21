@@ -115,7 +115,7 @@ subsystems:
       - "docs/local_llm_guide.md"
       - "README.md"
       - "CONTRIBUTING.md"
-    claim: "Wizard recommends local models from RAM+GPU-presence only (hardware_detect.py's richer logic isn't wired in). preflight_check.sh + install_state.py are standalone — NOT yet invoked by install.sh. No CI."
+    claim: "Wizard recommends local models from RAM+GPU-presence only (hardware_detect.py's richer logic isn't wired in). preflight_check.sh + install_state.py are standalone — NOT yet invoked by install.sh. No CI. install.sh installs the FULL requirements.txt (canonical dep list — every provider SDK + adapter dep, so no selection hits ModuleNotFoundError) and installs Docker unconditionally via get.docker.com (container tools ready on demand); the nexus user is added to the docker group. requirements.txt is canonical; pyproject extras reconciled to google-genai (was the deprecated google-generativeai that broke gemini.py)."
 
   - area: "install directory layout / file governance"
     paths:
