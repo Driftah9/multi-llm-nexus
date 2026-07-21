@@ -157,6 +157,13 @@ for cmd in git curl whiptail; do
     fi
 done
 
+# Docker is installed unconditionally by install.sh (for container-based tools). Advisory here.
+if command -v docker &>/dev/null; then
+    pass "docker present ($(docker --version 2>/dev/null | cut -d',' -f1))"
+else
+    warn "docker not found — install.sh will install it (get.docker.com) during setup"
+fi
+
 
 header "Port Availability"
 

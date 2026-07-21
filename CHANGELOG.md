@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 
 ## [Unreleased]
 
+### Fixed
+- **Installer dependency completeness (2026-07-21).** `install.sh` previously pip-installed only
+  4 packages (`pyyaml httpx python-dotenv aiohttp`) while `requirements.txt` declared 12 — so a
+  fresh install that selected any API provider (Anthropic/OpenAI/Groq/Gemini/Cohere/Bedrock),
+  Telegram, or the FastAPI API adapter hit `ModuleNotFoundError` at runtime. Now installs the
+  full `requirements.txt` (the canonical dependency list); dropped the unused `python-dotenv`.
+  Also resolved a three-way dependency-source contradiction: `pyproject.toml`'s `gemini`/`vertex`
+  extras pinned the deprecated `google-generativeai` (which `requirements.txt` itself noted breaks
+  `gemini.py`) — reconciled to `google-genai`. `requirements.txt` is the canonical source.
+- **Docker installed unconditionally (2026-07-21).** `install.sh` now installs Docker
+  (get.docker.com) during the system-check phase, enables the service, and adds the nexus service
+  account to the `docker` group — so any container-based tool (local Mattermost, Discord-bot
+  stacks, future stacks) is ready the moment it's wanted rather than a later surprise.
+  `preflight_check.sh` reports Docker presence (advisory).
+
 ### Added
 - **Agent loop — the tool layer is now real (2026-07-20, live→Nexus port).** `core/agent_loop.py::
   run_agent()` gives any `supports_tools()` provider an execution engine: `BaseProvider.send()` gained

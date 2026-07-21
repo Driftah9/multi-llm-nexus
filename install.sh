@@ -159,6 +159,24 @@ else
     check "whiptail installed"
 fi
 
+# Docker — installed unconditionally so any container-based tool (local Mattermost,
+# Discord-bot stacks, or any future docker the system needs) is ready the moment it's
+# wanted, not a later surprise. The nexus service account is added to the docker group
+# after it's created (below), so it can run containers without sudo.
+if command -v docker &>/dev/null; then
+    check "docker present ($(docker --version 2>/dev/null | cut -d',' -f1))"
+else
+    warn "docker not found — installing (get.docker.com)..."
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh 2>&3 \
+        && sh /tmp/get-docker.sh 2>&3 \
+        && systemctl enable --now docker 2>&3
+    if command -v docker &>/dev/null; then
+        check "docker installed ($(docker --version 2>/dev/null | cut -d',' -f1))"
+    else
+        warn "docker install incomplete — container-based tools will need it before use"
+    fi
+fi
+
 
 # ── 2. Bot user creation ──────────────────────────────────────────────────────
 
@@ -216,6 +234,11 @@ while true; do
     check "User '$USERNAME' created — home: /home/$USERNAME"
     break
 done
+
+# Let the service account run docker without sudo (for container-based tools it manages)
+if getent group docker &>/dev/null && id "$USERNAME" &>/dev/null; then
+    usermod -aG docker "$USERNAME" 2>&3 && check "'$USERNAME' added to docker group"
+fi
 
 
 # ── 3. Sudo permissions ───────────────────────────────────────────────────────
@@ -387,7 +410,15 @@ if [[ ! -d "$VENV_DIR" ]]; then
 fi
 source "$VENV_DIR/bin/activate"
 pip install --quiet --upgrade pip 2>&3
-pip install --quiet pyyaml httpx python-dotenv aiohttp 2>&3
+# Full dependency set from requirements.txt (the canonical list) — every provider SDK +
+# adapter dep, so no provider/adapter selection hits a ModuleNotFoundError at runtime.
+if [[ -f "$INSTALL_DIR/requirements.txt" ]]; then
+    pip install --quiet -r "$INSTALL_DIR/requirements.txt" 2>&3
+    check "Python dependencies installed (requirements.txt)"
+else
+    warn "requirements.txt not found — installing core deps only"
+    pip install --quiet pyyaml httpx aiohttp 2>&3
+fi
 check "Python environment ready  ($NEXUS_PYTHON_BIN)"
 
 
