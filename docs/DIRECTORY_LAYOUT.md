@@ -6,7 +6,12 @@ provider-agnostic; the directory layout is part of that contract. If a file type
 defined home, every operator re-derives one and they all diverge — this doc is the single
 source of truth that prevents it.
 
-_Last verified against code: 2026-07-21_ (`install.sh` `ROOT_FOLDERS`, `setup.sh` `VENV_DIR`)
+**Source of truth:** [`config/directory_layout.json`](../config/directory_layout.json) — the
+machine-readable manifest the installer *and* the engine both read. This doc is its
+human-readable face; when they disagree, the manifest wins and this doc is stale. `install.sh`
+scaffolds every `class:"scaffold"` folder from it; nothing is hardcoded.
+
+_Last verified against code: 2026-07-21_ (`config/directory_layout.json`, `install.sh`, `setup.sh` `VENV_DIR`)
 
 Honest-status anchors: [`BUILDOUT_STATUS.md`](BUILDOUT_STATUS.md) · [`../KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md).
 
@@ -95,12 +100,16 @@ boots and the package imports before calling it done.
 
 ## Adding a new specialized directory (the anti-scatter rule)
 
-When a new file type needs a home, do all three in the SAME change, or it drifts:
+Because the manifest is the single source of truth, adding a home is now **one edit**:
 
-1. Add the folder to `ROOT_FOLDERS` in `install.sh` (so fresh installs scaffold it).
-2. Add its row to the table above (+ bump the freshness stamp).
-3. Update its entry in [`DOC_INDEX.yml`](DOC_INDEX.yml) so future `install.sh` edits trigger a
-   reconcile against this doc.
+1. Add an entry to [`config/directory_layout.json`](../config/directory_layout.json) with its
+   `class` (`scaffold` = installer creates it; `runtime` = engine self-creates it; `managed` =
+   another install step creates it) and a one-line `purpose`.
+
+That's it — the installer scaffolds it automatically on the next run (no `install.sh` edit), and
+the engine can resolve it from the same manifest. Then keep the human face current: refresh the
+table above + the freshness stamp in the same change, and the [`DOC_INDEX.yml`](DOC_INDEX.yml)
+claim already points `install.sh` + the manifest at this doc so a reconcile is prompted.
 
 ## Known convergence gaps (honest status)
 

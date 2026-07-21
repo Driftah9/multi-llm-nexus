@@ -119,11 +119,12 @@ subsystems:
 
   - area: "install directory layout / file governance"
     paths:
+      - "config/directory_layout.json"
       - "install.sh"
     docs:
       - "docs/DIRECTORY_LAYOUT.md"
       - "KNOWN_LIMITATIONS.md"
-    claim: "install.sh ROOT_FOLDERS is the source of truth for the scaffolded install layout; DIRECTORY_LAYOUT.md must list exactly those folders (+ ~/nexus app dir, ~/venv tool-venv home). Any ROOT_FOLDERS change reconciles the doc table in the same commit. Case/naming still diverges from the lowercase live canon (convergence gap, tracked in KNOWN_LIMITATIONS)."
+    claim: "config/directory_layout.json is the SINGLE source of truth for the install layout; install.sh reads class:'scaffold' folders from it (stdlib JSON, pre-venv) with a built-in fallback. DIRECTORY_LAYOUT.md is its human face and must stay reconciled. Adding a dir = one manifest entry. Case/naming still diverges from the lowercase live canon (convergence gap, tracked in KNOWN_LIMITATIONS)."
 
   - area: "config schema"
     paths:

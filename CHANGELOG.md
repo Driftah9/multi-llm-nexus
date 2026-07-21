@@ -6,15 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
-- **Canonical install directory layout (2026-07-21).** New `docs/DIRECTORY_LAYOUT.md` defines
-  where every file type lives on an install (one home per type; provider harness dirs hold
-  shims only) and the rule for adding new specialized dirs (installer + doc + `DOC_INDEX.yml`
-  in the same change). `install.sh` `ROOT_FOLDERS` now scaffolds a `venv/` home for
-  system-tool venvs (source stays in `Tools/`, project venvs stay in-project, manager venvs
-  — incl. Nexus's own `~/nexus/.venv` — stay put). Registered in the anti-drift claim-map and
-  flagged in `KNOWN_LIMITATIONS.md` (case/naming + `Memory/`/`context/` roots not yet aligned
-  to the lowercase live canon). Motivation: without a defined layout, every install re-derives
-  one and they diverge.
+- **Canonical install directory layout, manifest-driven (2026-07-21).** New
+  `config/directory_layout.json` is the single source of truth for the install layout;
+  `install.sh` now reads its `class:"scaffold"` folders (stdlib JSON parse, works before the
+  app venv exists, with a built-in fallback so an automated install never bricks) instead of a
+  hardcoded `ROOT_FOLDERS` array. Adding a specialized directory is now a one-line manifest
+  edit — the installer and docs both follow. Includes a `venv/` home for system-tool venvs
+  (source stays in `Tools/`, project venvs stay in-project, manager venvs — incl. Nexus's own
+  `~/nexus/.venv` — stay put), and documents the engine's self-created runtime homes
+  (`~/.local/nexus/`, `~/.local/etc/`). `docs/DIRECTORY_LAYOUT.md` is the human-readable face;
+  registered in the anti-drift claim-map; convergence gaps (lowercase-name alignment,
+  `Memory/`/`context/` roots) flagged in `KNOWN_LIMITATIONS.md`.
 - **Agent loop — the tool layer is now real (2026-07-20, live→Nexus port).** `core/agent_loop.py::
   run_agent()` gives any `supports_tools()` provider an execution engine: `BaseProvider.send()` gained
   `tools=` (OpenAI-format schemas from `ToolRegistry.schemas()`), the `openai` provider type passes
