@@ -117,6 +117,14 @@ subsystems:
       - "CONTRIBUTING.md"
     claim: "Wizard recommends local models from RAM+GPU-presence only (hardware_detect.py's richer logic isn't wired in). preflight_check.sh + install_state.py are standalone — NOT yet invoked by install.sh. No CI."
 
+  - area: "install directory layout / file governance"
+    paths:
+      - "install.sh"
+    docs:
+      - "docs/DIRECTORY_LAYOUT.md"
+      - "KNOWN_LIMITATIONS.md"
+    claim: "install.sh ROOT_FOLDERS is the source of truth for the scaffolded install layout; DIRECTORY_LAYOUT.md must list exactly those folders (+ ~/nexus app dir, ~/venv tool-venv home). Any ROOT_FOLDERS change reconciles the doc table in the same commit. Case/naming still diverges from the lowercase live canon (convergence gap, tracked in KNOWN_LIMITATIONS)."
+
   - area: "config schema"
     paths:
       - "src/core/config_schema.py"

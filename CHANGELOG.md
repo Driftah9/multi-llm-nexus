@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Canonical install directory layout (2026-07-21).** New `docs/DIRECTORY_LAYOUT.md` defines
+  where every file type lives on an install (one home per type; provider harness dirs hold
+  shims only) and the rule for adding new specialized dirs (installer + doc + `DOC_INDEX.yml`
+  in the same change). `install.sh` `ROOT_FOLDERS` now scaffolds a `venv/` home for
+  system-tool venvs (source stays in `Tools/`, project venvs stay in-project, manager venvs
+  — incl. Nexus's own `~/nexus/.venv` — stay put). Registered in the anti-drift claim-map and
+  flagged in `KNOWN_LIMITATIONS.md` (case/naming + `Memory/`/`context/` roots not yet aligned
+  to the lowercase live canon). Motivation: without a defined layout, every install re-derives
+  one and they diverge.
 - **Agent loop — the tool layer is now real (2026-07-20, live→Nexus port).** `core/agent_loop.py::
   run_agent()` gives any `supports_tools()` provider an execution engine: `BaseProvider.send()` gained
   `tools=` (OpenAI-format schemas from `ToolRegistry.schemas()`), the `openai` provider type passes

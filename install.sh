@@ -339,7 +339,7 @@ header "Scaffolding System Root"
 
 ROOT_FOLDERS=(
     Inbox Logs Scripts backups src tests Data skills
-    Config dockers adapters Agents Temp research_cache Tools workspace
+    Config dockers adapters Agents Temp research_cache Tools workspace venv
 )
 for folder in "${ROOT_FOLDERS[@]}"; do
     mkdir -p ~/"$folder"

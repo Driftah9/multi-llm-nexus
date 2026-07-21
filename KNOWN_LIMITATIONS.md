@@ -25,6 +25,22 @@ ladder / council system (present but flag-gated off). It has been run and harden
 
 ---
 
+## Install layout not fully converged to the live canon
+
+The scaffolded install layout is documented in [`docs/DIRECTORY_LAYOUT.md`](docs/DIRECTORY_LAYOUT.md)
+and created by `install.sh` `ROOT_FOLDERS`. Two gaps remain against the live claude-brain canon
+(the port source):
+- **Case/naming.** The installer scaffolds historical mixed-case names (`Tools`, `Config`,
+  `Data`, `Temp`, `workspace`); the live canon is all-lowercase (`tools`, `config`, `data`,
+  `tmp`, `projects`). Not blind-renamed because code paths reference the current names —
+  aligning them is a tracked live→Nexus convergence item.
+- **Missing roots.** The installer does not yet scaffold dedicated `Memory/` or `context/`
+  roots that the live canon treats as canonical. `venv/` (system-tool venv home) was added
+  2026-07-21; the others are pending.
+
+The layout is defined and drift-checked (via `DOC_INDEX.yml`); it is simply not yet fully
+aligned to the lowercase canon.
+
 ## Not built yet (designed, documented, absent from code)
 
 | Feature | Doc says | Reality |
