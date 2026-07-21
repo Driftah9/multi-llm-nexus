@@ -9,7 +9,9 @@ source of truth that prevents it.
 **Source of truth:** [`config/directory_layout.json`](../config/directory_layout.json) — the
 machine-readable manifest the installer *and* the engine both read. This doc is its
 human-readable face; when they disagree, the manifest wins and this doc is stale. `install.sh`
-scaffolds every `class:"scaffold"` folder from it; nothing is hardcoded.
+scaffolds every `class:"scaffold"` folder from it; the engine resolves locations through
+[`src/core/layout.py`](../src/core/layout.py) (`layout.path("venv")`) instead of hardcoding
+`Path.home() / "..."`. Nothing is hardcoded, and an undeclared folder name fails loud.
 
 _Last verified against code: 2026-07-21_ (`config/directory_layout.json`, `install.sh`, `setup.sh` `VENV_DIR`)
 

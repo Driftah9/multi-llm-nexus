@@ -121,10 +121,11 @@ subsystems:
     paths:
       - "config/directory_layout.json"
       - "install.sh"
+      - "src/core/layout.py"
     docs:
       - "docs/DIRECTORY_LAYOUT.md"
       - "KNOWN_LIMITATIONS.md"
-    claim: "config/directory_layout.json is the SINGLE source of truth for the install layout; install.sh reads class:'scaffold' folders from it (stdlib JSON, pre-venv) with a built-in fallback. DIRECTORY_LAYOUT.md is its human face and must stay reconciled. Adding a dir = one manifest entry. Case/naming still diverges from the lowercase live canon (convergence gap, tracked in KNOWN_LIMITATIONS)."
+    claim: "config/directory_layout.json is the SINGLE source of truth for the install layout; install.sh reads class:'scaffold' folders from it (stdlib JSON, pre-venv) with a built-in fallback, and the engine resolves locations via src/core/layout.py (fails loud on undeclared names). DIRECTORY_LAYOUT.md is its human face and must stay reconciled. Adding a dir = one manifest entry. Case/naming still diverges from the lowercase live canon (convergence gap, tracked in KNOWN_LIMITATIONS)."
 
   - area: "config schema"
     paths:

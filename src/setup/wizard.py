@@ -35,6 +35,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from src.core import layout
+
 import yaml
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -541,7 +543,7 @@ def platform_setup(adapters: list[str], adapter_config: dict, system_ip: str) ->
 
         if adapter == "mattermost" and setup_type == "local":
             print(f"\n  Mattermost (local Docker)")
-            docker_dir = Path.home() / "dockers" / "mattermost"
+            docker_dir = layout.path("dockers") / "mattermost"
             docker_dir.mkdir(parents=True, exist_ok=True)
 
             # docker-compose.yml
