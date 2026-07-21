@@ -1,0 +1,20 @@
+# Unattended install preset — for scripts/install_test.sh
+# Keyless, local-only, re-runnable. No API keys, no bot tokens (deferred to .env).
+# Consumed by: python -m src.setup.wizard --answers config/answers.test.yaml
+# Any prompt whose key is absent here falls back to its default and never blocks.
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+orchestrator_name:  nexusbot            # Q5a — what users call the AI
+system_name:        nexus-system-test   # Q5b — this installation's name
+continue_setup:     true                # Q4  — proceed past the intro gate
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+providers:          [ollama]            # Q7  — local LLM only, no online AI
+# Q6 (model) auto-recommended by RAM; Ollama pulls llama3.2:3b.
+# Q8/Q9 need no answer: Ollama auto-configured, role auto-assigned (single provider).
+# No <provider>_api_key entries → keyless.
+
+# ── Adapters ──────────────────────────────────────────────────────────────────
+adapters:           [mattermost]        # Q10
+mattermost_setup:   local               # Q11 — Docker (exercises the docker path)
+# Bot token is NOT set here — deferred to ~/.env, adapter stays disabled until added.

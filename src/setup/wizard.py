@@ -86,13 +86,47 @@ def header(title: str) -> None:
 def check_mark(ok: bool) -> str:
     return green("✓") if ok else red("✗")
 
-def ask(prompt: str, default: str = "") -> str:
-    """Prompt for input with optional default."""
+# ─ Unattended / preset answers ─────────────────────────────────────────────────
+# When a preset answers file is loaded (--answers), each prompt with a matching
+# `key` returns the preset value instead of blocking on input(). Prompts without a
+# preset fall back to their default and NEVER block while unattended.
+_ANSWERS: dict = {}
+_UNATTENDED: bool = bool(os.environ.get("NEXUS_UNATTENDED"))
+_MISSING = object()
+
+def load_answers(path: str) -> None:
+    """Load a preset answers file (YAML/JSON) so the wizard runs unattended."""
+    global _ANSWERS, _UNATTENDED
+    import yaml
+    with open(path) as f:
+        _ANSWERS = yaml.safe_load(f) or {}
+    _UNATTENDED = True
+    os.environ["NEXUS_UNATTENDED"] = "1"  # so provider_setup.py sees it too
+    _wlog(f"unattended: loaded {len(_ANSWERS)} answers from {path}: {sorted(_ANSWERS)}")
+
+def _preset(key: str):
+    """Preset value for `key`, or _MISSING if not supplied."""
+    if key and key in _ANSWERS:
+        return _ANSWERS[key]
+    return _MISSING
+
+def ask(prompt: str, default: str = "", *, key: str = "") -> str:
+    """Prompt for input. Unattended: returns preset[key] or the default; no block."""
     display = f"  {prompt}"
     if default:
         display += f" {dim(f'[{default}]')}"
     display += ": "
-    _wlog(f"PROMPT: {prompt} [default: {default or 'none'}]")
+    _wlog(f"PROMPT: {prompt} [default: {default or 'none'}] key={key or '-'}")
+    preset = _preset(key)
+    if preset is not _MISSING:
+        result = str(preset)
+        print(f"{display}{green(result)}  {dim('(preset)')}")
+        _wlog(f"ANSWER(preset): {result}")
+        return result
+    if _UNATTENDED:
+        print(f"{display}{dim(default or '(blank)')}  {dim('(unattended default)')}")
+        _wlog(f"ANSWER(unattended-default): {default}")
+        return default
     try:
         val = input(display).strip()
         result = val or default
@@ -103,9 +137,16 @@ def ask(prompt: str, default: str = "") -> str:
         print()
         sys.exit(0)
 
-def ask_secret(prompt: str) -> str:
-    """Prompt for hidden input (API key, password)."""
-    _wlog(f"PROMPT_SECRET: {prompt}")
+def ask_secret(prompt: str, *, key: str = "") -> str:
+    """Prompt for hidden input. Unattended: returns preset[key] or '' (skip); no block."""
+    _wlog(f"PROMPT_SECRET: {prompt} key={key or '-'}")
+    preset = _preset(key)
+    if preset is not _MISSING:
+        _wlog("ANSWER_SECRET: (preset)")
+        return str(preset)
+    if _UNATTENDED:
+        _wlog("ANSWER_SECRET: (unattended, none → skip)")
+        return ""
     try:
         val = getpass.getpass(f"  {prompt}: ").strip()
         _wlog(f"ANSWER_SECRET: {'(provided)' if val else '(empty)'}")
@@ -115,30 +156,49 @@ def ask_secret(prompt: str) -> str:
         print()
         sys.exit(0)
 
-def ask_yn(prompt: str, default: bool = True) -> bool:
-    """Prompt for yes/no."""
+def ask_yn(prompt: str, default: bool = True, *, key: str = "") -> bool:
+    """Prompt for yes/no. Unattended: preset[key] (bool or y/yes/true/1) or default."""
+    preset = _preset(key)
+    if preset is not _MISSING:
+        result = preset if isinstance(preset, bool) else str(preset).strip().lower() in ("y", "yes", "true", "1")
+        print(f"  {prompt}: {green('yes' if result else 'no')}  {dim('(preset)')}")
+        _wlog(f"ANSWER_YN(preset): {result}")
+        return result
     hint = "Y/n" if default else "y/N"
     ans = ask(f"{prompt} ({hint})", "y" if default else "n")
     _wlog(f"ANSWER_YN: {ans}")
     return ans.lower().startswith("y")
 
-def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[str]:
+def whiptail_checklist(title: str, items: list[tuple[str, str, bool]], *, key: str = "") -> list[str]:
     """
     Multi-select numbered text menu. whiptail is not used — it writes TUI
     rendering (ANSI escape codes) to stdout when stdout is piped, making its
     output uncapturable and the dialog invisible. Plain text is reliable in all
     contexts (SSH, script(1), pipes).
     items: [(key, label, default_selected), ...]
+    Unattended: preset[key] list (filtered to valid item keys), else default-selected.
     Returns: list of selected keys
     """
-    _wlog(f"whiptail_checklist: text menu for {len(items)} items")
+    _wlog(f"whiptail_checklist: {len(items)} items key={key or '-'}")
     print(f"\n{title}")
-    for i, (key, label, selected) in enumerate(items, 1):
+    for i, (ikey, label, selected) in enumerate(items, 1):
         marker = "*" if selected else " "
         print(f"  ({i:2}) [{marker}] {label}", flush=True)
     print(flush=True)
+    valid = {ikey for ikey, _, _ in items}
+    preset = _preset(key)
+    if preset is not _MISSING:
+        sel = [k for k in (preset or []) if k in valid]
+        print(f"  → preset: {', '.join(sel) or '(none)'}")
+        _wlog(f"whiptail_checklist(preset): {sel}")
+        return sel
+    if _UNATTENDED:
+        sel = [ikey for ikey, _, selected in items if selected]
+        print(f"  → unattended default: {', '.join(sel) or '(none)'}")
+        _wlog(f"whiptail_checklist(unattended-default): {sel}")
+        return sel
     raw = input("  Enter numbers separated by commas (e.g. 1,3,5): ").strip()
-    sel: list[str] = []
+    sel = []
     for part in raw.split(","):
         try:
             idx = int(part.strip()) - 1
@@ -149,19 +209,35 @@ def whiptail_checklist(title: str, items: list[tuple[str, str, bool]]) -> list[s
     _wlog(f"whiptail_checklist: selected {sel}")
     return sel
 
-def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
+def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]], *, key: str = "") -> str:
     """
     Single-select numbered text menu. See whiptail_checklist for why whiptail
     is not used.
     items: [(key, label, default_selected), ...]
+    Unattended: preset[key] (if valid) else first default-selected item else ''.
     Returns: selected key or empty string
     """
-    _wlog(f"whiptail_radiolist: text menu for {len(items)} items")
+    _wlog(f"whiptail_radiolist: {len(items)} items key={key or '-'}")
     print(f"\n{title}")
-    for i, (key, label, selected) in enumerate(items, 1):
+    for i, (ikey, label, selected) in enumerate(items, 1):
         marker = ">" if selected else " "
         print(f"  ({i}) [{marker}] {label}", flush=True)
     print(flush=True)
+    valid = {ikey for ikey, _, _ in items}
+    preset = _preset(key)
+    if preset is not _MISSING and str(preset) in valid:
+        print(f"  → preset: {preset}")
+        _wlog(f"whiptail_radiolist(preset): {preset}")
+        return str(preset)
+    if _UNATTENDED:
+        for ikey, _, selected in items:
+            if selected:
+                print(f"  → unattended default: {ikey}")
+                _wlog(f"whiptail_radiolist(unattended-default): {ikey}")
+                return ikey
+        result = items[0][0] if items else ""
+        _wlog(f"whiptail_radiolist(unattended-first): {result}")
+        return result
     raw = input("  Enter number: ").strip()
     try:
         idx = int(raw) - 1
@@ -171,7 +247,7 @@ def whiptail_radiolist(title: str, items: list[tuple[str, str, bool]]) -> str:
             return result
     except ValueError:
         pass
-    _wlog(f"whiptail_radiolist: no selection")
+    _wlog("whiptail_radiolist: no selection")
     return ""
 
 
@@ -350,8 +426,8 @@ def system_identity() -> tuple[str, str]:
     print("  This becomes the orchestrator's soul: who it is, what it does.")
     print("  You can change these later by editing SOUL.md and AI_CONTEXT.md\n")
 
-    agent_name = ask("Orchestrator name (what users will call your AI)")
-    system_name = ask("System name (what this installation is called)", get_hostname())
+    agent_name = ask("Orchestrator name (what users will call your AI)", key="orchestrator_name")
+    system_name = ask("System name (what this installation is called)", get_hostname(), key="system_name")
 
     print()
     print(f"  {check_mark(True)} Orchestrator: {bold(agent_name)}")
@@ -434,7 +510,8 @@ def provider_selection(hw: dict, active_providers: dict = None) -> list[str]:
 
     selected_keys = whiptail_checklist(
         "Select providers (SPACE to select, ENTER when done):",
-        all_items
+        all_items,
+        key="providers",
     )
 
     # Filter: only keep selections that are either new OR explicitly re-selected (multi-instance)
@@ -464,7 +541,8 @@ def adapter_selection() -> list[str]:
     items = [(key, label, False) for key, label in ADAPTERS]
     selected = whiptail_checklist(
         "Select adapters (SPACE to select, ENTER when done):",
-        items
+        items,
+        key="adapters",
     )
 
     print(f"\n  {check_mark(True)} Adapters selected: {len(selected)}")
@@ -475,8 +553,13 @@ def adapter_selection() -> list[str]:
     for adapter in selected:
         if adapter in ["mattermost", "discord"]:
             print()
-            ans = ask_yn(f"Set up {adapter} locally (Docker) or use existing server?", True)
-            adapter_config[adapter] = "local" if ans else "remote"
+            preset = _preset(f"{adapter}_setup")
+            if preset is not _MISSING and str(preset).lower() in ("local", "remote"):
+                adapter_config[adapter] = str(preset).lower()
+                print(f"  {adapter} setup: {green(adapter_config[adapter])}  {dim('(preset)')}")
+            else:
+                ans = ask_yn(f"Set up {adapter} locally (Docker) or use existing server?", True)
+                adapter_config[adapter] = "local" if ans else "remote"
 
     _wlog(f"adapter_setup_choices: {adapter_config}")
     return selected, adapter_config
@@ -519,7 +602,7 @@ def role_assignment(configured: dict) -> dict:
     else:
         # Ask which is the orchestrator
         items = [(p, p, i == 0) for i, p in enumerate(configured.keys())]
-        orchestrator = whiptail_radiolist("Select orchestrator:", items)
+        orchestrator = whiptail_radiolist("Select orchestrator:", items, key="orchestrator")
         routing["default"] = orchestrator
         print(f"  Orchestrator: {bold(orchestrator)}")
 
@@ -764,7 +847,7 @@ async def run() -> None:
         return  # re-run done
 
     # ── First-time install flow ───────────────────────────────────────────────
-    if not ask_yn("Continue to provider setup?"):
+    if not ask_yn("Continue to provider setup?", key="continue_setup"):
         print("  Cancelled.")
         return
 
@@ -825,6 +908,15 @@ async def run() -> None:
 
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(prog="nexus-wizard")
+    parser.add_argument(
+        "--answers",
+        help="Path to a preset answers file (YAML/JSON) — runs the wizard unattended.",
+    )
+    args, _ = parser.parse_known_args()
+    if args.answers:
+        load_answers(args.answers)
     asyncio.run(run())
 
 
