@@ -41,7 +41,7 @@ The Nexus application itself installs under `~/nexus/`.
 | `~/skills/` | Skills (provider dirs symlink INTO here; never own) |
 | `~/Scripts/` | Watchers, monitors, one-shots, utilities |
 | `~/Config/` | System configuration |
-| `~/Data/` | Runtime state & queues |
+| `~/Data/` | Operator/app persistent data — cache, registries (organizational drop-zone; core runtime DBs do **not** live here — they're under `~/.local/nexus/`, below) |
 | `~/Logs/` | Logs |
 | `~/backups/` | Snapshots (pre-change milestones + automated) |
 | `~/dockers/` | Docker stacks |
@@ -52,6 +52,28 @@ The Nexus application itself installs under `~/nexus/`.
 
 Identity templates (`SOUL.md`, `AI_CONTEXT.md`, `OPERATING_PROCEDURES.md`) are rendered into
 the home root from `~/nexus/templates/system/` at install time.
+
+## Two classes of directory — who creates what
+
+The installer's `ROOT_FOLDERS` is **not** the complete set of directories the running system
+uses, and it doesn't need to be. There are two classes:
+
+- **Installer-scaffolded organizational homes** (the table above) — drop-zones nothing else
+  creates, where the operator/config places things (`Tools/`, `workspace/`, `venv/`, `skills/`,
+  `Config/`, `adapters/`, `Agents/`, `dockers/`, …). These **must** be in `ROOT_FOLDERS`, because
+  no code auto-creates them. `venv/` is one of these (added 2026-07-21).
+- **Code-self-created runtime state** — every path the engine writes to calls
+  `mkdir(parents=True, exist_ok=True)` on first use, so these are created at runtime, not by the
+  installer:
+
+  | Path | Created by | Holds |
+  |---|---|---|
+  | `~/.local/nexus/` | code, on first use | Runtime DBs — RAG store, `skill-metrics.db`, `triage-validation.db`, session/journal/queue/staging/council-session state |
+  | `~/.local/etc/nexus.env` | operator (optional) | Secondary secrets override; read if present, **safely skipped if absent** (`main.py:76`). Primary secrets stay in `~/nexus/.env` |
+
+  Rule of thumb: if a directory only ever holds machine-written state, let the code create it
+  (don't add it to `ROOT_FOLDERS`). If it's a place a human or config *puts* something, it must
+  be scaffolded by the installer.
 
 ## Venvs
 
