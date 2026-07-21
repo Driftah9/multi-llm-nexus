@@ -55,6 +55,10 @@ _stdin_eof_guard() {
 
 ask() {
     local prompt="$1" default="${2:-}" answer
+    if [[ -n "${NEXUS_UNATTENDED:-}" ]]; then
+        printf "[%s] PROMPT(unattended): %s -> %s\n" "$(date +%T)" "$prompt" "${default:-none}" >&3
+        echo "$default"; return 0
+    fi
     [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
     printf "[%s] PROMPT: %s [default: %s]\n" "$(date +%T)" "$prompt" "${default:-none}" >&3
     if [[ -n "$default" ]]; then
@@ -74,6 +78,10 @@ ask() {
 
 ask_yn() {
     local prompt="$1" default="${2:-y}" hint answer
+    if [[ -n "${NEXUS_UNATTENDED:-}" ]]; then
+        printf "[%s] PROMPT_YN(unattended): %s -> %s\n" "$(date +%T)" "$prompt" "$default" >&3
+        [[ "${default,,}" == y* ]]; return
+    fi
     hint="Y/n"; [[ "$default" == "n" ]] && hint="y/N"
     [[ "$_STDIN_EXHAUSTED" == "1" ]] && _stdin_eof_guard
     printf "[%s] PROMPT_YN: %s [default: %s]\n" "$(date +%T)" "$prompt" "$default" >&3
@@ -190,7 +198,7 @@ echo "  $(dim "Examples: nexus-bot, system-ai, orchestrator")"
 GENERATED_PASSWORD=""
 
 while true; do
-    USERNAME=$(ask "System account username")
+    USERNAME=$(ask "System account username" "${NEXUS_USERNAME:-}")
 
     if [[ -z "$USERNAME" || "$USERNAME" == "root" ]]; then
         fail "Please choose a username."
@@ -283,6 +291,9 @@ NEXUS_PYTHON_BIN="$PYTHON_BIN"
 NEXUS_REPO_URL="$REPO_URL"
 NEXUS_BRANCH="$BRANCH"
 NEXUS_ROOT_LOG="$ROOT_LOG"
+# Unattended install: carried across the su handoff so the wizard (user phase) runs headless
+NEXUS_UNATTENDED="${NEXUS_UNATTENDED:-}"
+NEXUS_ANSWERS="${NEXUS_ANSWERS:-}"
 CONFIG
 chown "$USERNAME:$USERNAME" "/home/$USERNAME/.nexus-install-config"
 
@@ -440,7 +451,12 @@ echo "  Log: ~/Logs/install.log"
 echo
 
 cd "$INSTALL_DIR"
-NEXUS_LOG_FILE="$LOG_FILE" python -m src.setup.wizard
+# Unattended install: NEXUS_ANSWERS points the wizard at a preset answers file so it
+# runs without prompting (used by scripts/install_test.sh).
+WIZARD_ARGS=()
+[[ -n "${NEXUS_ANSWERS:-}" ]] && WIZARD_ARGS+=(--answers "$NEXUS_ANSWERS")
+NEXUS_LOG_FILE="$LOG_FILE" NEXUS_UNATTENDED="${NEXUS_UNATTENDED:-}" \
+    python -m src.setup.wizard "${WIZARD_ARGS[@]}"
 
 
 # ── 7. Provider shims ─────────────────────────────────────────────────────────
@@ -565,7 +581,7 @@ if [[ -n "$GENERATED_PASSWORD" ]]; then
     printf "  %s\n" "$(bold "$(yellow "Generated password — store this now:")")"
     printf "    %s\n" "$(bold "$GENERATED_PASSWORD")"
     echo
-    read -p "  $(dim "Press Enter to continue")" < /dev/tty
+    [[ -n "${NEXUS_UNATTENDED:-}" ]] || read -p "  $(dim "Press Enter to continue")" < /dev/tty
 fi
 
 echo

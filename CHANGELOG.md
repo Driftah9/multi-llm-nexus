@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 
 ## [Unreleased]
 
+### Added
+- **Unattended install mode + test harness (2026-07-21).** The wizard now accepts
+  `--answers <file>` (`config/answers.test.yaml`) and runs headless: each prompt with a
+  matching `key` returns the preset value, and — critically — prompts *without* a preset fall
+  back to their default and **never block** on `input()`. `install.sh` gained an unattended
+  path (`NEXUS_UNATTENDED=1` + `NEXUS_USERNAME`, propagated across the `su -` handoff via the
+  install-config so the user-phase wizard stays headless; `NEXUS_ANSWERS` forwards the answers
+  file). `scripts/install_test.sh` is a thin wrapper (no duplicated installer logic) that drives
+  the real `install.sh` with a preset and verifies the install end-to-end (scaffold folders,
+  app venv, full deps, Docker + group, Ollama endpoint, Mattermost compose, `nexus.service`
+  active) — for validating a clean-VM install without human input. Also un-blocks the Ollama
+  "press Enter" prompt under unattended (polls the endpoint instead).
+
 ### Fixed
 - **Installer dependency completeness (2026-07-21).** `install.sh` previously pip-installed only
   4 packages (`pyyaml httpx python-dotenv aiohttp`) while `requirements.txt` declared 12 — so a

@@ -6,6 +6,7 @@ a setup function that prompts for credentials, tests connection, returns config.
 import os
 import subprocess
 import sys
+import time
 from typing import Optional
 
 from ..providers.registry import PROVIDERS, ProviderDef
@@ -163,7 +164,23 @@ async def setup_local(pdef: ProviderDef, system_ip: str = "localhost") -> Option
                     shell=True, check=False
                 )
                 print("    → Start Ollama: ollama serve")
-                input("    Press Enter after Ollama is running...")
+                if os.environ.get("NEXUS_UNATTENDED"):
+                    # Unattended: don't block — poll for the endpoint to come up (installer
+                    # starts the systemd service; give it up to ~30s).
+                    for _ in range(30):
+                        chk = subprocess.run(
+                            f"curl -s {endpoint}/api/tags",
+                            shell=True, capture_output=True, timeout=2
+                        )
+                        if chk.returncode == 0:
+                            print(f"    {check_mark(True)} Ollama endpoint reachable")
+                            break
+                        time.sleep(1)
+                    else:
+                        print("    (unattended) Ollama endpoint not up yet — continuing")
+                    _wlog("ollama: unattended wait-for-endpoint done")
+                else:
+                    input("    Press Enter after Ollama is running...")
             else:
                 print("    Skipping Ollama.")
                 _wlog("ollama: skipped")
