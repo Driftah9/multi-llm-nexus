@@ -440,8 +440,53 @@ def system_identity() -> tuple[str, str]:
 
 # ─ Hardware Detection [C] ──────────────────────────────────────────────────────
 
+def llmfit_probe(limit: int = 5) -> dict | None:
+    """
+    PROTOTYPE cross-check: shell out to `llmfit` (github.com/AlexsJones/llmfit) for a
+    hardware-aware model fit, to compare against Nexus's built-in RAM heuristic.
+    Fully fallback-guarded — returns None if llmfit is absent or errors, never raises.
+    Logs raw JSON so a real run reveals the exact schema. Model objects carry:
+    name, params_b, best_quant, context_length, score, score_components{quality,speed,fit}.
+    """
+    import shutil, subprocess, json
+    exe = shutil.which("llmfit")
+    if not exe:  # PATH may miss common installer locations (user phase)
+        for p in (Path.home() / ".local/bin/llmfit",
+                  Path.home() / ".cargo/bin/llmfit",
+                  Path("/usr/local/bin/llmfit")):
+            if p.exists():
+                exe = str(p); break
+    if not exe:
+        _wlog("llmfit: not found on PATH or common locations")
+        return None
+
+    result: dict = {"exe": exe}
+    try:
+        s = subprocess.run([exe, "--json", "system"], capture_output=True, text=True, timeout=30)
+        _wlog(f"llmfit system raw: {s.stdout[:2000]}")
+        result["system"] = json.loads(s.stdout) if s.returncode == 0 and s.stdout.strip() else None
+    except Exception as e:
+        _wlog(f"llmfit system error: {e}"); result["system"] = None
+    try:
+        r = subprocess.run([exe, "recommend", "--json", "--limit", str(limit)],
+                           capture_output=True, text=True, timeout=90)
+        _wlog(f"llmfit recommend raw: {r.stdout[:3000]}")
+        rj = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
+        if isinstance(rj, list):
+            recs = rj
+        elif isinstance(rj, dict):
+            recs = rj.get("models") or rj.get("recommendations") or []
+        else:
+            recs = []
+        result["recommendations"] = recs
+        result["raw_recommend"] = rj
+    except Exception as e:
+        _wlog(f"llmfit recommend error: {e}"); result["recommendations"] = []
+    return result
+
+
 async def hardware_detection() -> dict:
-    """Scan hardware and recommend local LLM."""
+    """Scan hardware and recommend local LLM (with an llmfit cross-check)."""
     header("Hardware Detection & Local LLM")
 
     print("  Detecting hardware... ", end="", flush=True)
@@ -454,7 +499,7 @@ async def hardware_detection() -> dict:
 
     _wlog(f"hardware: {hw}")
 
-    # Recommend local LLM if viable
+    # ── Built-in RAM heuristic (Nexus default) ──────────────────────────────────
     recommended_model = None
     if hw.ram_gb >= 8:
         if hw.ram_gb < 16:
@@ -464,11 +509,36 @@ async def hardware_detection() -> dict:
         else:
             recommended_model = "llama3.1:70b" if hw.gpu_type else "llama3.1:8b"
 
-        print(f"{check_mark(True)} Local LLM recommended")
+        print(f"{check_mark(True)} Local LLM recommended (heuristic)")
         print(f"  Provider: ollama")
         print(f"  Model: {recommended_model}")
         if not hw.gpu_type:
             print(f"  No GPU detected. CPU-only inference via Ollama.\n")
+
+    # ── llmfit cross-check (PROTOTYPE) — richer hardware→model fit for comparison ─
+    fit = llmfit_probe()
+    if fit and fit.get("recommendations"):
+        recs = fit["recommendations"]
+        print(f"\n  {bold('llmfit analysis')} (cross-check — {len(recs)} fits):")
+        for r in recs[:5]:
+            if not isinstance(r, dict):
+                continue
+            comp = r.get("score_components", {}) or {}
+            print(
+                f"    • {r.get('name','?')}  "
+                f"{r.get('params_b','?')}B  {r.get('best_quant','?')}  "
+                f"ctx={r.get('context_length','?')}  "
+                f"score={r.get('score','?')} "
+                f"(q{comp.get('quality','?')}/s{comp.get('speed','?')}/f{comp.get('fit','?')})"
+            )
+        top = recs[0].get("name", "?") if isinstance(recs[0], dict) else "?"
+        print(f"\n  {dim('heuristic pick:')} {recommended_model or '(none)'}")
+        print(f"  {dim('llmfit top fit:')} {top}")
+        _wlog(f"COMPARE: heuristic={recommended_model} llmfit_top={top}")
+    elif fit:
+        print(f"  {dim('(llmfit ran but returned no recommendations — raw logged)')}")
+    else:
+        print(f"  {dim('(llmfit not available — using heuristic only)')}")
 
     return hw
 

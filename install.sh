@@ -185,6 +185,29 @@ else
     fi
 fi
 
+# llmfit (best-effort, PROTOTYPE) — hardware→model fit cross-check the wizard uses to
+# right-size the local LLM. Never fails the install; the wizard falls back to its RAM
+# heuristic if this is absent. Forced onto /usr/local/bin so the nexus user's wizard
+# (user phase, after su -) can find it regardless of where the installer dropped it.
+if command -v llmfit &>/dev/null; then
+    check "llmfit present"
+else
+    warn "llmfit not found — installing (best-effort, for hardware/model fit)..."
+    curl -fsSL https://llmfit.axjns.dev/install.sh -o /tmp/llmfit-install.sh 2>&3 && sh /tmp/llmfit-install.sh 2>&3 || true
+    LLMFIT_BIN="$(command -v llmfit 2>/dev/null || true)"
+    if [[ -z "$LLMFIT_BIN" ]]; then
+        for c in /root/.local/bin/llmfit "$HOME/.local/bin/llmfit" /root/.cargo/bin/llmfit; do
+            [[ -x "$c" ]] && LLMFIT_BIN="$c" && break
+        done
+    fi
+    if [[ -n "$LLMFIT_BIN" && -x "$LLMFIT_BIN" ]]; then
+        install -m 0755 "$LLMFIT_BIN" /usr/local/bin/llmfit 2>&3 || cp "$LLMFIT_BIN" /usr/local/bin/llmfit 2>&3 || true
+        check "llmfit installed ($(/usr/local/bin/llmfit --version 2>/dev/null | head -1))"
+    else
+        warn "llmfit install skipped — wizard falls back to the RAM heuristic"
+    fi
+fi
+
 
 # ── 2. Bot user creation ──────────────────────────────────────────────────────
 
