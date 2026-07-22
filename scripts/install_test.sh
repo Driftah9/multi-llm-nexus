@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 : "${NEXUS_USERNAME:=nexus}"
-: "${NEXUS_BRANCH:=docs/directory-layout}"
+: "${NEXUS_BRANCH:=experiment/llmfit-hardware-fit}"   # this branch (carries the llmfit prototype)
 : "${NEXUS_ANSWERS_SRC:=$REPO_DIR/config/answers.test.yaml}"
 
 INSTALL_SH="$REPO_DIR/install.sh"
@@ -112,6 +112,20 @@ if curl -sf http://localhost:11434/api/tags 2>/dev/null | grep -q '"models"'; th
 else
     echo "  Ollama not reachable — skipping smoke"
 fi
+
+# ── Hardware fit — heuristic vs llmfit (the whole point of the prototype) ─────
+say "hardware fit — Nexus heuristic vs llmfit"
+if command -v llmfit >/dev/null 2>&1 || [[ -x /usr/local/bin/llmfit ]]; then
+    echo "  llmfit installed: yes ($( (llmfit --version 2>/dev/null || /usr/local/bin/llmfit --version 2>/dev/null) | head -1))"
+else
+    echo "  llmfit installed: no (wizard used heuristic only)"
+fi
+WLOG="$HOME_DIR/Logs/install.log"
+SRC_LOG="$WLOG"; [[ -f "$SRC_LOG" ]] || SRC_LOG="$LOG"
+echo "  --- from $SRC_LOG ---"
+grep -E "RAM:|GPU:|CPU:|Local LLM recommended|Model:|llmfit|COMPARE|top fit|heuristic pick" "$SRC_LOG" 2>/dev/null | tail -40 \
+    || echo "  (no hardware-fit lines captured)"
+echo "  (raw llmfit JSON is in $WLOG — grep 'llmfit system raw' / 'llmfit recommend raw')"
 
 # ── Result ───────────────────────────────────────────────────────────────────
 say "RESULT: $PASS passed, $FAIL failed"
