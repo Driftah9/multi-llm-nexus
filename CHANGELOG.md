@@ -52,6 +52,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
   `preflight_check.sh` reports Docker presence (advisory).
 
 ### Added
+- **Canonical install directory layout, manifest-driven (2026-07-21).** New
+  `config/directory_layout.json` is the single source of truth for the install layout;
+  `install.sh` now reads its `class:"scaffold"` folders (stdlib JSON parse, works before the
+  app venv exists, with a built-in fallback so an automated install never bricks) instead of a
+  hardcoded `ROOT_FOLDERS` array. Adding a specialized directory is now a one-line manifest
+  edit — the installer and docs both follow. Includes a `venv/` home for system-tool venvs
+  (source stays in `Tools/`, project venvs stay in-project, manager venvs — incl. Nexus's own
+  `~/nexus/.venv` — stay put), and documents the engine's self-created runtime homes
+  (`~/.local/nexus/`, `~/.local/etc/`). The engine now resolves locations through
+  `src/core/layout.py` (`layout.path("venv")`) instead of hardcoding `Path.home() / "..."` —
+  undeclared folder names fail loud (7 tests in `tests/test_layout.py`; `wizard.py`'s docker
+  path is the first migrated call site). `docs/DIRECTORY_LAYOUT.md` is the human-readable face;
+  registered in the anti-drift claim-map; convergence gaps (lowercase-name alignment,
+  `Memory/`/`context/` roots) flagged in `KNOWN_LIMITATIONS.md`.
 - **Agent loop — the tool layer is now real (2026-07-20, live→Nexus port).** `core/agent_loop.py::
   run_agent()` gives any `supports_tools()` provider an execution engine: `BaseProvider.send()` gained
   `tools=` (OpenAI-format schemas from `ToolRegistry.schemas()`), the `openai` provider type passes

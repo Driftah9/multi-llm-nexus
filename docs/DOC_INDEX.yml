@@ -137,6 +137,16 @@ subsystems:
       - "CONTRIBUTING.md"
     claim: "Wizard recommends local models from RAM+GPU-presence only (hardware_detect.py's richer logic isn't wired in). preflight_check.sh + install_state.py are standalone — NOT yet invoked by install.sh. No CI. install.sh installs the FULL requirements.txt (canonical dep list — every provider SDK + adapter dep, so no selection hits ModuleNotFoundError) and installs Docker unconditionally via get.docker.com (container tools ready on demand); the nexus user is added to the docker group. requirements.txt is canonical; pyproject extras reconciled to google-genai (was the deprecated google-generativeai that broke gemini.py)."
 
+  - area: "install directory layout / file governance"
+    paths:
+      - "config/directory_layout.json"
+      - "install.sh"
+      - "src/core/layout.py"
+    docs:
+      - "docs/DIRECTORY_LAYOUT.md"
+      - "KNOWN_LIMITATIONS.md"
+    claim: "config/directory_layout.json is the SINGLE source of truth for the install layout; install.sh reads class:'scaffold' folders from it (stdlib JSON, pre-venv) with a built-in fallback, and the engine resolves locations via src/core/layout.py (fails loud on undeclared names). DIRECTORY_LAYOUT.md is its human face and must stay reconciled. Adding a dir = one manifest entry. Case/naming still diverges from the lowercase live canon (convergence gap, tracked in KNOWN_LIMITATIONS)."
+
   - area: "config schema"
     paths:
       - "src/core/config_schema.py"

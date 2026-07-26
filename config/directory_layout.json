@@ -1,0 +1,32 @@
+{
+  "_comment": "SOURCE OF TRUTH for the Nexus install directory layout. install.sh scaffolds every folder with class 'scaffold'; the engine creates class 'runtime' folders on first use (do NOT scaffold those). class 'managed' folders are created by another install mechanism (git clone, venv setup). Human-readable face + rationale: docs/DIRECTORY_LAYOUT.md. To add a specialized directory: add one entry here, and the installer + docs both follow. JSON (not YAML) on purpose — parsed with stdlib during early install, before the app venv/PyYAML exist.",
+  "_classes": {
+    "scaffold": "Organizational drop-zone the installer must create (nothing else does). Home-relative.",
+    "runtime": "Machine-written state created by the engine on first use via mkdir(parents=True). Listed for documentation only; NOT scaffolded by the installer.",
+    "managed": "Created by a dedicated install step (git clone / venv), not the folder loop."
+  },
+  "home_relative": true,
+  "folders": [
+    {"path": "nexus",          "class": "managed",  "purpose": "The Nexus application (git clone target): src/, config/, templates/, .env"},
+    {"path": "nexus/.venv",    "class": "managed",  "purpose": "Nexus's own runtime venv (installer-created; setup.sh activates it)"},
+    {"path": "venv",           "class": "scaffold", "purpose": "System-tool venv home — one subdir per tool (source stays in Tools/)"},
+    {"path": "Tools",          "class": "scaffold", "purpose": "System tool/engine SOURCE + shared vendored code (its venv lives in venv/)"},
+    {"path": "workspace",      "class": "scaffold", "purpose": "Projects, one dir each — self-contained unit (source + its own venv + docs)"},
+    {"path": "adapters",       "class": "scaffold", "purpose": "Platform/provider adapters"},
+    {"path": "Agents",         "class": "scaffold", "purpose": "Agent definitions"},
+    {"path": "skills",         "class": "scaffold", "purpose": "Skills (provider dirs symlink INTO here; never own)"},
+    {"path": "Scripts",        "class": "scaffold", "purpose": "Watchers, monitors, one-shots, utilities"},
+    {"path": "Config",         "class": "scaffold", "purpose": "System configuration"},
+    {"path": "Data",           "class": "scaffold", "purpose": "Operator/app persistent data — cache, registries (core runtime DBs live in .local/nexus/, not here)"},
+    {"path": "Logs",           "class": "scaffold", "purpose": "Logs"},
+    {"path": "backups",        "class": "scaffold", "purpose": "Snapshots (pre-change milestones + automated)"},
+    {"path": "dockers",        "class": "scaffold", "purpose": "Docker stacks"},
+    {"path": "Inbox",          "class": "scaffold", "purpose": "Inbound drops awaiting review"},
+    {"path": "Temp",           "class": "scaffold", "purpose": "Temp / working / disposable files (scratch, ephemeral screenshots)"},
+    {"path": "research_cache", "class": "scaffold", "purpose": "Cached research artifacts"},
+    {"path": "src",            "class": "scaffold", "purpose": "Scaffold root for install-local source"},
+    {"path": "tests",          "class": "scaffold", "purpose": "Scaffold root for install-local tests"},
+    {"path": ".local/nexus",   "class": "runtime",  "purpose": "Engine-created runtime DBs — RAG store, skill-metrics, triage-validation, session/journal/queue/staging/council state"},
+    {"path": ".local/etc",     "class": "runtime",  "purpose": "Optional secrets override home (nexus.env); read if present, safely skipped if absent"}
+  ]
+}

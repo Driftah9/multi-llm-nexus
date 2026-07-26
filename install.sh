@@ -371,15 +371,32 @@ fi
 
 header "Scaffolding System Root"
 
-ROOT_FOLDERS=(
-    Inbox Logs Scripts backups src tests Data skills
-    Config dockers adapters Agents Temp research_cache Tools workspace
-)
+# Folder list is read from the layout manifest — the single source of truth that docs and the
+# engine share (config/directory_layout.json). Only class "scaffold" folders are created here;
+# class "runtime" folders are created by the engine on first use. JSON is parsed with stdlib so
+# this works before the app venv/PyYAML exist. Falls back to a built-in list if the manifest is
+# missing/corrupt, so an automated install never bricks on it.
+LAYOUT_MANIFEST="$INSTALL_DIR/config/directory_layout.json"
+ROOT_FOLDERS=()
+if [[ -f "$LAYOUT_MANIFEST" ]]; then
+    mapfile -t ROOT_FOLDERS < <("${PYTHON_BIN:-python3}" -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+print("\n".join(f["path"] for f in d["folders"] if f.get("class") == "scaffold"))
+' "$LAYOUT_MANIFEST" 2>&3)
+fi
+if [[ ${#ROOT_FOLDERS[@]} -eq 0 ]]; then
+    warn "Layout manifest unreadable ($LAYOUT_MANIFEST) — using built-in fallback list"
+    ROOT_FOLDERS=(
+        Inbox Logs Scripts backups src tests Data skills
+        Config dockers adapters Agents Temp research_cache Tools workspace venv
+    )
+fi
 for folder in "${ROOT_FOLDERS[@]}"; do
     mkdir -p ~/"$folder"
     info "~/$folder/"
 done
-check "System root folders created (${#ROOT_FOLDERS[@]} canonical folders)"
+check "System root folders created (${#ROOT_FOLDERS[@]} scaffold folders from manifest)"
 
 
 # ── 3. Identity templates ─────────────────────────────────────────────────────
