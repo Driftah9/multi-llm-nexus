@@ -59,6 +59,17 @@ memory is injected **once, before any provider is chosen** (recall → prompt, s
 system prompt). Opt-in and behavior-preserving: with no stores wired it is a clean no-op;
 `enable_memory(rag, mem)` turns it on. A different backend swaps in via `set_injector()`.
 
+**Recall precision port (2026-07-26, from the live memory-streamline eval).** Retrieval is
+now *earned, not automatic*: `is_trivial_query()` gates short queries and pure conversational
+acks ("thanks, looks good") before the store is ever touched — the live system measured such
+turns injecting 0/4-relevant hits at ~300 tokens each. Hits carry real confidence:
+`RagStore.query_scored()` returns (distance, text) pairs and `RecallHit.score` is similarity
+(higher = closer; 0.0 on custom stores exposing only unscored `query()`, which still work via
+fallback). Recall stays **variable-k** — the store's distance threshold means an empty or
+short recall block is correct behavior, never padded to k with weak matches. The measured
+lesson behind all three: every irrelevant injected hit is paid on every subsequent turn until
+context eviction, so precision compounds.
+
 ---
 
 ## Structured-output robustness (`core/schema_gate`)

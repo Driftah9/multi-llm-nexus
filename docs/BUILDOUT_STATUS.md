@@ -1,5 +1,5 @@
 # Nexus Build-Out Status — Where the Vision Meets the Code
-**Date:** 2026-06-09 · **Verified/updated:** 2026-07-18
+**Date:** 2026-06-09 · **Verified/updated:** 2026-07-26
 **Purpose:** Single source of truth on what's built, what's stubbed, what's missing — so the provider/tier work has full context without re-explanation.
 
 > **2026-07-18 reality check.** The "INERT / broken in 3 ways / STANDBY since Jun 3"
@@ -266,6 +266,7 @@ Live source of truth for the design: `~/.claude/.../memory/project_swarm_orchest
 | Tier → pool routing | `src/core/pool_router.py` (`_pool_for_triage`) |
 | Provider selection hub | `src/core/bridge.py` (`invoke`, `_invoke_with_pool`, `_invoke_with_chain`) |
 | Rollover (chain) | `src/core/provider_chain.py` (`try_with_fallback`, `select_provider`) |
+| Turn journal (crash forensics, fail-open) | `src/core/flight_recorder.py`, wired into `try_with_fallback`; reader: `scripts/flight_recover.py` |
 | Rate limit gate | `src/core/pool_manager.py` (`is_available`, `ordered_pool`); `src/core/provider_quota.py` |
 | Parallel specialists + synthesis | `src/core/orchestrator.py` (`_invoke_specialists`, `_synthesize`) |
 | Parallel provider stub | `src/core/pool_manager.py` (`TierPoolConfig.parallelism`) |

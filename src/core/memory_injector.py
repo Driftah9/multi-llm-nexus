@@ -26,11 +26,32 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Conversational acks/fillers carry no retrievable intent — running retrieval on
+# them injects pure noise at token cost every turn (live system measured 0/4
+# relevant hits on "thanks, looks good", 2026-07-26). Matches one or more ack
+# phrases chained with separators. Ported from the live CLI recall hook.
+_ACK_PHRASE = (
+    r"(?:ok(?:ay)?|yes|yea?h?|yep|no|nope|sure|thanks?(?: you)?|ty|thx|"
+    r"(?:sounds?|looks?) good(?: to me)?|lgtm|nice(?: work)?|great|perfect|awesome|"
+    r"cool|go ahead|do (?:that|it)|proceed|continue|carry on|approved?|confirmed?|"
+    r"got it|makes sense|understood|will do|please do|good work|well done)"
+)
+_ACK_RE = re.compile(rf"^(?:{_ACK_PHRASE}[\s.,!]*)+$", re.IGNORECASE)
+_MIN_QUERY_CHARS = 15
+
+
+def is_trivial_query(query: str) -> bool:
+    """True when a query is too short or a pure conversational ack — retrieval
+    would only inject noise. Exposed so harnesses can gate at their own seam."""
+    q = (query or "").strip()
+    return len(q) < _MIN_QUERY_CHARS or bool(_ACK_RE.match(q))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,14 +153,28 @@ class DefaultMemoryInjector(MemoryInjector):
         return ctx
 
     async def recall(self, query, *, namespaces=None, k=4):
-        if not self._rag or not (query or "").strip():
+        if not self._rag or is_trivial_query(query):
             return []
         try:
-            results = await asyncio.to_thread(
-                self._rag.query, query, namespaces or ["memory", "projects"], k
+            scored = await asyncio.to_thread(
+                self._rag.query_scored, query, namespaces or ["memory", "projects"], k
             )
-            # RagStore.query returns list[str] (no per-hit distance) → score 0.0.
-            return [RecallHit(text=(t or "").strip()) for t in results if t]
+            # score = similarity (1 - cosine distance), so higher is better and
+            # callers can rank/floor without knowing the store's distance metric.
+            return [
+                RecallHit(text=(t or "").strip(), score=round(max(0.0, 1.0 - d), 3))
+                for d, t in scored if t
+            ]
+        except AttributeError:
+            # Custom rag_store without query_scored — fall back to unscored.
+            try:
+                results = await asyncio.to_thread(
+                    self._rag.query, query, namespaces or ["memory", "projects"], k
+                )
+                return [RecallHit(text=(t or "").strip()) for t in results if t]
+            except Exception as e:
+                logger.debug(f"[memory] recall failed: {e}")
+                return []
         except Exception as e:
             logger.debug(f"[memory] recall failed: {e}")
             return []

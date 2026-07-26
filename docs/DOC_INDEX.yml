@@ -12,7 +12,7 @@
 # does, update the matching entry here in the SAME change. Keep `claim` short — it's the
 # one-line truth a reviewer checks the doc against.
 #
-# Last verified against code: 2026-07-18
+# Last verified against code: 2026-07-26
 # # NEXUS:PORTABLE (the schema) / # NEXUS:OPERATOR (the specific paths+docs below)
 
 subsystems:
@@ -31,6 +31,26 @@ subsystems:
       - "README.md"
       - "KNOWN_LIMITATIONS.md"
     claim: "Provider-level PARALLEL fan-out is NOT wired (parallelism parsed, never branched). Busy-pool routing only feeds the legacy ProviderChain path, not the tier_pools path."
+
+  - area: "flight recorder / turn journal (crash forensics)"
+    paths:
+      - "src/core/flight_recorder.py"
+      - "scripts/flight_recover.py"
+    docs:
+      - "README.md"
+      - "docs/BUILDOUT_STATUS.md"
+    claim: "Real, wired into ProviderChain.try_with_fallback (turn_start/attempt_start/attempt_end/turn_end; recording only, zero chain-behavior change). Fail-open — a recorder error never breaks a turn. Daily UTC JSONL under the layout-resolved Logs/flight_recorder/ dir (FLIGHT_RECORDER_DIR override), pruned by FLIGHT_RECORDER_RETENTION_DAYS (default 14). Chunk-level partial-output events are supported by the module's API but not emitted by try_with_fallback, since its invoke_fn is a single-shot call with no partial-chunk callback — only callers with a streaming/partial hook (e.g. a future bridge.py wiring) would emit chunk events."
+
+  - area: "memory recall / injection"
+    paths:
+      - "src/core/memory_injector.py"
+      - "src/core/rag_store.py"
+      - "src/core/memory_loader.py"
+    docs:
+      - "docs/convergence-2026-06.md"
+      - "docs/BUILDOUT_STATUS.md"
+      - "README.md"
+    claim: "Recall is trivial-query gated (acks/short queries skip retrieval entirely), score-carrying (RecallHit.score = similarity via RagStore.query_scored; 0.0 on unscored custom stores), and variable-k — an empty recall block is correct behavior, hits are never padded to k."
 
   - area: "quota / rate governance"
     paths:

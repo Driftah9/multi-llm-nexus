@@ -119,6 +119,21 @@ class RagStore:
         Return up to n_results relevant text chunks across specified namespaces.
         Results are deduplicated and filtered by cosine distance threshold.
         """
+        return [t for _, t in self.query_scored(text, namespaces, n_results)]
+
+    def query_scored(
+        self,
+        text: str,
+        namespaces: Optional[list[str]] = None,
+        n_results: int = 4,
+    ) -> list[tuple[float, str]]:
+        """
+        Like query(), but returns (cosine_distance, text) pairs so callers can
+        rank, floor, or surface confidence — the store computes distances anyway;
+        discarding them upstream forces every consumer to treat all hits as equal
+        (the padding-with-weak-hits failure the live system measured 2026-07-26).
+        Lower distance = more similar. Already threshold-filtered and sorted.
+        """
         if not self._available or not text.strip():
             return []
 
@@ -155,7 +170,7 @@ class RagStore:
                 logger.warning(f"RagStore query failed in namespace {ns!r}: {exc}")
 
         results.sort(key=lambda x: x[0])
-        return [t for _, t in results[:n_results]]
+        return results[:n_results]
 
     # ── Status ────────────────────────────────────────────────────────
 

@@ -192,6 +192,24 @@ ollama_local:
 
 ---
 
+## Flight Recorder (Crash Forensics)
+
+Every turn at the provider-failover seam (`ProviderChain.try_with_fallback`) is journaled to an
+append-only, local JSONL log — a black box. If a provider (or the host) dies mid-generation, the
+turn's context, every attempt (provider/model/outcome), and any partial output already received
+are on disk, not lost with the in-flight request.
+
+- **Fail-open by design:** a recorder error never breaks a turn — every write is best-effort.
+- **Where it lives:** daily UTC files under the layout-resolved logs directory (`Logs/flight_recorder/`
+  by default; override with `FLIGHT_RECORDER_DIR`). Retention defaults to 14 days
+  (`FLIGHT_RECORDER_RETENTION_DAYS`).
+- **Reader:** `python3 scripts/flight_recover.py` lists recent turns; `flight_recover.py <turn_id>`
+  reconstructs one turn's attempts and any in-flight text; `--failed` filters to non-success turns.
+
+Code: `src/core/flight_recorder.py` (journal) · `scripts/flight_recover.py` (reader).
+
+---
+
 ## Running a Local LLM
 
 Nexus uses [Ollama](https://ollama.com) to talk to local models — no API key, nothing leaves your network. Local models cover the triage and standard tiers well. For deep tier, most users route to a cloud provider even if everything else is local.

@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Flight recorder — crash-forensics turn journal (2026-07-26, live→nexus port after live
+  validation).** `src/core/flight_recorder.py` journals every turn at the failover seam:
+  `ProviderChain.try_with_fallback()` (new optional `flight_meta` param, recording-only, zero
+  chain-behavior change) writes `turn_start` / `attempt_start` / `attempt_end` / `turn_end`
+  events — plus a `chunk()` API for streaming-aware callers — to append-only daily UTC JSONL
+  under the layout-resolved `Logs/flight_recorder/` (env `FLIGHT_RECORDER_DIR` override,
+  `FLIGHT_RECORDER_RETENTION_DAYS` pruning, default 14). Fail-open: a recorder error never
+  breaks a turn. Reader: `scripts/flight_recover.py` (list / `--failed` / turn reconstruction /
+  `--prompt` dump for re-invoking another provider). Rationale: providers stream token-by-token,
+  so everything generated before a mid-turn provider crash has already arrived locally —
+  "all providers failed" should never be the only record of a dead turn. 13 new tests.
+- **Recall precision: trivial-query gate + scored hits (2026-07-26, live→nexus port from the
+  live memory-streamline eval).** `memory_injector.is_trivial_query()` skips retrieval for
+  short queries and pure conversational acks ("thanks, looks good" — live-measured 0/4-relevant
+  injection) before the store is touched; `RagStore.query_scored()` exposes the cosine
+  distances the store already computes, and `RecallHit.score` carries similarity (fallback to
+  unscored custom stores preserved). Recall stays variable-k — empty recall blocks are correct,
+  hits are never padded. 15 new tests.
 - **Unattended install mode + test harness (2026-07-21).** The wizard now accepts
   `--answers <file>` (`config/answers.test.yaml`) and runs headless: each prompt with a
   matching `key` returns the preset value, and — critically — prompts *without* a preset fall

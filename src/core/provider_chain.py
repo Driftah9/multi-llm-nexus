@@ -18,6 +18,7 @@ from typing import Optional
 
 from ..providers.base import BaseProvider
 from .error_classifier import classify_error, is_retryable_same, should_advance_chain, AUTH, QUOTA, MODEL_GONE
+from . import flight_recorder as fr
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,7 @@ class ProviderChain:
         invoke_fn,
         tier: Optional[str] = None,
         on_attempt=None,
+        flight_meta: Optional[dict] = None,
     ):
         """
         Try to invoke a function with automatic fallback to next provider.
@@ -234,7 +236,16 @@ class ProviderChain:
 
         fallback_occurred is True if a lower-priority provider handled the request.
         The caller may use this to tag the response (e.g. "[Offline fallback]").
+
+        flight_meta is an optional dict of turn context (prompt, platform, session_key,
+        username, ...) forwarded to the flight recorder — the append-only journal at
+        this failover seam (src/core/flight_recorder.py). Purely observational: passing
+        None (the default) changes nothing about chain behavior. Recording is fail-open
+        — a recorder error can never surface here.
         """
+        _turn_id = fr.new_turn_id()
+        fr.turn_start(_turn_id, tier=tier, **(flight_meta or {}))
+
         attempts = 0
         last_error = None
         first_selected: Optional[ProviderChainEntry] = None
@@ -242,11 +253,14 @@ class ProviderChain:
         while attempts < min(len(self.entries), self.config.retry_attempts):
             provider = await self.select_provider(tier=tier)
             if not provider:
+                fr.turn_end(_turn_id, ok=False, provider=None)
                 return False, None, None, False, "No available providers"
 
             entry = self._find_entry(provider)
             if attempts == 0 and entry:
                 first_selected = entry
+            name = entry.name if entry else "?"
+            model = getattr(entry.provider, "model", None) if entry else None
 
             if on_attempt and entry:
                 try:
@@ -254,19 +268,23 @@ class ProviderChain:
                 except Exception:
                     pass
 
+            fr.attempt_start(_turn_id, name, model)
+
             try:
                 result = await invoke_fn(provider)
                 # Mark success
                 await self.record_success(provider)
+                fr.attempt_end(_turn_id, name, ok=True)
 
                 # Check if we fell back: used provider is lower priority than first attempt
                 fallback = first_selected and entry and entry.priority > first_selected.priority
+                fr.turn_end(_turn_id, ok=True, provider=name)
                 return True, result, provider, fallback, None
 
             except Exception as e:
                 last_error = str(e)
                 klass = classify_error(last_error)
-                name = entry.name if entry else "?"
+                fr.attempt_end(_turn_id, name, ok=False, error=last_error)
 
                 # BAD_REQUEST (malformed / filtered / over-length) fails identically on
                 # every provider — surface it now instead of burning the whole chain on
@@ -274,6 +292,7 @@ class ProviderChain:
                 if not should_advance_chain(klass):
                     await self.record_failure(provider, error=last_error)
                     logger.warning(f"Provider {name} {klass} — not advancing: {last_error}")
+                    fr.turn_end(_turn_id, ok=False, provider=None)
                     return False, None, provider, False, last_error
 
                 # TRANSIENT / UNKNOWN — a server-side blip may clear on a second try, so
@@ -281,12 +300,16 @@ class ProviderChain:
                 if is_retryable_same(klass):
                     try:
                         await asyncio.sleep(self.config.retry_delay)
+                        fr.attempt_start(_turn_id, name, model)
                         result = await invoke_fn(provider)
                         await self.record_success(provider)
+                        fr.attempt_end(_turn_id, name, ok=True)
                         fallback = first_selected and entry and entry.priority > first_selected.priority
+                        fr.turn_end(_turn_id, ok=True, provider=name)
                         return True, result, provider, fallback, None
                     except Exception as e2:
                         last_error = str(e2)
+                        fr.attempt_end(_turn_id, name, ok=False, error=last_error)
 
                 # QUOTA / AUTH, or a transient that failed its retry — advance the chain.
                 await self.record_failure(provider, error=last_error)
@@ -296,6 +319,7 @@ class ProviderChain:
                 if attempts < self.config.retry_attempts:
                     await asyncio.sleep(self.config.retry_delay)
 
+        fr.turn_end(_turn_id, ok=False, provider=None)
         return False, None, None, False, last_error
 
     def _find_entry(self, provider: BaseProvider) -> Optional[ProviderChainEntry]:
