@@ -23,17 +23,35 @@ During setup, the wizard scans your system:
 
 ### Recommendations by Hardware
 
-The wizard's shown recommendation (`src/setup/wizard.py`) is driven by total RAM plus whether *any* GPU is present:
+The wizard's shown recommendation (`src/setup/wizard.py`, wired to `src/setup/hardware_detect.py`
+as of 2026-08-11) is tiered by **GPU vendor and VRAM** when a GPU is present, falling back to a
+RAM-tiered table for CPU-only systems:
 
-| RAM | GPU present? | Recommended Model |
+| Hardware | Recommended Model | Provider |
 |---|---|---|
-| < 8 GB | — | Not recommended (insufficient for local LLM) |
-| 8–15 GB | any | `llama3.2:3b` |
-| 16–31 GB | any | `llama3.1:8b` |
-| 32+ GB | GPU | `llama3.1:70b` |
-| 32+ GB | CPU-only | `llama3.1:8b` |
+| CPU-only, < 8 GB RAM | Not recommended (insufficient for local LLM) | — |
+| CPU-only, 8–15 GB RAM | `phi4-mini` | `ollama` |
+| CPU-only, 16–31 GB RAM | `llama3.2:3b` | `ollama` |
+| CPU-only, 32+ GB RAM | `llama3.1:8b` | `ollama` |
+| NVIDIA, < 3 GB VRAM | `phi4-mini` | `ollama` |
+| NVIDIA, 3–6 GB VRAM | `llama3.2:3b` | `ollama` |
+| NVIDIA, 6–16 GB VRAM | `llama3.1:8b` | `ollama` |
+| NVIDIA, 16+ GB VRAM | `qwen2.5-coder-32b-iq3_k` | `ik_llama` (MoE/GGUF-optimized) |
+| AMD, < 6 GB VRAM | `Llama-3.2-3B-Instruct` | `vllm` (ROCm) |
+| AMD, 6–16 GB VRAM | `Llama-3.1-8B-Instruct` | `vllm` (ROCm) |
+| AMD, 16+ GB VRAM | `Qwen2.5-14B-Instruct` | `vllm` (ROCm) |
+| Intel, < 6 GB VRAM | `Llama-3.2-3B-Instruct` | `vllm` (XPU/SYCL) |
+| Intel, 6–16 GB VRAM | `Llama-3.1-8B-Instruct` | `vllm` (XPU/SYCL) |
+| Intel, 16+ GB VRAM | `Qwen2.5-14B-Instruct` | `vllm` (XPU/SYCL) |
 
-> **Note:** `src/setup/hardware_detect.py` contains a richer per-GPU-vendor/VRAM recommendation path (e.g. NVIDIA 16GB+ → `qwen2.5-coder-32b-iq3_k` via `ik_llama`; AMD/Intel → vLLM with ROCm/XPU). That logic is computed but is **not currently wired into the wizard's displayed recommendation** — the wizard uses the simpler RAM+GPU-presence table above. This is a known gap, not a documented feature.
+> **Known gap:** for AMD/Intel GPUs the recommended *provider* is `vllm`, but the wizard's
+> provider-selection checklist (`provider_selection()`) still only pre-selects `ollama` by
+> default — the richer provider pick isn't threaded through to that step yet.
+
+> **PROTOTYPE (experimental branch, not yet on `main`):** an optional cross-check against the
+> external [`llmfit`](https://github.com/AlexsJones/llmfit) tool prints its own hardware-fit
+> analysis alongside the recommendation above, for comparison only — it never overrides the
+> heuristic above.
 
 ---
 

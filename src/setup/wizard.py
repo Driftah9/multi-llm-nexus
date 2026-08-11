@@ -493,27 +493,19 @@ async def hardware_detection() -> dict:
     hw = await detect_hardware()
     print("done\n")
 
-    print(f"  CPU: {hw.cpu_cores} cores")
-    print(f"  RAM: {hw.ram_gb:.1f} GB")
-    print(f"  GPU: {hw.gpu_type or 'None (CPU-only)'}\n")
+    print(hardware_report(hw) + "\n")
 
     _wlog(f"hardware: {hw}")
 
-    # ── Built-in RAM heuristic (Nexus default) ──────────────────────────────────
-    recommended_model = None
-    if hw.ram_gb >= 8:
-        if hw.ram_gb < 16:
-            recommended_model = "llama3.2:3b"
-        elif hw.ram_gb < 32:
-            recommended_model = "llama3.1:8b"
-        else:
-            recommended_model = "llama3.1:70b" if hw.gpu_type else "llama3.1:8b"
-
+    # ── VRAM/vendor-tiered heuristic (Nexus default — hardware_detect.py) ───────
+    recommended_model = hw.recommended_model
+    if hw.recommended_local:
         print(f"{check_mark(True)} Local LLM recommended (heuristic)")
-        print(f"  Provider: ollama")
+        print(f"  Provider: {hw.recommended_provider}")
         print(f"  Model: {recommended_model}")
-        if not hw.gpu_type:
-            print(f"  No GPU detected. CPU-only inference via Ollama.\n")
+        if hw.provider_notes:
+            print(f"  {hw.provider_notes}")
+        print()
 
     # ── llmfit cross-check (PROTOTYPE) — richer hardware→model fit for comparison ─
     fit = llmfit_probe()

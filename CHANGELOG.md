@@ -9,11 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 - **llmfit hardware→model fit cross-check (2026-07-22, PROTOTYPE — phase 1, compare only).**
   `src/setup/wizard.py::llmfit_probe()` best-effort shells out to the external `llmfit`
   tool (github.com/AlexsJones/llmfit) during the hardware-detection step and prints its
-  top model fits alongside Nexus's existing RAM-heuristic pick, purely for comparison.
+  top model fits alongside Nexus's own heuristic pick, purely for comparison.
   `install.sh` best-effort installs `llmfit`; `scripts/install_test.sh` surfaces the
   comparison from the install log. Fully fallback-guarded — absent/erroring `llmfit`
-  changes nothing; the wizard's actual recommendation still comes from the RAM heuristic
-  alone. Wiring llmfit's pick into the real model pull is unstarted (phase 2).
+  changes nothing; the wizard's actual recommendation still comes from Nexus's own
+  heuristic (see entry below) regardless. Wiring llmfit's pick into the real model pull
+  is unstarted (phase 2).
+
+### Fixed
+- **Wizard hardware recommendation now VRAM/vendor-tiered (2026-08-11).**
+  `wizard.py::hardware_detection()` was recomputing its own RAM-only, GPU-presence-only
+  model pick (a system with any GPU and 32GB+ RAM always got `llama3.1:70b`, regardless of
+  whether the card had 4GB or 80GB of VRAM) instead of using `hardware_detect.py`'s existing
+  `detect_hardware()` output, which was already computing a proper NVIDIA/AMD/Intel
+  VRAM-tiered recommendation (with provider + notes) but wiring it in was never finished.
+  Now uses `hw.recommended_model` / `hw.recommended_provider` / `hw.provider_notes` directly
+  and prints via `hardware_report()` (adds VRAM, driver, GPU count to the CPU/RAM/GPU line).
+  Known follow-up gap: for AMD/Intel, `hw.recommended_provider` can be `vllm`, but
+  `provider_selection()`'s checklist still only pre-selects `ollama` — not addressed here.
 - **Flight recorder — crash-forensics turn journal (2026-07-26, live→nexus port after live
   validation).** `src/core/flight_recorder.py` journals every turn at the failover seam:
   `ProviderChain.try_with_fallback()` (new optional `flight_meta` param, recording-only, zero
