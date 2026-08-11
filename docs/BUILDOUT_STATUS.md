@@ -19,11 +19,11 @@
 
 ---
 
-## The Reality: Two Parallel Stacks on 10.0.0.7
+## The Reality: Two Parallel Stacks on One Host
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  LIVE PRODUCTION BRAIN          /home/claude/adapters/                │
+│  LIVE PRODUCTION BRAIN          ~/adapters/                           │
 │  Services: adapter-mattermost / -discord / -telegram                  │
 │                                                                       │
 │  Mattermost WS → owner gate → channel→project map →                   │
@@ -36,18 +36,18 @@
 └─────────────────────────────────────────────────────────────────────┘
                               ▲  not integrated  ▲
 ┌─────────────────────────────────────────────────────────────────────┐
-│  MULTI-LLM NEXUS               /home/claude/projects/multi-llm-nexus/ │
+│  MULTI-LLM NEXUS               ~/projects/multi-llm-nexus/            │
 │  Service: nexus.service  (RUNNING but INERT)                          │
 │                                                                       │
 │  AdapterBase → Triage.classify → bridge.invoke(triage=…) →            │
 │    PoolRouter → PoolManager (cost-class order) → failover loop        │
 │    [optional] Orchestrator → specialist fan-out → synthesize          │
 │                                                                       │
-│  ► The multi-provider future. 12 provider classes implemented.        │
+│  ► The multi-provider future. 8 provider classes implemented.         │
 │  ► Currently broken in 3 ways (see "Blockers"). Offloads nothing yet. │
 └─────────────────────────────────────────────────────────────────────┘
 
-  llm-watcher.service → /home/claude/projects/llm-watcher/
+  llm-watcher.service → ~/projects/llm-watcher/
     Liveness only (30s state machine, town-square announcements). Not quota.
 ```
 
@@ -64,7 +64,7 @@
 | ROLLOVER (fail to next provider) | ✅ **Built ×2** | `src/core/bridge.py` `_invoke_with_pool` (cost-class: local→free→paid) + `src/core/provider_chain.py` `try_with_fallback` (tier-filtered, circuit breaker) |
 | Monitor providers within rate limits | ✅ **Built** | `src/core/provider_quota.py` (`can_use`/`headroom`/`should_conserve`, RPM/RPD/TPM/TPD) + `pool_manager.py` sliding-window rate states |
 | Run with 1 or dozens of providers | ✅ **Built** | `chain_builder.py` builds from `providers.yaml`; any provider with a `priority:` joins the chain |
-| Harness all access models (free/paid/sub/local) | ✅ **Built** | `provider_quota.py` `AccessTier` (FREE/TRIAL/PAID/UNLIMITED); 12 provider classes in `src/providers/` |
+| Harness all access models (free/paid/sub/local) | ✅ **Built** | `provider_quota.py` `AccessTier` (FREE/TRIAL/PAID/UNLIMITED); 8 provider classes in `src/providers/` |
 | **PARALLEL = same prompt to N providers, synthesize** | 🟡 **Subsumed by swarm (2026-07-18)** | The swarm loop (`swarm_wiring`/`swarm_loop`) is the generalized form — capability-routed parallel worker waves + review. It's ported and inert; wiring it (step 15) closes this. Fixed-role council also fans one prompt to 3 roles in parallel. |
 | Tier pool `parallelism: parallel` | ⚠️ **Stubbed** | `pool_manager.py:211,306` — field parsed, never branched on. Every pool treated as failover. |
 | Engine ACTIVE/STANDBY tick loop | ⚠️ **Dormant** | `engine.py` `_process_standard` — legacy single-provider path; live adapters bypass it via `bridge.invoke` directly |

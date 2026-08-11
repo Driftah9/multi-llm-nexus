@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **llmfit hardware→model fit cross-check (2026-07-22, PROTOTYPE — phase 1, compare only).**
+  `src/setup/wizard.py::llmfit_probe()` best-effort shells out to the external `llmfit`
+  tool (github.com/AlexsJones/llmfit) during the hardware-detection step and prints its
+  top model fits alongside Nexus's existing RAM-heuristic pick, purely for comparison.
+  `install.sh` best-effort installs `llmfit`; `scripts/install_test.sh` surfaces the
+  comparison from the install log. Fully fallback-guarded — absent/erroring `llmfit`
+  changes nothing; the wizard's actual recommendation still comes from the RAM heuristic
+  alone. Wiring llmfit's pick into the real model pull is unstarted (phase 2).
 - **Flight recorder — crash-forensics turn journal (2026-07-26, live→nexus port after live
   validation).** `src/core/flight_recorder.py` journals every turn at the failover seam:
   `ProviderChain.try_with_fallback()` (new optional `flight_meta` param, recording-only, zero

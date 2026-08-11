@@ -1,5 +1,5 @@
 project: multi-llm-nexus
-workspace_root: /home/claude/projects
+workspace_root: /home/nexus/projects
 status: active
 purpose: '> **Status: Active Beta** — Core patterns are validated. The runtime is
   under active development. Expect rough edges. Not recommended for critical production
@@ -11,8 +11,8 @@ tools:
   detected_at: '2026-06-08'
   confirmed: true
   frequency:
-    count: 51
-    last_seen: '2026-07-26'
+    count: 61
+    last_seen: '2026-08-11'
   criticality: irreplaceable
   rebuild_cmd: ''
   notes: ''
@@ -22,8 +22,8 @@ tools:
   detected_at: '2026-06-08'
   confirmed: true
   frequency:
-    count: 51
-    last_seen: '2026-07-26'
+    count: 61
+    last_seen: '2026-08-11'
   criticality: essential
   rebuild_cmd: ''
   notes: ''
@@ -43,7 +43,7 @@ archive_metadata:
   archived_date: null
   archived_reason: null
   archive_location: null
-  last_active: '2026-07-26T03:45:03Z'
+  last_active: '2026-08-11T07:45:02Z'
 notes: ''
 _wti_version: '1.0'
 _created_at: '2026-06-08T00:54:29Z'

@@ -81,7 +81,7 @@ Same as v1 — good output. Checks CLI tools, Python packages, local services, A
 One addition: show **system IP** prominently — used as default for all local service URLs.
 
 ```
-System IP: 10.0.0.121  (used as default for all local service endpoints)
+System IP: 192.0.2.10  (used as default for all local service endpoints)
 ```
 
 ---
@@ -288,7 +288,7 @@ Same as current — `sudo systemctl enable --now nexus`. Already permitted by su
 
   Next steps:
   1. Start Mattermost: docker compose -f ~/dockers/mattermost/docker-compose.yml up -d
-  2. Visit http://10.0.0.121:8065 → create admin account → create bot → copy token
+  2. Visit http://192.0.2.10:8065 → create admin account → create bot → copy token
   3. Add token: echo "MM_BOT_TOKEN=xxxx" >> ~/nexus/.env
   4. Restart: sudo systemctl restart nexus
 ```
