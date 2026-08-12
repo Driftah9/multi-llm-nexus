@@ -71,10 +71,58 @@ the combos live-validated). Other providers accept-and-ignore `tools` until impl
 
 ### config/ — Operator Configuration
 - `providers.yaml` — provider definitions and routing rules
-- `adapters.yaml` — platform connection settings (bot tokens, channel maps)
+- `adapters.yaml` — platform connection settings (bot tokens, channel maps) + `notify:` block
 - `workspaces.yaml` — workspace categories with specialist routing rules
+- `model_sources.yaml` — model lifecycle tracking + `fit_check:` (llmfit hardware-fit scan)
 - `specialists/*.md` — role profiles (YAML frontmatter + markdown system prompt)
 - `.env` — secrets (never committed, .env.example provided)
+
+## Notifications — Out-of-Band Operator Contact
+
+**Every** background component that needs to reach the operator outside the normal
+request/response cycle goes through ONE seam. This is structural, like where scripts and
+config live — not a per-feature choice.
+
+### The rule
+No script, watcher, or core module ever hardcodes a protocol, channel, or chat ID.
+The operator may switch their primary platform; when they do, nothing should need a code
+edit. Only components with an explicit, deliberate override stay pinned.
+
+### The seam
+`src/core/notify.py` → `Notifier.from_config()` reads the `notify:` block in
+`config/adapters.yaml` at call time:
+
+```yaml
+notify:
+  default_protocol: mattermost   # mattermost | discord | telegram | slack
+  default_destination: dm        # dm | channel
+  protocols:
+    mattermost: {url, bot_token, team, dm_channel_id}
+    telegram:   {bot_token, chat_id}
+    discord:    {webhook_url}
+    slack:      {bot_token, default_channel}
+```
+
+`notifier.send(message, destination=…, channel=…, protocol=…)` — omit the kwargs to
+follow the operator's configured default. The wizard asks for these at setup
+(`notification_setup()`); it is not expected to be hand-edited.
+
+### Two caller patterns
+| Caller | Pattern |
+|---|---|
+| Script / cron entrypoint (`scripts/*.py`) | Import `Notifier`, call `.send()` — reads config itself |
+| Core module (`src/core/*`, `src/lifecycle/*`) | Accept an injected `notify` callable from the caller; never import an adapter |
+
+The injection seam is what keeps core modules provider-agnostic. A core module that
+imports a specific adapter is a bug.
+
+### The invariant for background checks
+Detection is **mechanical** — subprocess, HTTP diff, clock, file state. Zero LLM tokens
+are spent unless a finding actually exists and needs phrasing. Findings are written to a
+JSON file under `data/`; the notification is a summary plus a pointer to that file.
+Nothing auto-applies — model swaps, pulls, and config changes are proposed to the
+operator, never executed by the watcher. See `src/lifecycle/fit_check.py` for the
+reference implementation.
 
 ## Specialist Orchestration System
 

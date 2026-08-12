@@ -77,6 +77,8 @@ class Notifier:
                 return self._send_discord(message, proto_cfg)
             elif proto == "telegram":
                 return self._send_telegram(message, proto_cfg)
+            elif proto == "email":
+                return self._send_email(message, proto_cfg)
             else:
                 logger.warning(f"Notifier: protocol '{proto}' has no send implementation")
                 return False
@@ -145,6 +147,42 @@ class Notifier:
                                      headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.status in (200, 204)
+
+    def _send_email(self, message: str, cfg: dict) -> bool:
+        """SMTP delivery — for operators who'd rather get notifications in a mailbox
+        than a chat client. Subject line is the first line of the message; the
+        `subject_prefix` keeps them filterable."""
+        import smtplib
+        from email.message import EmailMessage
+
+        host = cfg.get("smtp_host", "")
+        to_addr = cfg.get("to_address", "")
+        if not host or not to_addr:
+            logger.error("Notifier(email): smtp_host and to_address are required")
+            return False
+
+        first_line = message.strip().splitlines()[0] if message.strip() else "Notification"
+        subject = f"{cfg.get('subject_prefix', '[Nexus]')} {first_line}".strip()
+
+        msg = EmailMessage()
+        msg["Subject"] = subject[:200]
+        msg["From"] = cfg.get("from_address") or to_addr
+        msg["To"] = to_addr
+        msg.set_content(message)
+
+        port = int(cfg.get("smtp_port", 587))
+        use_tls = cfg.get("use_tls", True)
+        username = cfg.get("username", "")
+        password = cfg.get("password", "")
+
+        smtp_cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+        with smtp_cls(host, port, timeout=20) as server:
+            if use_tls and port != 465:
+                server.starttls()
+            if username and password:
+                server.login(username, password)
+            server.send_message(msg)
+        return True
 
     def _send_telegram(self, message: str, cfg: dict) -> bool:
         bot_token = cfg["bot_token"]

@@ -15,6 +15,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
   changes nothing; the wizard's actual recommendation still comes from Nexus's own
   heuristic (see entry below) regardless. Wiring llmfit's pick into the real model pull
   is unstarted (phase 2).
+- **llmfit catalog refresh on install + periodic hardware-fit check (2026-08-11, PROTOTYPE).**
+  `wizard.py::llmfit_probe()` now runs `llmfit update` before `recommend`, so a fresh
+  install's comparison reflects HuggingFace's catalog at install time, not just whatever
+  llmfit's binary shipped with. Separately, `src/lifecycle/fit_check.py`
+  (`HardwareFitChecker`) + `scripts/llmfit_fit_check.py` add a weekly, mechanical,
+  zero-LLM-token check (systemd timer `nexus-llmfit-check.timer`, auto-installed by
+  `install.sh` when llmfit is present) that re-runs `llmfit update` and compares the top
+  fit against the currently configured model (`config/model_sources.yaml` ->
+  `fit_check.current_model`, falling back to the hardware-heuristic pick). Only DMs the
+  operator (via the existing `Notifier`) when a candidate clears configurable
+  quality-gain and no-speed-regression margins — never pulls or reconfigures anything;
+  the operator authorizes any swap by hand. Distinct from `ModelLifecycleManager`, which
+  tracks version drift on models already tracked — this looks for models that didn't
+  exist/weren't cataloged before. `config/adapters.yaml.example` still has no documented
+  `notify:` section (pre-existing gap shared with the lifecycle manager) — DMs silently
+  no-op until that's configured.
 
 ### Fixed
 - **Wizard hardware recommendation now VRAM/vendor-tiered (2026-08-11).**

@@ -563,6 +563,22 @@ else
     info "cd ~/nexus && source .venv/bin/activate && python -m src.main"
 fi
 
+# llmfit fit-check timer (best-effort, PROTOTYPE) — weekly mechanical check for a
+# better-fitting model than what's currently configured. Notifies only; never
+# pulls or reconfigures anything on its own. Skipped entirely if llmfit isn't
+# installed (systemd.py already logged why).
+FIT_TIMER_SRC="$INSTALL_DIR/nexus-llmfit-check.timer"
+FIT_SERVICE_SRC="$INSTALL_DIR/nexus-llmfit-check.service"
+if [[ -f "$FIT_TIMER_SRC" && -f "$FIT_SERVICE_SRC" ]]; then
+    sudo cp "$FIT_SERVICE_SRC" /etc/systemd/system/nexus-llmfit-check.service
+    sudo cp "$FIT_TIMER_SRC" /etc/systemd/system/nexus-llmfit-check.timer
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now nexus-llmfit-check.timer
+    check "llmfit fit-check timer installed and enabled (weekly, notify-only)"
+else
+    info "llmfit fit-check timer not generated — llmfit not installed, skipping"
+fi
+
 
 # ── 9. Done ───────────────────────────────────────────────────────────────────
 

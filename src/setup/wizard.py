@@ -444,7 +444,10 @@ def llmfit_probe(limit: int = 5) -> dict | None:
     """
     PROTOTYPE cross-check: shell out to `llmfit` (github.com/AlexsJones/llmfit) for a
     hardware-aware model fit, to compare against Nexus's built-in RAM heuristic.
-    Fully fallback-guarded — returns None if llmfit is absent or errors, never raises.
+    Runs `llmfit update` first so a fresh install's catalog reflects releases newer
+    than whatever the llmfit binary shipped with, not just its embedded snapshot.
+    Fully fallback-guarded — returns None if llmfit is absent; a failed/slow update
+    just leaves the existing (embedded or previously cached) catalog in place.
     Logs raw JSON so a real run reveals the exact schema. Model objects carry:
     name, params_b, best_quant, context_length, score, score_components{quality,speed,fit}.
     """
@@ -461,6 +464,16 @@ def llmfit_probe(limit: int = 5) -> dict | None:
         return None
 
     result: dict = {"exe": exe}
+    try:
+        u = subprocess.run(
+            [exe, "update", "--trending", "100", "--downloads", "50"],
+            capture_output=True, text=True, timeout=120,
+        )
+        _wlog(f"llmfit update raw: {u.stdout[-1500:]}")
+        result["update_ran"] = u.returncode == 0
+    except Exception as e:
+        _wlog(f"llmfit update error (non-fatal, catalog may be stale): {e}")
+        result["update_ran"] = False
     try:
         s = subprocess.run([exe, "--json", "system"], capture_output=True, text=True, timeout=30)
         _wlog(f"llmfit system raw: {s.stdout[:2000]}")
@@ -511,7 +524,8 @@ async def hardware_detection() -> dict:
     fit = llmfit_probe()
     if fit and fit.get("recommendations"):
         recs = fit["recommendations"]
-        print(f"\n  {bold('llmfit analysis')} (cross-check — {len(recs)} fits):")
+        catalog_note = "catalog refreshed" if fit.get("update_ran") else "catalog not refreshed — using existing snapshot"
+        print(f"\n  {bold('llmfit analysis')} (cross-check — {len(recs)} fits, {catalog_note}):")
         for r in recs[:5]:
             if not isinstance(r, dict):
                 continue
@@ -736,6 +750,128 @@ Then restart Nexus:
     return notify_cfg
 
 
+# ─ Notification Setup [H2] ─────────────────────────────────────────────────────
+
+def notification_setup(adapters: list[str], notify_cfg: dict) -> dict:
+    """
+    Ask where the operator wants OUT-OF-BAND notifications — the messages Nexus
+    sends on its own (model-fit findings, lifecycle updates, watcher alerts),
+    as opposed to replies in a conversation.
+
+    Offers the adapters they already configured plus email, then asks DM vs
+    channel for chat protocols. Result is written to config/adapters.yaml under
+    `notify:` and read at call time by src/core/notify.py — so switching
+    platforms later is a config edit, never a code change.
+    """
+    header("Step 3c — Notifications")
+
+    print("  Nexus sends some messages on its own — a better-fitting local model")
+    print("  showing up, a model update, a watcher alert. Where should those go?\n")
+
+    # Offer what they actually configured; email is always available (no adapter needed).
+    labels = {
+        "mattermost": "Mattermost",
+        "discord": "Discord",
+        "telegram": "Telegram",
+        "slack": "Slack",
+    }
+    options = [(a, labels.get(a, a.title()), False) for a in adapters if a in labels]
+    options.append(("email", "Email  (SMTP — no chat adapter needed)", False))
+    options.append(("none", "None  (write findings to disk only, never notify)", False))
+    if options:
+        options[0] = (options[0][0], options[0][1], True)  # first choice pre-selected
+
+    proto = whiptail_radiolist("  Send notifications via:", options, key="notify_protocol")
+    if not proto or proto == "none":
+        print(f"\n  {dim('No notification target set — findings are written to data/ only.')}")
+        _wlog("notification_setup: none selected")
+        return {}
+
+    result: dict = {"default_protocol": proto, "protocols": {}}
+
+    if proto == "email":
+        print(f"\n  {bold('Email (SMTP)')}")
+        smtp_host = ask("SMTP host", "smtp.gmail.com", key="notify_smtp_host")
+        smtp_port = ask("SMTP port (587 STARTTLS, 465 SSL)", "587", key="notify_smtp_port")
+        to_address = ask("Send notifications to", "", key="notify_to_address")
+        username = ask("SMTP username", to_address, key="notify_smtp_user")
+        password = ask_secret("SMTP password / app password", key="notify_smtp_pass")
+        result["default_destination"] = "dm"  # not meaningful for email; kept for schema parity
+        result["protocols"]["email"] = {
+            "smtp_host": smtp_host,
+            "smtp_port": int(smtp_port) if smtp_port.isdigit() else 587,
+            "use_tls": True,
+            "to_address": to_address,
+            "from_address": username or to_address,
+            "username": username,
+            "password": password,
+            "subject_prefix": "[Nexus]",
+        }
+        print(f"\n  {check_mark(True)} Notifications → email to {bold(to_address or '(unset)')}")
+        _wlog(f"notification_setup: email to={to_address} host={smtp_host}:{smtp_port}")
+        return result
+
+    # Chat protocols — DM or channel?
+    dest = whiptail_radiolist(
+        f"  Where in {labels.get(proto, proto)}?",
+        [
+            ("dm", "Direct message to me  (private)", True),
+            ("channel", "A dedicated channel  (e.g. #notifications)", False),
+        ],
+        key="notify_destination",
+    ) or "dm"
+    result["default_destination"] = dest
+
+    entry: dict = {}
+    if proto == "mattermost":
+        default_url = notify_cfg.get("url", "http://localhost:8065")
+        entry["url"] = ask("Mattermost URL", default_url, key="notify_mm_url")
+        entry["bot_token"] = "${MATTERMOST_BOT_TOKEN}"
+        entry["team"] = ask("Team name", "main", key="notify_mm_team")
+        if dest == "dm":
+            print(f"  {dim('DM channel ID: open a DM with the bot, copy the ID from the URL.')}")
+            entry["dm_channel_id"] = ask("DM channel ID (can fill in later)", "", key="notify_mm_dm")
+        else:
+            entry["dm_channel_id"] = ""
+    elif proto == "discord":
+        print(f"  {dim('Discord notifications use a webhook — Server Settings → Integrations → Webhooks.')}")
+        entry["webhook_url"] = "${DISCORD_NOTIFY_WEBHOOK}"
+    elif proto == "telegram":
+        entry["bot_token"] = "${TELEGRAM_BOT_TOKEN}"
+        entry["chat_id"] = ask("Telegram chat ID", "", key="notify_tg_chat")
+    elif proto == "slack":
+        entry["bot_token"] = "${SLACK_BOT_TOKEN}"
+        entry["default_channel"] = ask("Slack channel", "notifications", key="notify_slack_channel")
+
+    if dest == "channel" and proto in ("mattermost", "discord", "telegram"):
+        result["channel"] = ask("Channel name", "notifications", key="notify_channel_name")
+
+    result["protocols"][proto] = entry
+
+    where = "DM" if dest == "dm" else f"#{result.get('channel', 'notifications')}"
+    print(f"\n  {check_mark(True)} Notifications → {bold(labels.get(proto, proto))} ({where})")
+    _wlog(f"notification_setup: protocol={proto} dest={dest} channel={result.get('channel', '-')}")
+    return result
+
+
+def write_notify_config(notify_block: dict) -> None:
+    """Merge the notify: block into config/adapters.yaml (preserving everything else)."""
+    if not notify_block:
+        return
+    path = CONFIG_DIR / "adapters.yaml"
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = yaml.safe_load(path.read_text()) or {}
+        except Exception as e:
+            _wlog(f"write_notify_config: could not parse {path} ({e}) — skipping merge")
+            return
+    existing["notify"] = notify_block
+    path.write_text(yaml.dump(existing, default_flow_style=False, sort_keys=False))
+    print(f"  {check_mark(True)} {path.relative_to(PROJECT_ROOT)} (notify)")
+    _wlog(f"write_notify_config: wrote notify block to {path}")
+
+
 # ─ Config Writing ──────────────────────────────────────────────────────────────
 
 def write_configs(configured: dict, routing: dict, notify_cfg: dict, system_ip: str = "localhost") -> None:
@@ -899,7 +1035,8 @@ async def run() -> None:
             if not adapter_selected:
                 print("\n  Nothing selected. Exiting.")
                 return
-            platform_setup(adapter_selected, adapter_config, system_ip)
+            notify_cfg = platform_setup(adapter_selected, adapter_config, system_ip)
+            write_notify_config(notification_setup(adapter_selected, notify_cfg))
             header("Adapters Updated")
             print(f"  Configured: {', '.join(adapter_selected)}")
             print(f"  Edit {cyan('config/adapters.yaml')} and set {cyan('enabled: true')} for each adapter,")
@@ -949,11 +1086,15 @@ async def run() -> None:
     # [H] Platform Setup
     notify_cfg = platform_setup(adapter_selected, adapter_config, system_ip)
 
+    # [H2] Notification routing — where out-of-band messages go
+    notify_block = notification_setup(adapter_selected, notify_cfg)
+
     # [I] Service Install — handled by bootstrap.sh
 
     # [J] Config Writing
     if configured:
         write_configs(configured, routing, notify_cfg, system_ip)
+    write_notify_config(notify_block)
 
     # Summary
     header("Setup Complete")

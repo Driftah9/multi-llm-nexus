@@ -59,3 +59,34 @@ tracked_models:
 notify:
   destination: dm    # dm | channel
   # channel: model-updates   # Only used if destination: channel
+
+# ── Hardware Fit Check (llmfit) ─────────────────────────────────────────────────
+# Separate from tracked_models above: this looks for a DIFFERENT, better-fitting
+# model showing up — not version drift on a model you already run. Installed
+# automatically (systemd timer) when llmfit is present; runs `llmfit update` to
+# refresh its catalog from HuggingFace, then compares the top fit against
+# current_model. Only notifies when a candidate clears BOTH margins below —
+# never pulls or reconfigures anything; you decide whether to test it.
+#
+# Run manually: python scripts/llmfit_fit_check.py
+# Force run:    python scripts/llmfit_fit_check.py --force
+# Dry run:      python scripts/llmfit_fit_check.py --dry-run
+fit_check:
+  enabled: true
+  interval_days: 7           # skip re-checking if last run was within this window
+  recommend_limit: 5         # how many of llmfit's top fits to consider
+
+  # HF-style name of the model currently running (e.g. "Qwen/Qwen3-8B-Instruct").
+  # Leave null to fall back to hardware_detect.py's own VRAM-tiered pick as the
+  # baseline — accurate only until you manually swap to something else.
+  current_model: null
+
+  # Candidate must beat current_model's quality score by at least this fraction...
+  min_quality_gain_pct: 0.10
+  # ...and must not lose more than this fraction of current_model's estimated tok/s.
+  # 0.0 = no speed regression tolerated at all.
+  max_speed_regression_pct: 0.0
+
+  notify:
+    destination: dm    # dm | channel
+    # channel: model-updates   # Only used if destination: channel

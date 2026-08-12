@@ -91,6 +91,38 @@ openai_api:
   port: 8080
   api_key: ""        # Optional Bearer token. Leave blank to disable auth.
 
+# ── Notify — out-of-band notifications ─────────────────────────────────────────
+# Read by src/core/notify.py (Notifier.from_config()). Used by anything that
+# needs to reach the operator outside the normal request/response cycle:
+# ModelLifecycleManager (scripts/model_check.py), HardwareFitChecker
+# (scripts/llmfit_fit_check.py), and any future watcher/cron script. Protocol-
+# agnostic on purpose — the caller never hardcodes a channel; only this config
+# does. Reuses whichever adapter section above you've already filled in
+# (mattermost/discord/telegram/slack) — no separate bot token needed unless you
+# want notifications to go through a different bot than the one users talk to.
+#
+# destination: dm | channel
+# protocols.<name> needs the same fields as that adapter's section above
+# (mattermost: url/bot_token/team/dm_channel_id; discord: webhook_url;
+# telegram: bot_token/chat_id; slack: bot_token/default_channel).
+notify:
+  default_protocol: mattermost   # mattermost | discord | telegram | slack
+  default_destination: dm        # dm | channel
+  protocols:
+    mattermost:
+      url: http://localhost:8065
+      bot_token: ${MATTERMOST_BOT_TOKEN}
+      team: main
+      dm_channel_id: ""          # Direct-message channel ID with the operator
+    # telegram:
+    #   bot_token: ${TELEGRAM_BOT_TOKEN}
+    #   chat_id: ""
+    # discord:
+    #   webhook_url: ${DISCORD_NOTIFY_WEBHOOK}
+    # slack:
+    #   bot_token: ${SLACK_BOT_TOKEN}
+    #   default_channel: notifications
+
 # ── User Gate — Per-adapter access control ────────────────────────────────────
 # Applies to any adapter that has multi-user exposure (Discord, Telegram, etc).
 # The gate runs BEFORE any LLM call — zero token cost for denied messages.
