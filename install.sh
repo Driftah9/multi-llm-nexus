@@ -17,7 +17,7 @@ set -euo pipefail
 REPO_URL="https://github.com/Driftah9/multi-llm-nexus.git"
 BRANCH="${NEXUS_BRANCH:-main}"
 
-# Root-phase log — brief; full install log lives at ~/Logs/install.log
+# Root-phase log — brief; full install log lives at ~/logs/install.log
 ROOT_LOG="/tmp/nexus-root-$(date +%Y%m%d-%H%M%S).log"
 exec 3> "$ROOT_LOG"
 printf "[%s] nexus root installer started\n" "$(date +%T)" >&3
@@ -185,7 +185,7 @@ else
     fi
 fi
 
-# llmfit (best-effort, PROTOTYPE) — hardware→model fit cross-check the wizard uses to
+# llmfit (best-effort) — hardware→model fit cross-check the wizard uses to
 # right-size the local LLM. Never fails the install; the wizard falls back to its RAM
 # heuristic if this is absent. Forced onto /usr/local/bin so the nexus user's wizard
 # (user phase, after su -) can find it regardless of where the installer dropped it.
@@ -335,9 +335,9 @@ set -euo pipefail
 source ~/.nexus-install-config
 # Provides: NEXUS_PYTHON_BIN, NEXUS_REPO_URL, NEXUS_BRANCH, NEXUS_ROOT_LOG
 
-# ── Log setup — everything from here goes to ~/Logs/install.log ───────────────
-mkdir -p ~/Logs
-LOG_FILE=~/Logs/install.log
+# ── Log setup — everything from here goes to ~/logs/install.log ───────────────
+mkdir -p ~/logs
+LOG_FILE=~/logs/install.log
 exec 3>> "$LOG_FILE"
 printf "\n[%s] === nexus bootstrap started (user: %s) ===\n" "$(date +%T)" "$(whoami)" >&3
 printf "[%s] root log: %s\n" "$(date +%T)" "$NEXUS_ROOT_LOG" >&3
@@ -411,8 +411,8 @@ fi
 if [[ ${#ROOT_FOLDERS[@]} -eq 0 ]]; then
     warn "Layout manifest unreadable ($LAYOUT_MANIFEST) — using built-in fallback list"
     ROOT_FOLDERS=(
-        Inbox Logs Scripts backups src tests Data skills
-        Config dockers adapters Agents Temp research_cache Tools workspace venv
+        inbox logs scripts backups src tests data skills
+        config dockers adapters agents tmp research_cache tools workspace venv Memory context
     )
 fi
 for folder in "${ROOT_FOLDERS[@]}"; do
@@ -429,9 +429,17 @@ INSTALL_DATE=$(date -u +%Y-%m-%d)
 HOSTNAME_VAL=$(hostname -f 2>/dev/null || hostname)
 USERNAME_VAL=$(whoami)
 
+# Identity lives in context/ (declared in config/directory_layout.json), NOT the
+# home root: it is system-owned, provider-neutral content that a provider harness
+# shims INTO (CLAUDE.md / GEMINI.md → @context/...). Seeding it here is what lets
+# core/persona.py find SOUL.md — before this the installer wrote a personality
+# file that nothing ever loaded.
+CONTEXT_DIR=~/context
+mkdir -p "$CONTEXT_DIR"
+
 for tmpl in SOUL.md OPERATING_PROCEDURES.md AI_CONTEXT.md; do
     if [[ -f "$SYS_TEMPLATES/$tmpl" ]]; then
-        dest=~/"$tmpl"
+        dest="$CONTEXT_DIR/$tmpl"
         cp "$SYS_TEMPLATES/$tmpl" "$dest"
         sed -i "s/\[USERNAME\]/$USERNAME_VAL/g"     "$dest"
         sed -i "s/\[INSTALL_DATE\]/$INSTALL_DATE/g" "$dest"
@@ -487,7 +495,7 @@ check "Python environment ready  ($NEXUS_PYTHON_BIN)"
 
 header "Setup Wizard"
 echo "  Configure providers, auth, and platform adapters."
-echo "  Log: ~/Logs/install.log"
+echo "  Log: ~/logs/install.log"
 echo
 
 cd "$INSTALL_DIR"
@@ -563,7 +571,7 @@ else
     info "cd ~/nexus && source .venv/bin/activate && python -m src.main"
 fi
 
-# llmfit fit-check timer (best-effort, PROTOTYPE) — weekly mechanical check for a
+# llmfit fit-check timer (best-effort) — weekly mechanical check for a
 # better-fitting model than what's currently configured. Notifies only; never
 # pulls or reconfigures anything on its own. Skipped entirely if llmfit isn't
 # installed (systemd.py already logged why).
@@ -591,7 +599,7 @@ echo "  $(bold "You are logged in as:") $(whoami)"
 echo "  $(bold "Home:")        ~/"
 echo "  $(bold "Nexus:")       ~/nexus"
 echo "  $(bold "Workspace:")   ~/workspace"
-echo "  $(bold "Logs:")        ~/Logs/install.log"
+echo "  $(bold "Logs:")        ~/logs/install.log"
 echo "  $(bold "Config:")      ~/nexus/config/"
 echo "  $(bold "Env file:")    ~/nexus/.env"
 echo

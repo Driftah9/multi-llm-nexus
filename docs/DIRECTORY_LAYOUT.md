@@ -117,9 +117,18 @@ claim already points `install.sh` + the manifest at this doc so a reconcile is p
 
 The live claude-brain install (the port source) has converged to an **all-lowercase** root
 (`tools/`, `config/`, `data/`, `tmp/`, `projects/`) with a canonical `Memory/` and `context/`
-root. The Nexus installer still scaffolds the historical mixed-case names above
-(`Tools`, `Config`, `Data`, `Temp`, `workspace`) and does not yet scaffold dedicated
-`Memory/`/`context/` roots. Aligning case/names is a pending live→Nexus convergence item —
-tracked in [`../KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md); not blind-renamed here because
-code paths reference the current names. This doc describes what the installer creates **today**;
-the convergence target is the lowercase live canon.
+root.
+
+**Closed 2026-08-13 — `Memory/` and `context/` are now scaffolded.** That was the load-bearing
+half of the gap. Without a declared `Memory/` a fresh install had nowhere to persist memory, and
+`scripts/rag_ingest.py` fell back to `~/.claude/projects/<slug>/memory` (a *Claude Code*
+harness path, present only if Claude Code happens to be installed) and to `~/projects` (Nexus
+scaffolds `workspace`). Neither namespace ingested anything and nothing errored — the install came
+up **silently amnesiac**. Identity templates now seed into `context/` as well, which is what lets
+`core/persona.py` find `SOUL.md`; before this the installer wrote a personality file that nothing
+ever loaded.
+
+**Still open:** the mixed-case names above (`Tools`, `Config`, `Data`, `Temp`, `workspace`) versus
+the lowercase live canon. Not blind-renamed here because code paths reference the current names —
+tracked in [`../KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md). This doc describes what the
+installer creates **today**; the convergence target remains the lowercase live canon.

@@ -7,8 +7,8 @@ attempt, and all partial chunks received up to the moment of failure — i.e.
 exactly what was in flight when a provider died.
 
 Journal directory resolution matches src/core/flight_recorder.py:
-  FLIGHT_RECORDER_DIR env override, else layout.path("Logs")/flight_recorder,
-  else ~/Logs/flight_recorder as a last resort.
+  FLIGHT_RECORDER_DIR env override, else layout.path("logs")/flight_recorder,
+  else ~/logs/flight_recorder as a last resort.
 
 Usage:
   flight_recover.py                     # list recent turns (today + yesterday)
@@ -35,9 +35,9 @@ def _base_dir() -> Path:
     if override:
         return Path(override)
     try:
-        return layout.path("Logs") / "flight_recorder"
+        return layout.path("logs") / "flight_recorder"
     except Exception:
-        return Path.home() / "Logs" / "flight_recorder"
+        return Path.home() / "logs" / "flight_recorder"
 
 
 BASE = _base_dir()

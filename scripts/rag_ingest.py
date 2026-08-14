@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from core.rag_store import RagStore  # noqa: E402
+from core import layout  # noqa: E402  — directory manifest is the source of truth for paths
 
 logging.basicConfig(
     level=logging.INFO,
@@ -144,13 +145,13 @@ def main() -> None:
         "--memory-dir",
         type=Path,
         default=None,
-        help="Memory files directory (from NEXUS_MEMORY_DIR env or ~/.claude/projects/-home-claude/memory)"
+        help="Memory files directory (NEXUS_MEMORY_DIR env, else the layout manifest's 'Memory')"
     )
     parser.add_argument(
         "--projects-dir",
         type=Path,
         default=None,
-        help="Projects directory (from NEXUS_PROJECTS_DIR env or ~/projects)"
+        help="Projects directory (NEXUS_PROJECTS_DIR env, else the layout manifest's 'workspace')"
     )
     parser.add_argument(
         "--obsidian-dir",
@@ -166,21 +167,31 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Resolve directories: CLI arg > env var > default
-    memory_dir = (
-        args.memory_dir or
-        Path(os.environ.get("NEXUS_MEMORY_DIR", "")) or
-        Path.home() / ".claude/projects/-home-claude/memory"
-    )
-    projects_dir = (
-        args.projects_dir or
-        Path(os.environ.get("NEXUS_PROJECTS_DIR", "")) or
-        Path.home() / "projects"
-    )
+    # Resolve directories: CLI arg > env var > layout manifest.
+    #
+    # Two bugs fixed here 2026-08-13:
+    #   1. `Path(os.environ.get("X", ""))` is `PosixPath('.')`, which is TRUTHY —
+    #      so with the env var unset the or-chain returned the CURRENT DIRECTORY
+    #      and the documented fallback never fired. Check the string, not the Path.
+    #   2. The fallbacks named a Claude-harness path (~/.claude/projects/...) and
+    #      ~/projects. Neither exists on a Nexus box: ~/.claude/ is only created
+    #      by installing Claude Code, and Nexus scaffolds `workspace`, not
+    #      `projects`. Both namespaces silently ingested nothing — no error, just
+    #      an empty memory layer. Resolve through the layout manifest instead, so
+    #      these can never drift from what the installer actually creates.
+    def _resolve(cli_value, env_name: str, layout_name: str) -> Path:
+        if cli_value:
+            return Path(cli_value)
+        env_value = os.environ.get(env_name, "").strip()
+        if env_value:
+            return Path(env_value).expanduser()
+        return layout.path(layout_name)
+
+    memory_dir = _resolve(args.memory_dir, "NEXUS_MEMORY_DIR", "Memory")
+    projects_dir = _resolve(args.projects_dir, "NEXUS_PROJECTS_DIR", "workspace")
     obsidian_dir = (
-        args.obsidian_dir or
-        Path(os.environ.get("NEXUS_OBSIDIAN_DIR", "")) or
-        Path.home() / "obsidian-vault"
+        Path(args.obsidian_dir) if args.obsidian_dir
+        else Path(os.environ.get("NEXUS_OBSIDIAN_DIR", "").strip() or Path.home() / "obsidian-vault")
     )
 
     logger.info(f"Memory: {memory_dir}")

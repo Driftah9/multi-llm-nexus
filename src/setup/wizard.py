@@ -44,6 +44,25 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 ENV_FILE = PROJECT_ROOT / ".env"
 SYSTEM_ROOT = Path.home()
 
+
+def identity_file(name: str) -> Path:
+    """Resolve an identity doc (SOUL.md / AI_CONTEXT.md / OPERATING_PROCEDURES.md).
+
+    These live in context/ as of 2026-08-13 — system-owned, provider-neutral, and
+    where core/persona.py looks. Installs made before that keep them at the home
+    root, so an existing file there still wins over a not-yet-created context/
+    one; otherwise we return the context/ path so new writes land in canon.
+    """
+    try:
+        context_dir = layout.path("context")
+    except Exception:
+        context_dir = SYSTEM_ROOT / "context"
+    context_path = context_dir / name
+    if context_path.exists():
+        return context_path
+    legacy = SYSTEM_ROOT / name
+    return legacy if legacy.exists() else context_path
+
 # ─ Install log ─────────────────────────────────────────────────────────────────
 _LOG_FILE = os.environ.get("NEXUS_LOG_FILE", "")
 _log_fh = open(_LOG_FILE, "a") if _LOG_FILE else None
@@ -404,7 +423,7 @@ def print_scan(scan: dict) -> None:
 def system_identity() -> tuple[str, str]:
     """Prompt for orchestrator name and system hostname. Skips if already configured."""
     # Detect if identity was already set (placeholder replaced = first-run already done)
-    soul_path = SYSTEM_ROOT / "SOUL.md"
+    soul_path = identity_file("SOUL.md")
     if soul_path.exists():
         content = soul_path.read_text()
         if "[ORCHESTRATOR_NAME]" not in content:
@@ -442,7 +461,7 @@ def system_identity() -> tuple[str, str]:
 
 def llmfit_probe(limit: int = 5) -> dict | None:
     """
-    PROTOTYPE cross-check: shell out to `llmfit` (github.com/AlexsJones/llmfit) for a
+    Cross-check: shell out to `llmfit` (github.com/AlexsJones/llmfit) for a
     hardware-aware model fit, to compare against Nexus's built-in RAM heuristic.
     Runs `llmfit update` first so a fresh install's catalog reflects releases newer
     than whatever the llmfit binary shipped with, not just its embedded snapshot.
@@ -520,7 +539,7 @@ async def hardware_detection() -> dict:
             print(f"  {hw.provider_notes}")
         print()
 
-    # ── llmfit cross-check (PROTOTYPE) — richer hardware→model fit for comparison ─
+    # ── llmfit cross-check — richer hardware→model fit for comparison ─
     fit = llmfit_probe()
     if fit and fit.get("recommendations"):
         recs = fit["recommendations"]
@@ -1055,7 +1074,7 @@ async def run() -> None:
 
     # Update identity templates (only if placeholders still present)
     for fname in ("SOUL.md", "OPERATING_PROCEDURES.md", "AI_CONTEXT.md"):
-        fpath = SYSTEM_ROOT / fname
+        fpath = identity_file(fname)
         if fpath.exists():
             content = fpath.read_text()
             if "[ORCHESTRATOR_NAME]" in content or "[SYSTEM_NAME]" in content:

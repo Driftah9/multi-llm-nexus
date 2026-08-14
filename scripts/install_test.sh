@@ -83,7 +83,7 @@ wait_for() {  # seconds ; test-command
 chk "install.sh exited 0"                   "[[ $INSTALL_RC -eq 0 ]]"
 chk "service user '$NEXUS_USERNAME' exists" "id $NEXUS_USERNAME"
 chk "scaffold: ~/venv (tool-venv home)"     "[[ -d $HOME_DIR/venv ]]"
-chk "scaffold: ~/Tools"                     "[[ -d $HOME_DIR/Tools ]]"
+chk "scaffold: ~/tools"                     "[[ -d $HOME_DIR/tools ]]"
 chk "scaffold: ~/workspace"                 "[[ -d $HOME_DIR/workspace ]]"
 chk "nexus app cloned (branch $NEXUS_BRANCH)" "[[ -d $HOME_DIR/nexus/.git ]]"
 chk "app venv built"                        "[[ -x $APP_PY ]]"
@@ -120,7 +120,7 @@ if command -v llmfit >/dev/null 2>&1 || [[ -x /usr/local/bin/llmfit ]]; then
 else
     echo "  llmfit installed: no (wizard used heuristic only)"
 fi
-WLOG="$HOME_DIR/Logs/install.log"
+WLOG="$HOME_DIR/logs/install.log"
 SRC_LOG="$WLOG"; [[ -f "$SRC_LOG" ]] || SRC_LOG="$LOG"
 echo "  --- from $SRC_LOG ---"
 grep -E "RAM:|GPU:|CPU:|Local LLM recommended|Model:|llmfit|COMPARE|top fit|heuristic pick" "$SRC_LOG" 2>/dev/null | tail -40 \
@@ -129,7 +129,7 @@ echo "  (raw llmfit JSON is in $WLOG — grep 'llmfit system raw' / 'llmfit reco
 
 # ── Result ───────────────────────────────────────────────────────────────────
 say "RESULT: $PASS passed, $FAIL failed"
-echo "  full install log: $LOG  (+ $HOME_DIR/Logs/install.log)"
+echo "  full install log: $LOG  (+ $HOME_DIR/logs/install.log)"
 if [[ $FAIL -eq 0 ]]; then
     printf "\033[32m✅ END-TO-END INSTALL GREEN\033[0m\n"; exit 0
 else

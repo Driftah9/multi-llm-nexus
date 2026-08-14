@@ -8,8 +8,18 @@ from src.core import layout
 
 def test_scaffold_folders_include_the_essentials():
     scaffold = layout.folders("scaffold")
-    for name in ("venv", "Tools", "workspace", "skills", "adapters"):
+    for name in ("venv", "tools", "workspace", "skills", "adapters", "Memory", "context"):
         assert name in scaffold
+
+
+def test_system_dirs_are_lowercase():
+    """Linux system dirs are lowercase. `Memory` is the ONE deliberate exception,
+    matching the live canon this project ports from — a capitalised twin (Logs vs
+    logs) is how you end up with two directories holding half the data each."""
+    for name in layout.folders():
+        if name in ("Memory",) or "/" in name:
+            continue
+        assert name == name.lower(), f"{name!r} should be lowercase"
 
 
 def test_runtime_folders_are_not_scaffolded():

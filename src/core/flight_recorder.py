@@ -20,10 +20,10 @@ Design constraints:
 
 Journal directory resolution (in priority order):
   1. `FLIGHT_RECORDER_DIR` env override, if set.
-  2. `layout.path("Logs") / "flight_recorder"` — the manifest-declared runtime
+  2. `layout.path("logs") / "flight_recorder"` — the manifest-declared runtime
      logs home (`config/directory_layout.json`), so every install keeps this
      in the one place it already keeps everything else it logs.
-  3. `Path.home() / "Logs" / "flight_recorder"` as a last-resort fallback if
+  3. `Path.home() / "logs" / "flight_recorder"` as a last-resort fallback if
      the layout manifest can't be read (fail-open — recording degrades, it
      never raises into the caller).
 
@@ -56,9 +56,9 @@ def _base_dir() -> Path:
     if override:
         return Path(override)
     try:
-        return layout.path("Logs") / "flight_recorder"
+        return layout.path("logs") / "flight_recorder"
     except Exception:
-        return Path.home() / "Logs" / "flight_recorder"
+        return Path.home() / "logs" / "flight_recorder"
 
 
 def _retention_days() -> int:

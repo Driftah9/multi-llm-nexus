@@ -586,7 +586,13 @@ class Orchestrator:
         live_context: Optional[str] = None,
         session_state: Optional[SessionState] = None,
     ) -> str:
-        parts = [profile.system_prompt]
+        # SOUL first — slot #1, ahead of the specialist role, memory and rules.
+        # The installer has always seeded a SOUL.md but nothing loaded it, so the
+        # persona file had no effect and identity fell back to whatever the
+        # provider defaults to. Role and tools should modify a voice that is
+        # already established, not supply it. See core/persona.py.
+        from . import persona
+        parts = [persona.load(), profile.system_prompt]
 
         # Inject workspace memory and rules if defined
         memory = self._load_memory(workspace)

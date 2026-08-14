@@ -10,7 +10,7 @@ Usage:
     from src.core import layout
     layout.path("venv")                  # -> ~/venv
     layout.path(".local/nexus", create=True)
-    layout.folders("scaffold")           # -> ["venv", "Tools", ...]
+    layout.folders("scaffold")           # -> ["venv", "tools", ...]
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _entry(name: str) -> dict:
 def path(name: str, *, create: bool = False) -> Path:
     """Absolute path for a manifest folder, resolved under the user's home.
 
-    `name` is the manifest ``path`` key (e.g. ``"venv"``, ``"Tools"``, ``".local/nexus"``).
+    `name` is the manifest ``path`` key (e.g. ``"venv"``, ``"tools"``, ``".local/nexus"``).
     Raises ``KeyError`` if the name is not declared in the manifest — hardcoded, undeclared
     locations are exactly what this module exists to prevent. Set ``create=True`` to mkdir it
     (parents, exist_ok).
