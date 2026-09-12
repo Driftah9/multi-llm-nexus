@@ -274,6 +274,19 @@ ON-path validated once against real providers (not yet battle-tested). Modules u
 `swarm_wiring`, plus the `capability_map` ladder foundation and a `core/bridge.py` gate. See
 `docs/BUILDOUT_STATUS.md` → "Swarm + Graduation Ladder convergence".
 
+### Emergency local floor (2026-09-12)
+Live→Nexus port of the "ultimate fallback shouldn't be one hardcoded vendor" fix.
+`ProviderChainEntry` gained `cost_class`; `ProviderChain.emergency_floor()` scans **all**
+entries across **every** tier for a `cost_class: local` provider when `try_with_fallback`
+exhausts the requested tier, and `bridge.py::_invoke_with_chain` answers from it with a
+degraded-mode notice instead of a bare error. Keys off `cost_class`, never a provider
+name — design rule #1 ("no hardcoded LLM") applies to the *last-resort* path too, which
+is exactly where it's easiest to violate. Two of the three live fixes in that session did
+**not** port: live's outage-failover-overrides-lock has no equivalent (Nexus has no
+primary-lock concept — it already fails over purely on health), and the seat-neutral
+receptionist trigger depends on an `ORCHESTRATOR_UNAVAILABLE` error class that is
+live-only. 242/242 suite green.
+
 ### Changes since v0.6.0
 - **v0.6.1** — full documentation audit; claude-brain feature port marked complete.
 - **v0.6.2** — OpenAI-compatible API adapter added; vLLM provider + model lifecycle manager for hardware-agnostic local inference.

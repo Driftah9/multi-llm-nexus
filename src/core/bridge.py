@@ -432,15 +432,42 @@ class NexusBridge:
 
         if success:
             return result
-        else:
-            provider_type = "unknown"
-            if provider:
-                provider_type = type(provider).__name__.lower().replace("provider", "")
-            logger.error(f"All providers exhausted. Last error: {error}")
-            return BridgeResult(
-                text=f"_(All providers failed: {error})_",
-                provider_type=provider_type,
-            )
+
+        provider_type = "unknown"
+        if provider:
+            provider_type = type(provider).__name__.lower().replace("provider", "")
+        logger.error(f"All providers exhausted. Last error: {error}")
+
+        # The configured chain for THIS tier is exhausted — before going silent,
+        # check whether the operator has a local (cost_class: local) provider
+        # anywhere in providers.yaml, even outside this tier's pool. Seat-neutral:
+        # fires no matter which provider was primary (Claude, Gemini, whatever).
+        # Returns None on installs with no local provider configured at all, in
+        # which case behavior is unchanged (bare error below).
+        emergency_provider = await self.chain.emergency_floor()
+        if emergency_provider is not None:
+            try:
+                emergency_result = await try_provider(emergency_provider)
+                emergency_entry = self.chain._find_entry(emergency_provider)
+                emergency_name = emergency_entry.name if emergency_entry else "local"
+                logger.warning(
+                    f"All configured providers for tier '{tier}' failed — "
+                    f"answered via emergency local floor ({emergency_name})"
+                )
+                emergency_result.text = (
+                    "⚠️ *All configured providers are unavailable — answering from "
+                    "the local emergency fallback. Responses may be limited.*\n\n"
+                    f"{emergency_result.text}"
+                )
+                return emergency_result
+            except Exception as e:
+                logger.error(f"Emergency local floor also failed: {e}")
+                # fall through to the bare error below
+
+        return BridgeResult(
+            text=f"_(All providers failed: {error})_",
+            provider_type=provider_type,
+        )
 
     async def _invoke_with_router(
         self,

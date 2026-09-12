@@ -49,6 +49,10 @@ class ProviderChainEntry:
     display_prefix: str = ""    # "Claude", "Local", "Gemini", "OpenAI", etc.
     model_display: str = ""     # "Opus", "tinyllama", "1.5-pro", etc.
     effort_levels: bool = False  # True if provider supports effort (e.g. Claude)
+    # local | free_limited | paid_subscription (mirrors providers.yaml's cost_class).
+    # Used to identify an always-available emergency floor when the whole configured
+    # chain for a tier is exhausted — see ProviderChain.emergency_floor().
+    cost_class: str = "paid_subscription"
     health: ProviderHealth = ProviderHealth.UNKNOWN
     last_check: float = 0.0
     consecutive_failures: int = 0
@@ -218,6 +222,34 @@ class ProviderChain:
 
             logger.warning(f"All providers for tier '{tier}' are failed or degraded")
             return None
+
+    async def emergency_floor(self) -> Optional[BaseProvider]:
+        """Last-resort provider when the WHOLE configured chain for a tier is
+        exhausted — not scoped to any tier, since an operator's nano/deep pools
+        may have no local entry even if their standard pool does.
+
+        Scans every entry (any tier) for cost_class == "local" — electricity-only,
+        no key/quota gate, the same category the operator's own providers.yaml
+        comments call "always preferred." A FAILED local entry is still tried here
+        (a wedged process can often still answer one request) since the alternative
+        is silence; DEGRADED/HEALTHY entries are preferred by priority when several
+        exist.
+
+        This is deliberately NOT a hardcoded fallback provider (no single tool/model
+        name baked in) — it reads whatever the operator configured as cost_class:
+        local in providers.yaml. An install with no local provider configured at all
+        returns None, and the caller (bridge.py) keeps its existing bare-error
+        behavior — this only fires when a local floor actually exists but wasn't in
+        the tier that failed.
+        """
+        async with self._lock:
+            local_entries = [e for e in self.entries if e.cost_class == "local"]
+            if not local_entries:
+                return None
+            local_entries.sort(
+                key=lambda e: (e.health == ProviderHealth.FAILED, e.priority)
+            )
+            return local_entries[0].provider
 
     async def try_with_fallback(
         self,

@@ -67,6 +67,7 @@ def build_provider_chain(
                 display_prefix=provider_def.get("display_prefix", provider_name.title()),
                 model_display=provider_def.get("model_display", provider_def.get("model", tier)),
                 effort_levels=provider_def.get("effort_levels", False),
+                cost_class=provider_def.get("cost_class", "paid_subscription"),
             )
         )
 

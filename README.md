@@ -176,6 +176,8 @@ Local · tinyllama — thinking 15s
 
 **Failover notification:** When the primary goes down and the chain switches providers, the heartbeat updates instantly — `Claude · Opus` becomes `Local · tinyllama` in the same post.
 
+**Emergency local floor:** If every provider configured for the requested tier is exhausted, Nexus makes one last attempt against any provider you've marked `cost_class: local` — in *any* tier, so a local model configured only under `nano` still rescues a failed `standard` request. The reply comes back prefixed with a degraded-mode notice rather than an error. This is provider-neutral: it keys off `cost_class`, not a vendor name, so a Gemini-only or single-API install gets a floor from its own Ollama config. If you haven't configured a local provider, behavior is unchanged — a clear error, never a silent hang.
+
 Configure display names in `providers.yaml`:
 
 ```yaml

@@ -189,3 +189,74 @@ async def test_no_persistence_when_path_unset(two_provider_chain):
     chain, primary, _ = two_provider_chain
     assert chain.config.health_path is None
     await chain.record_failure(primary, error="boom")  # must not raise
+
+
+# ── Emergency floor: seat-neutral local fallback across tiers ────────────────
+# Ported from claude-brain live (2026-09-12): when the WHOLE configured chain
+# for a tier is exhausted, don't go silent if a local (cost_class: local)
+# provider exists anywhere in the operator's config, even in a different tier.
+
+def _local_entry(provider, priority=9, tier="nano"):
+    e = _entry(provider, priority=priority, tier=tier)
+    e.cost_class = "local"
+    return e
+
+
+@pytest.mark.asyncio
+async def test_emergency_floor_finds_local_provider_outside_failed_tier():
+    """Standard tier is cloud-only and exhausted; a local provider exists only
+    in the nano tier. emergency_floor() must find it anyway (cross-tier scan)."""
+    cloud = MockProvider("cloud", should_fail=True)
+    local = MockProvider("local")
+    chain = ProviderChain(
+        entries=[
+            _entry(cloud, priority=1, tier="standard"),
+            _local_entry(local, priority=9, tier="nano"),
+        ],
+        config=ChainConfig(enable_health_monitoring=False),
+    )
+    result = await chain.emergency_floor()
+    assert result is local
+
+
+@pytest.mark.asyncio
+async def test_emergency_floor_returns_none_when_no_local_configured():
+    """Nexus install with only cloud providers configured — no local floor to
+    fall back to. Caller must keep its existing bare-error behavior."""
+    cloud = MockProvider("cloud")
+    chain = ProviderChain(
+        entries=[_entry(cloud, priority=1, tier="standard")],
+        config=ChainConfig(enable_health_monitoring=False),
+    )
+    result = await chain.emergency_floor()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_emergency_floor_prefers_healthy_local_over_failed_local():
+    healthy_local = MockProvider("local-healthy")
+    failed_local = MockProvider("local-failed")
+    chain = ProviderChain(
+        entries=[
+            _local_entry(failed_local, priority=1),
+            _local_entry(healthy_local, priority=2),
+        ],
+        config=ChainConfig(enable_health_monitoring=False),
+    )
+    chain._find_entry(failed_local).health = ProviderHealth.FAILED
+    result = await chain.emergency_floor()
+    assert result is healthy_local
+
+
+@pytest.mark.asyncio
+async def test_emergency_floor_still_tries_failed_local_if_its_the_only_one():
+    """Silence is worse than a likely-doomed attempt — a FAILED local entry is
+    still returned when it's the only local provider configured."""
+    only_local = MockProvider("only-local")
+    chain = ProviderChain(
+        entries=[_local_entry(only_local, priority=1)],
+        config=ChainConfig(enable_health_monitoring=False),
+    )
+    chain._find_entry(only_local).health = ProviderHealth.FAILED
+    result = await chain.emergency_floor()
+    assert result is only_local

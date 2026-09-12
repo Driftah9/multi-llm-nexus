@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Emergency local floor for exhausted provider chains (2026-09-12, ported from
+  claude-brain live).** `ProviderChainEntry` gained `cost_class` (mirrors the
+  `cost_class` field operators already set per-provider in `providers.yaml`).
+  `ProviderChain.emergency_floor()` (`src/core/provider_chain.py`) scans ALL
+  entries — not just the tier that just failed — for a `cost_class: local`
+  provider, so a local model configured only under `nano` still rescues a
+  `standard`-tier request. `NexusBridge._invoke_with_chain()` calls it as the
+  last step before returning the bare `"All providers failed"` error: if a
+  local floor exists and answers, the reply is returned with a `⚠️ *...
+  emergency fallback...*` prefix instead of an error; if no local provider is
+  configured anywhere, or it's also down, behavior is unchanged. Seat-neutral
+  by construction — fires no matter which provider was primary (Claude, Gemini,
+  a paid API-only install, whatever), because it keys off `cost_class`, not a
+  hardcoded provider name. This closes the gap live's `_ULTIMATE_FALLBACK` fix
+  addressed for claude-brain (hardcoded to Claude there); Nexus's own
+  config-driven `ProviderChain` needed a different shape of fix since it has no
+  single hardcoded fallback object to begin with — see
+  `docs/convergence-2026-06.md` for how live fixes get re-derived for Nexus's
+  architecture rather than copy-pasted. Tests: `tests/test_provider_chain.py`
+  (4 new: cross-tier discovery, none-configured no-op, healthy-over-failed
+  preference, last-resort-anyway when it's the only local entry) +
+  `tests/test_bridge_emergency_floor.py` (3 new: full end-to-end answer via
+  floor, bare-error preserved when no local provider exists, graceful
+  fall-through when the floor itself is also down). 242/242 suite green.
 - **llmfit hardware→model fit cross-check (2026-07-22, PROTOTYPE — phase 1, compare only).**
   `src/setup/wizard.py::llmfit_probe()` best-effort shells out to the external `llmfit`
   tool (github.com/AlexsJones/llmfit) during the hardware-detection step and prints its

@@ -147,6 +147,17 @@ fallback tier (always available, use when all tiers exhausted):
   2. [Any other high-headroom provider you add]
 ```
 
+> **Implemented provider-neutrally, 2026-09-12.** The "fallback tier" above was written
+> around one vendor's always-on plan (Haiku on Max) — the same single-vendor assumption
+> the live system carried in its hardcoded ultimate fallback. What actually shipped keys
+> off **`cost_class: local`**, not a provider name: `ProviderChain.emergency_floor()`
+> (`src/core/provider_chain.py`) scans every configured entry across **all** tiers for a
+> local (electricity-only, no key/quota gate) provider and `bridge.py`'s
+> `_invoke_with_chain` tries it before returning an error. An operator running
+> Gemini-only, or any single paid API, gets a floor from their own Ollama config rather
+> than from an Anthropic plan they may not have. Installs with no local provider
+> configured keep the original behavior — a logged error, no silent hang.
+
 **Tier assignment logic:**
 - **nano:** Models <13B params, <1s latency expected, designed for classification/routing
 - **standard:** Models 13–70B, <5s latency, handles reasoning and analysis

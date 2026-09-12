@@ -1,5 +1,5 @@
 # Nexus Build-Out Status — Where the Vision Meets the Code
-**Date:** 2026-06-09 · **Verified/updated:** 2026-07-26
+**Date:** 2026-06-09 · **Verified/updated:** 2026-09-12
 **Purpose:** Single source of truth on what's built, what's stubbed, what's missing — so the provider/tier work has full context without re-explanation.
 
 > **2026-07-18 reality check.** The "INERT / broken in 3 ways / STANDBY since Jun 3"
@@ -62,6 +62,7 @@
 | Triage classifies nano/standard/deep | ✅ **Built** | `src/core/triage.py` — `estimated_complexity`, LLM + keyword fallback, 5 dimensions |
 | Route to a tier | ✅ **Built** | `src/core/pool_router.py` — `_pool_for_triage` (nano→nano, standard→default, deep→deep_pool) |
 | ROLLOVER (fail to next provider) | ✅ **Built ×2** | `src/core/bridge.py` `_invoke_with_pool` (cost-class: local→free→paid) + `src/core/provider_chain.py` `try_with_fallback` (tier-filtered, circuit breaker) |
+| Emergency floor when a tier is fully exhausted | ✅ **Built 2026-09-12** | `src/core/provider_chain.py` `emergency_floor()` — scans **all** entries (any tier) for `cost_class: local` when `try_with_fallback` exhausts the requested tier; `bridge.py` `_invoke_with_chain` answers from it with a degraded-mode notice instead of returning a bare error. Closes the case where an operator's only local model sits in `nano` but `standard`'s cloud chain died — `select_provider(tier=…)` never looks outside its tier. No-op (unchanged bare error) on installs with no `cost_class: local` provider. |
 | Monitor providers within rate limits | ✅ **Built** | `src/core/provider_quota.py` (`can_use`/`headroom`/`should_conserve`, RPM/RPD/TPM/TPD) + `pool_manager.py` sliding-window rate states |
 | Run with 1 or dozens of providers | ✅ **Built** | `chain_builder.py` builds from `providers.yaml`; any provider with a `priority:` joins the chain |
 | Harness all access models (free/paid/sub/local) | ✅ **Built** | `provider_quota.py` `AccessTier` (FREE/TRIAL/PAID/UNLIMITED); 8 provider classes in `src/providers/` |
