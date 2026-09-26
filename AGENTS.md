@@ -316,11 +316,16 @@ GitHub: git@github.com:Driftah9/multi-llm-nexus.git
 Ordered by the live-system audit of 2026-09-25 ([`docs/LIVE_SYSTEM_AUDIT_2026-09-25.md`](docs/LIVE_SYSTEM_AUDIT_2026-09-25.md)) —
 54 live modules tagged `NEXUS:PORTABLE` have no counterpart here. Highest-value first:
 
-- **`worker_health.py` port** — reachability gate, separate axis from capability ranking. Live
-  measured swarm step completion decaying 100% → 0/11 (2026-09-04) because a 100%-failing provider
-  keeps its earned rank forever (quality EWMA only moves on success) and two dead top-ranked workers
-  eat the whole retry budget. Nexus shares the ranking and retry shape, so it shares the bug —
-  masked only by `SWARM_LOOP_ENABLED=0`.
+### ✅ Completed (2026-09-25)
+
+- **`worker_health.py` port** ([`docs/WORKER_HEALTH_GATE.md`](docs/WORKER_HEALTH_GATE.md)) —
+  Reachability gate integrated into swarm loop. Solves measured 100%→0/11 step-completion decay
+  by tracking transport failures per worker and benching unreachable ones (404/410, 403, 429,
+  quota exceeded) with class-appropriate cooldowns. Two-strike rule for transients, fail-open
+  invariant. 25 tests, 267 total suite green. Enables safe `SWARM_LOOP_ENABLED=1` deployment.
+
+### Pending
+
 - **Model discovery chain port** — the front half of model lifecycle is missing entirely. Live runs
   provider-limit discovery → new-model diff → benchmark research → `model_intel` feed into
   `capability_map`, on cron, daily. Nexus's `src/lifecycle/manager.py` only tracks models already

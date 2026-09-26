@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 
 ## [Unreleased]
 
+### Added
+- **Worker health gate for swarm reliability (2026-09-25).** `src/orchestration/worker_health.py`
+  (275 lines) ports the reachability gate from live and integrates it into the swarm loop.
+  Solves measured 100%→0/11 step-completion decay: when top-ranked workers are unreachable
+  (404/410, 403, 429, quota), they consumed the entire retry budget before healthy workers
+  got a chance. The gate tracks transport failures per logical worker, applies class-based
+  cooldowns (24h for model_gone/auth, 1h for quota, 5min for transient), and filters benched
+  workers from candidate selection. Two-strike rule: deterministic failures bench on first;
+  transients need two consecutive. Fail-open invariant: if all candidates are benched, returns
+  them anyway (gate must never starve a task). Integration points: `_execute_step()` filters
+  candidates through `filter_candidates()`, records success on completion, records failure on
+  exception. 25 new tests. Enables safe `SWARM_LOOP_ENABLED=1` deployment. See
+  `docs/WORKER_HEALTH_GATE.md` for architecture, design, and monitoring.
+
 ### Documentation
 - **Live-system audit (2026-09-25)** — `docs/LIVE_SYSTEM_AUDIT_2026-09-25.md`. Verified the
   running claude-brain install against this repo by direct inspection (filesystem, crontab,
