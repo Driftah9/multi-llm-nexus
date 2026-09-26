@@ -333,20 +333,23 @@ Ordered by the live-system audit of 2026-09-25 ([`docs/LIVE_SYSTEM_AUDIT_2026-09
   3.5× throughput collapse on RX 480). Now proposes all top-N candidates; operator measures and
   decides. Notification warns estimates are advisory.
 
+- **Model discovery chain (stages 1-3)** — provider-limit discovery (`discover_provider_limits.py`),
+  new-model diff (`discover_models.py`), benchmark research (`capability_research_job.py` +
+  `model_benchmarker.py`), and integration into `capability_map` via `load_research_findings()`.
+  Event-gated (fires only on discoveries, no unconditional nightly re-runs). Daily cron chain
+  ready. 267 tests green.
+
+- **`domain_classifier.py` + `domain_registry.py`** — emergent work-type domains with structural
+  validation (prevents PII/entity names). Integrated into engine: prompts auto-classified and
+  recorded in domain registry for tracking operator's actual work distribution. Feeds capability
+  routing. Regex pattern fix applied (removed over-eager IGNORECASE flag).
+
 ### Pending
 
-- **Model discovery chain port** — the front half of model lifecycle is missing entirely. Live runs
-  provider-limit discovery → new-model diff → benchmark research → `model_intel` feed into
-  `capability_map`, on cron, daily. Nexus's `src/lifecycle/manager.py` only tracks models already
-  declared in config. Pairs with `capability_baseline.py` (curated t=0 priors).
-- **`fit_check.py` → advisory only** — llmfit's fit verdicts are not trustworthy as a gate
-  (measured: "Perfect" at 70% utilization where real usage was 89% and throughput collapsed 3.5×).
-  Use it to generate candidates for measurement. Ship the HuggingFace→Ollama name map with it.
-- **`domain_classifier.py` + `domain_registry.py`** — emergent work-type domains so grades accrue
-  under what the operator actually does, not the coarse seed set.
-- Slack + Matrix adapters
-- Triage accuracy report script — reads validator DB, surfaces misclassification patterns
-- Self-improvement loop (eval → candidate queue → operator approval)
+- **Slack + Matrix adapters** — following Mattermost adapter pattern (WebSocket/REST, message
+  sync, channel mapping). High priority, ~1 week each.
+- **Self-improvement loop** (eval → candidate queue → operator approval) — closes the feedback
+  loop: observe triage/routing performance, generate candidates, propose to operator, learn.
 - LLM Watcher integration — standalone health monitoring service with state announcements.
   Live reference implementation exists: `orchestration/watcher/` (service template + heartbeat).
 - Live thread context fetching in MM adapter (last 20 posts → orchestrator dispatch)
