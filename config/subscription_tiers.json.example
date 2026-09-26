@@ -1,0 +1,10 @@
+{
+  "_meta": "Operator's subscription tier per provider. Edit and save as subscription_tiers.json (or leave here to skip discovery — all discovery queries will report 'unknown' tier). Format: {provider_name: plan_name}",
+  "_updated": "2026-09-25",
+
+  "anthropic": "pro",
+  "openai": "pay_as_you_go",
+  "groq": "free",
+  "gemini": "free",
+  "ollama": "local"
+}

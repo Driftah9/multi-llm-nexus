@@ -1,0 +1,87 @@
+{
+  "checked_at": "2026-09-26T03:56:00.463690+00:00",
+  "discovered": {
+    "anthropic": {
+      "active_plan": "unknown",
+      "plans": {
+        "free": {
+          "requests_per_minute": 3,
+          "tokens_per_minute": 15000,
+          "note": "Free tier"
+        },
+        "pro": {
+          "requests_per_minute": 50,
+          "tokens_per_minute": 500000,
+          "note": "Claude Pro"
+        },
+        "max": {
+          "requests_per_minute": 500,
+          "tokens_per_minute": 5000000,
+          "note": "Claude Max"
+        }
+      },
+      "source": "Rate limits from https://console.anthropic.com/account/limits (requires login)"
+    },
+    "openai": {
+      "active_plan": "unknown",
+      "plans": {
+        "free": {
+          "requests_per_minute": 3,
+          "tokens_per_minute": 90000,
+          "note": "Free tier"
+        },
+        "pay_as_you_go": {
+          "requests_per_minute": 500,
+          "tokens_per_minute": 200000,
+          "note": "Pay-as-you-go"
+        }
+      },
+      "source": "Rate limits from https://platform.openai.com/account/rate-limits (requires login)"
+    },
+    "groq": {
+      "active_plan": "unknown",
+      "plans": {
+        "free": {
+          "requests_per_minute": 30,
+          "tokens_per_minute": 6000,
+          "note": "Free tier"
+        }
+      },
+      "source": "Rate limits documented at https://console.groq.com/keys"
+    },
+    "ollama": {
+      "active_plan": "unknown",
+      "plans": {
+        "local": {
+          "requests_per_minute": "unlimited",
+          "tokens_per_minute": "unlimited",
+          "note": "Local (no limits)"
+        }
+      },
+      "source": "Local inference, no API limits"
+    },
+    "gemini": {
+      "active_plan": "unknown",
+      "plans": {
+        "free": {
+          "requests_per_minute": 60,
+          "tokens_per_minute": 1000000,
+          "note": "Free tier"
+        },
+        "pro": {
+          "requests_per_minute": 500,
+          "tokens_per_minute": "variable",
+          "note": "Gemini Advanced"
+        }
+      },
+      "source": "Rate limits from https://ai.google.dev/pricing (requires login)"
+    }
+  },
+  "errors": [
+    "anthropic: subscription tier not configured in config/subscription_tiers.json",
+    "openai: subscription tier not configured in config/subscription_tiers.json",
+    "groq: subscription tier not configured in config/subscription_tiers.json",
+    "ollama: subscription tier not configured in config/subscription_tiers.json",
+    "gemini: subscription tier not configured in config/subscription_tiers.json"
+  ]
+}
