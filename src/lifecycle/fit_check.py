@@ -1,29 +1,33 @@
 """
-Hardware Fit Checker — periodic discovery of *new* models llmfit didn't know
-about at install time, cross-checked against the current local model.
+Hardware Fit Checker — periodic discovery of *new* models, proposed as candidates.
 
 Distinct from ModelLifecycleManager (manager.py): that class tracks version
 drift on models you already run. This checks whether a *different* model —
 one that didn't exist, or wasn't in llmfit's catalog, when Nexus was set up —
-now fits the same hardware better.
+is now available and worth testing.
+
+⚠️  ADVISORY TOOL: llmfit estimates are not trustworthy verdicts.
+Measured on RX 480 (2026-08-14): llmfit predicted 70% utilization; real was 89%
+with 3.5× throughput collapse. It scores generation only (not prompt-eval —
+the binding constraint for long-context work), omits compute buffers from
+memory estimates, and recommends runtimes the hardware can't execute.
+
+USE: Generate candidates for operator measurement. DO NOT: Gate on fit verdicts.
 
 Flow (mirrors ModelLifecycleManager.run()):
   1. Load config/model_sources.yaml -> fit_check: section
   2. Load data/llmfit_fit_state.json (previous run state)
   3. Skip if checked within interval_days (unless --force)
   4. `llmfit update` — refresh llmfit's own catalog from HuggingFace
-  5. `llmfit --json recommend` — top fits for this hardware
-  6. `llmfit --json info "<current_model>"` — baseline score for what's running
-  7. A candidate only qualifies if it beats the baseline on both quality and
-     speed by the configured margins — "confidently better", not just different
-  8. If a qualifying candidate exists and hasn't already been notified: DM the
-     operator via Notifier. Never pulls or reconfigures anything — the operator
-     authorizes the swap themselves.
+  5. `llmfit --json recommend` — top fits for this hardware (up to limit)
+  6. Propose the top-N as candidates (no quality/speed gate)
+  7. If new candidates exist and haven't already been notified: DM the
+     operator via Notifier, including llmfit's own HF→Ollama mapping.
+     Never pulls or reconfigures anything — the operator tests and decides.
 
-Zero LLM tokens spent unless a qualifying candidate is found — everything above
-is mechanical subprocess + JSON comparison, consistent with the project's
-"watchers are mechanical, the LLM wakes only on signal" design (see
-src/core/watchers.py).
+Zero LLM tokens spent — everything above is mechanical subprocess + JSON
+comparison, consistent with the project's "watchers are mechanical, the LLM
+wakes only on signal" design (see src/core/watchers.py).
 """
 
 from __future__ import annotations
@@ -100,13 +104,17 @@ class HardwareFitChecker:
         baseline = self._llmfit_info(exe, current_model)
         recs = self._llmfit_recommend(exe, limit=cfg.get("recommend_limit", 5))
 
-        candidate = None
+        candidates = []
         if baseline is None:
             errors.append(f"could not score current model '{current_model}' via llmfit info — skipping comparison")
         elif not recs:
             errors.append("llmfit returned no recommendations")
         else:
-            candidate = self._pick_qualifying_candidate(baseline, recs, cfg, current_model)
+            # Return all recommendations (no quality/speed gate — those estimates are unreliable).
+            # Operator measures and decides which to test.
+            candidates = self._get_candidate_list(recs, current_model)
+
+        candidate = candidates[0] if candidates else None
 
         self._state["last_check"] = datetime.now(timezone.utc).isoformat()
 
@@ -180,49 +188,36 @@ class HardwareFitChecker:
             logger.debug(f"heuristic baseline unavailable: {e}")
             return None
 
-    # ── Comparison ──────────────────────────────────────────────────────────
+    # ── Candidate proposal (advisory, no gating on estimates) ──────────────────
 
-    def _pick_qualifying_candidate(
-        self, baseline: dict, recs: list[dict], cfg: dict, current_model: str
-    ) -> Optional[dict]:
-        base_quality = self._num(baseline.get("score_components", {}).get("quality"))
-        base_tps = self._num(baseline.get("estimated_tps"))
-        if base_quality is None:
-            return None
+    def _get_candidate_list(self, recs: list[dict], current_model: str) -> list[dict]:
+        """Return all recommendations as candidates (no quality/speed gate).
 
-        min_quality_gain_pct = cfg.get("min_quality_gain_pct", 0.10)
-        max_speed_regression_pct = cfg.get("max_speed_regression_pct", 0.0)
+        llmfit estimates are not trustworthy verdicts — they omit prompt-eval,
+        compute buffers, and runtime constraints. Propose all top-N and let the
+        operator measure and decide which to test.
 
+        See the module docstring for why: measured 70% predicted → 89% real
+        utilization with 3.5× throughput collapse on RX 480 (2026-08-14).
+        """
+        candidates = []
         for r in recs:
             name = r.get("name")
             if not name or name == current_model:
                 continue
-            comp = r.get("score_components", {}) or {}
-            quality = self._num(comp.get("quality"))
-            tps = self._num(r.get("estimated_tps"))
-            if quality is None:
-                continue
-
-            quality_gain_ok = quality >= base_quality * (1 + min_quality_gain_pct)
-            speed_ok = True
-            if base_tps is not None and tps is not None and base_tps > 0:
-                speed_ok = tps >= base_tps * (1 - max_speed_regression_pct)
-
-            if quality_gain_ok and speed_ok:
-                return {
-                    "name": name,
-                    # llmfit's own HF->Ollama mapping — closes the phase-2 name-mapping
-                    # gap noted in wizard.py::llmfit_probe(); confirmed present on a
-                    # real run (2026-08-12), not documented in llmfit's own docs.
-                    "ollama_name": r.get("ollama_name"),
-                    "score": r.get("score"),
-                    "quality": quality,
-                    "estimated_tps": tps,
-                    "best_quant": r.get("best_quant"),
-                    "baseline_quality": base_quality,
-                    "baseline_tps": base_tps,
-                }
-        return None
+            candidates.append({
+                "name": name,
+                # llmfit's own HF->Ollama mapping — closes the phase-2 name-mapping
+                # gap. Confirmed present on a real run (2026-08-12), not documented
+                # in llmfit's own docs.
+                "ollama_name": r.get("ollama_name"),
+                "score": r.get("score"),
+                "score_components": r.get("score_components", {}),
+                "estimated_tps": r.get("estimated_tps"),
+                "best_quant": r.get("best_quant"),
+                "note": "⚠️  llmfit estimate — measure before trusting",
+            })
+        return candidates
 
     @staticmethod
     def _num(v) -> Optional[float]:
@@ -269,24 +264,31 @@ class HardwareFitChecker:
             from src.core.notify import Notifier
             notifier = Notifier.from_config()
 
+            score_components = candidate.get("score_components", {})
             tps = candidate.get("estimated_tps")
-            base_tps = candidate.get("baseline_tps")
-            speed_line = f"{tps:.1f} tok/s est." + (f" (vs {base_tps:.1f} now)" if base_tps else "") if tps else ""
+            score_line = ""
+            if score_components:
+                parts = [f"{k}={v:.0f}" for k, v in score_components.items() if v]
+                score_line = " (" + ", ".join(parts) + ")" if parts else ""
 
             ollama_name = candidate.get("ollama_name")
             lines = [
-                "**A better-fitting local model showed up** (llmfit fit check)\n",
+                "**New model candidate available** (llmfit discovery)\n",
                 f"• Currently running: `{current_model}`",
                 f"• Candidate: **{candidate['name']}**" + (f" [{candidate['best_quant']}]" if candidate.get("best_quant") else ""),
-                f"  quality {candidate['quality']:.0f} (vs {candidate['baseline_quality']:.0f} now)"
-                + (f", {speed_line}" if speed_line else ""),
+                f"  llmfit score {candidate['score']:.1f}{score_line}" if candidate.get("score") else "  (llmfit score unknown)",
                 "",
-                "This is a suggestion only — nothing was changed. Test it yourself with:",
-                f"  `llmfit info \"{candidate['name']}\"`",
+                "⚠️  **llmfit estimates are advisory only — always measure before deciding:**",
+                "  Measured bias: predicts 70% utilization where real is 89% (3.5× throughput collapse possible).",
+                "  Reasons: scores generation not prompt-eval, omits compute buffers, recommends unsupported runtimes.",
+                "",
+                "To test this candidate:",
+                f"  `ollama pull {ollama_name}`" if ollama_name else "",
+                "  Then run your typical workload and measure prompt-eval latency, throughput, and memory.",
+                "",
+                f"  `llmfit info \"{candidate['name']}\"` (for reference)",
             ]
-            if ollama_name:
-                lines.append(f"  `ollama pull {ollama_name}` (llmfit's own HF→Ollama mapping)")
-            lines.append("")
+            lines = [l for l in lines if l is not None and l != ""]  # Remove empty strings
 
             notify_cfg = cfg.get("notify", {})
             dest = notify_cfg.get("destination", "dm")
