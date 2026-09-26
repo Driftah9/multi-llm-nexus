@@ -344,12 +344,16 @@ Ordered by the live-system audit of 2026-09-25 ([`docs/LIVE_SYSTEM_AUDIT_2026-09
   recorded in domain registry for tracking operator's actual work distribution. Feeds capability
   routing. Regex pattern fix applied (removed over-eager IGNORECASE flag).
 
+- **Self-improvement loop (evaluation phase)** (`src/lifecycle/self_improver.py` +
+  `scripts/improvement_job.py`) — EVAL phase implemented: reads triage-validation.db, identifies
+  misclassification patterns with confidence scoring, generates proposals with high/medium-impact
+  fixes ready for operator review. Zero LLM tokens during evaluation. 273 tests green. Closes
+  feedback cycle: observe → candidates → propose → (operator approval phase — pending).
+
 ### Pending
 
 - **Slack + Matrix adapters** — following Mattermost adapter pattern (WebSocket/REST, message
   sync, channel mapping). High priority, ~1 week each.
-- **Self-improvement loop** (eval → candidate queue → operator approval) — closes the feedback
-  loop: observe triage/routing performance, generate candidates, propose to operator, learn.
 - LLM Watcher integration — standalone health monitoring service with state announcements.
   Live reference implementation exists: `orchestration/watcher/` (service template + heartbeat).
 - Live thread context fetching in MM adapter (last 20 posts → orchestrator dispatch)
