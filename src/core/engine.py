@@ -27,6 +27,8 @@ from .session import SessionStore, Session
 from .triage import Triage
 from .orchestrator import Orchestrator
 from .watchers import TriggerListener, WakeEvent, WakeReason, WatcherConfig
+from ..orchestration.domain_classifier import DomainClassifier
+from ..orchestration.domain_registry import DomainRegistry
 
 if TYPE_CHECKING:
     from ..adapters.base import BaseAdapter
@@ -91,6 +93,8 @@ class Engine:
         self.triage = triage
         self.config = config
         self.orchestrator = orchestrator
+        self.domain_classifier = DomainClassifier()
+        self.domain_registry = DomainRegistry()
 
         self._queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
         self._running = False
@@ -244,6 +248,12 @@ class Engine:
         workspace_name = self.orchestrator.get_workspace_for_display(context) or context
         operator_context = self._build_operator_context(inbound)
 
+        # Classify work-type domain for operator observability
+        domain = await self.domain_classifier.classify(inbound.content)
+        if domain:
+            self.domain_registry.record(domain)
+            logger.debug(f"Classified domain: {domain}")
+
         logger.info(f"Orchestrating in workspace '{workspace_name}' for {context}")
 
         result = await self.orchestrator.dispatch(
@@ -267,11 +277,18 @@ class Engine:
                 "synthesized": result.synthesized,
                 "cost_usd": result.total_cost,
                 "elapsed": result.elapsed,
+                "domain": domain,
             },
         )
 
     async def _process_standard(self, inbound: InboundMessage) -> Optional[OutboundMessage]:
         triage_result = await self.triage.classify(inbound.content)
+        # Classify work-type domain (operator's actual work distribution)
+        domain = await self.domain_classifier.classify(inbound.content)
+        if domain:
+            self.domain_registry.record(domain)
+            logger.debug(f"Classified domain: {domain}")
+
         session = self.sessions.get_or_create(
             session_id=inbound.session_id,
             platform=inbound.platform,
@@ -294,7 +311,11 @@ class Engine:
             channel_id=inbound.channel_id,
             session_id=inbound.session_id,
             content=response.content,
-            metadata={"provider": repr(provider), "task_type": triage_result.task_type},
+            metadata={
+                "provider": repr(provider),
+                "task_type": triage_result.task_type,
+                "domain": domain,
+            },
         )
 
     async def _deliver(self, outbound: OutboundMessage):
