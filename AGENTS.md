@@ -324,6 +324,15 @@ Ordered by the live-system audit of 2026-09-25 ([`docs/LIVE_SYSTEM_AUDIT_2026-09
   quota exceeded) with class-appropriate cooldowns. Two-strike rule for transients, fail-open
   invariant. 25 tests, 267 total suite green. Enables safe `SWARM_LOOP_ENABLED=1` deployment.
 
+- **Triage accuracy report** (`scripts/triage_accuracy_report.py`) — reads triage-validation.db,
+  surfaces accuracy by tier/channel/domain, misclassification patterns, error/failover rates.
+  JSON or text output. Filters by age. Used for self-eval and routing improvements.
+
+- **`fit_check.py` → advisory only** — downgraded from gating to proposal. Removed quality/speed
+  thresholds on llmfit estimates (measured unreliable: 70% predicted → 89% real utilization,
+  3.5× throughput collapse on RX 480). Now proposes all top-N candidates; operator measures and
+  decides. Notification warns estimates are advisory.
+
 ### Pending
 
 - **Model discovery chain port** — the front half of model lifecycle is missing entirely. Live runs

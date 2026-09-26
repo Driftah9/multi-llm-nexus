@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Triage accuracy report script and fit_check downgrade to advisory (2026-09-25).**
+  `scripts/triage_accuracy_report.py` reads triage-validation.db and surfaces accuracy
+  metrics: by tier (nano/standard/deep/apex), per-channel, by domain, misclassification
+  patterns (under/over-triage), error and failover rates. Output: JSON or text. Supports
+  age filtering (`--days N`). Used for self-eval and to surface routing improvements.
+  `src/lifecycle/fit_check.py` downgraded from gating to advisory-only: removed quality/
+  speed thresholds on llmfit estimates (measured unreliable: 70% predicted → 89% real
+  utilization on RX 480, 3.5× throughput collapse). Now proposes all top-N candidates;
+  operator measures and decides. Notification warns estimates are advisory; includes
+  measurement guidance and llmfit's HF→Ollama mapping for convenience.
+
 - **Worker health gate for swarm reliability (2026-09-25).** `src/orchestration/worker_health.py`
   (275 lines) ports the reachability gate from live and integrates it into the swarm loop.
   Solves measured 100%→0/11 step-completion decay: when top-ranked workers are unreachable
