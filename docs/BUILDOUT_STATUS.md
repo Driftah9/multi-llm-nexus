@@ -1,5 +1,12 @@
 # Nexus Build-Out Status — Where the Vision Meets the Code
-**Date:** 2026-06-09 · **Verified/updated:** 2026-09-12
+**Date:** 2026-06-09 · **Verified/updated:** 2026-09-25
+
+> **2026-09-25 live-system audit.** The gap between this repo and the running claude-brain
+> install was measured, not estimated — see [`LIVE_SYSTEM_AUDIT_2026-09-25.md`](LIVE_SYSTEM_AUDIT_2026-09-25.md).
+> 54 live modules stamped `NEXUS:PORTABLE` have no counterpart under `src/`. Two corrections
+> to claims made elsewhere: automated model discovery **does** exist live (daily cron chain,
+> verified running) and is entirely absent here; and llmfit's hardware-fit verdicts are
+> **not** trustworthy as a gate. Suite green at 242 tests on this date.
 **Purpose:** Single source of truth on what's built, what's stubbed, what's missing — so the provider/tier work has full context without re-explanation.
 
 > **2026-07-18 reality check.** The "INERT / broken in 3 ways / STANDBY since Jun 3"

@@ -313,8 +313,29 @@ GitHub: git@github.com:Driftah9/multi-llm-nexus.git
 
 ## What's Next
 
+Ordered by the live-system audit of 2026-09-25 ([`docs/LIVE_SYSTEM_AUDIT_2026-09-25.md`](docs/LIVE_SYSTEM_AUDIT_2026-09-25.md)) —
+54 live modules tagged `NEXUS:PORTABLE` have no counterpart here. Highest-value first:
+
+- **`worker_health.py` port** — reachability gate, separate axis from capability ranking. Live
+  measured swarm step completion decaying 100% → 0/11 (2026-09-04) because a 100%-failing provider
+  keeps its earned rank forever (quality EWMA only moves on success) and two dead top-ranked workers
+  eat the whole retry budget. Nexus shares the ranking and retry shape, so it shares the bug —
+  masked only by `SWARM_LOOP_ENABLED=0`.
+- **Model discovery chain port** — the front half of model lifecycle is missing entirely. Live runs
+  provider-limit discovery → new-model diff → benchmark research → `model_intel` feed into
+  `capability_map`, on cron, daily. Nexus's `src/lifecycle/manager.py` only tracks models already
+  declared in config. Pairs with `capability_baseline.py` (curated t=0 priors).
+- **`fit_check.py` → advisory only** — llmfit's fit verdicts are not trustworthy as a gate
+  (measured: "Perfect" at 70% utilization where real usage was 89% and throughput collapsed 3.5×).
+  Use it to generate candidates for measurement. Ship the HuggingFace→Ollama name map with it.
+- **`domain_classifier.py` + `domain_registry.py`** — emergent work-type domains so grades accrue
+  under what the operator actually does, not the coarse seed set.
 - Slack + Matrix adapters
 - Triage accuracy report script — reads validator DB, surfaces misclassification patterns
 - Self-improvement loop (eval → candidate queue → operator approval)
-- LLM Watcher integration — standalone health monitoring service with state announcements
+- LLM Watcher integration — standalone health monitoring service with state announcements.
+  Live reference implementation exists: `orchestration/watcher/` (service template + heartbeat).
 - Live thread context fetching in MM adapter (last 20 posts → orchestrator dispatch)
+- Skills subsystem (`skill_manifest` / `skill_roster` / `skill_router` / `skill_usage` /
+  `skill_gap_detector`) and the seat/lease cluster (`primary_lock`, `seat_lease`,
+  `failover_executor`, `recovery_watcher`) — larger, less urgent.

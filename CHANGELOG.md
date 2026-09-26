@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 
 ## [Unreleased]
 
+### Documentation
+- **Live-system audit (2026-09-25)** — `docs/LIVE_SYSTEM_AUDIT_2026-09-25.md`. Verified the
+  running claude-brain install against this repo by direct inspection (filesystem, crontab,
+  job logs, job output JSON). Findings: (a) the live install **does** run automated model
+  discovery on cron — provider-limit discovery 06:00 → new-model diff 06:05 → benchmark
+  research 06:20 feeding `model_intel` into `capability_map`, confirmed running 2026-09-25
+  06:44 — correcting an earlier conclusion that no auto-discovery existed anywhere; Nexus
+  has none of that chain. (b) 54 live modules carrying a `NEXUS:PORTABLE` stamp have no
+  counterpart under `src/`, with `worker_health.py` the highest priority — live measured
+  swarm step completion decaying 100% → 0/11 because quality EWMA only moves on success,
+  a failure mode Nexus shares and only `SWARM_LOOP_ENABLED=0` currently masks.
+  (c) llmfit's fit verdicts are unsafe as a go/no-go gate (labelled a config "Perfect" at
+  70% predicted utilization where measured was 89% with 3.5× throughput collapse — it scores
+  generation not prompt-eval, omits compute buffers, and infers unrunnable runtime paths);
+  `src/lifecycle/fit_check.py` should propose candidates, never promote on a fit score.
+  `AGENTS.md` → *What's Next* re-ordered against these findings. `experiment/llmfit-hardware-fit`
+  confirmed fully merged into `main` (zero unique commits) and prunable.
+
 ### Added
 - **Emergency local floor for exhausted provider chains (2026-09-12, ported from
   claude-brain live).** `ProviderChainEntry` gained `cost_class` (mirrors the
