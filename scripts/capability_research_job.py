@@ -110,26 +110,37 @@ def get_new_models() -> Dict[str, List[str]]:
     return new_by_provider
 
 
-def benchmark_model_stub(provider_id: str, model_id: str) -> Dict[str, Any]:
-    """Stub: benchmark one model (placeholder until agent_loop is wired).
+async def benchmark_model_async(
+    provider_id: str,
+    model_id: str,
+    bridge=None,
+) -> Dict[str, Any]:
+    """Benchmark one model using the bridge (real provider calls).
 
-    In the live implementation, this would call a Scribe agent to run quick
-    benchmark prompts across domains. For Nexus Phase 1, we collect the
-    model info but don't run expensive benchmarks yet.
-
-    TODO: Wire into src/core/agent_loop.py for real benchmarking.
+    Uses lightweight model_benchmarker to run quick tests across domains.
     """
-    return {
-        "provider": provider_id,
-        "model_id": model_id,
-        "benchmark_date": datetime.now(timezone.utc).isoformat(),
-        "domains": {
-            "coding": {"status": "placeholder", "score": None},
-            "reasoning": {"status": "placeholder", "score": None},
-            "writing": {"status": "placeholder", "score": None},
-        },
-        "note": "Benchmarking not yet implemented — model registered for future evaluation",
-    }
+    if not bridge:
+        return {
+            "provider": provider_id,
+            "model": model_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "domains": {},
+            "error": "no bridge provided",
+        }
+
+    try:
+        from src.lifecycle.model_benchmarker import benchmark_model
+        result = await benchmark_model(provider_id, model_id, bridge)
+        return result
+    except Exception as e:
+        logger.error(f"capability_research: benchmark failed for {provider_id}::{model_id}: {e}")
+        return {
+            "provider": provider_id,
+            "model": model_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "domains": {},
+            "error": str(e)[:100],
+        }
 
 
 async def run_capability_research(

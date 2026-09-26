@@ -67,6 +67,41 @@ class CapabilityMap:
         for k in ("research", "orchestration", "pair_affinity", "profiles", "grades"):
             if k in loaded:
                 self.data[k] = loaded[k]
+        # Load research findings from model_intel.json if available
+        self.load_research_findings()
+
+    def load_research_findings(self) -> None:
+        """Load benchmarking results from model_intel.json into pre-seed scores.
+
+        model_intel.json is written by capability_research_job.py and contains
+        benchmark results for newly discovered models. Scores are loaded as
+        pre-seed values (they can be overwritten by graded evidence).
+        """
+        intel_path = self.path.parent / "model_intel.json"
+        if not intel_path.exists():
+            return
+
+        try:
+            with open(intel_path) as f:
+                intel = json.load(f)
+            models = intel.get("models", {})
+
+            for model_key, model_data in models.items():
+                # model_key format: "provider_id::model_id"
+                if "::" not in model_key:
+                    continue
+                provider_id = model_key.split("::")[0]
+                domains = model_data.get("domains", {})
+
+                for domain, domain_result in domains.items():
+                    if isinstance(domain_result, dict) and "score" in domain_result:
+                        score = domain_result["score"]
+                        if 0.0 <= score <= 1.0:
+                            # Seed this domain/provider score
+                            self.data["research"].setdefault(domain, {})[provider_id] = score
+        except Exception as e:
+            import sys
+            print(f"Warning: could not load research findings: {e}", file=sys.stderr)
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
