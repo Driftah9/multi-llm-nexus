@@ -193,3 +193,51 @@ def test_proposal_serialization():
     assert data["proposal_id"] == "test_proposal"
     assert len(data["high_impact_fixes"]) == 1
     assert data["high_impact_fixes"][0]["pattern_id"] == "test_pattern"
+
+
+@pytest.mark.asyncio
+async def test_approve_and_reject_fixes(tmp_validation_db, tmp_path):
+    """Test approval and rejection of fixes."""
+    improver = SelfImprover(
+        validation_db=tmp_validation_db,
+        history_path=tmp_path / "history.json",
+    )
+    
+    # Generate a proposal
+    proposal = await improver.evaluate(days=7)
+    improver.save_proposal(proposal)
+    
+    if not proposal.high_impact_fixes:
+        pytest.skip("No high-impact fixes in test data")
+    
+    # Approve a fix
+    pattern_id = proposal.high_impact_fixes[0].pattern_id
+    assert improver.approve_fix(proposal.proposal_id, pattern_id, "Looks good!")
+    
+    # Verify approval was recorded
+    approved = improver.get_approved_fixes(proposal.proposal_id)
+    assert len(approved) == 1
+    assert approved[0]["pattern_id"] == pattern_id
+    assert approved[0]["approvals"][0]["notes"] == "Looks good!"
+    
+    # Reject another fix if available
+    if len(proposal.high_impact_fixes) > 1:
+        pattern_id_2 = proposal.high_impact_fixes[1].pattern_id
+        assert improver.reject_fix(proposal.proposal_id, pattern_id_2, "Not right now")
+        
+        rejected = improver.get_rejected_fixes(proposal.proposal_id)
+        assert len(rejected) == 1
+        assert rejected[0]["pattern_id"] == pattern_id_2
+
+
+@pytest.mark.asyncio
+async def test_approve_nonexistent_fix(tmp_validation_db, tmp_path):
+    """Test that approving nonexistent fix returns False."""
+    improver = SelfImprover(
+        validation_db=tmp_validation_db,
+        history_path=tmp_path / "history.json",
+    )
+    
+    # Try to approve a nonexistent proposal
+    result = improver.approve_fix("fake_proposal", "fake_pattern")
+    assert result is False

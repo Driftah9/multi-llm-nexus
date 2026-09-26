@@ -323,3 +323,148 @@ class SelfImprover:
         except Exception as e:
             logger.error(f"self_improver: load_proposals failed: {e}")
             return {}
+
+    def approve_fix(self, proposal_id: str, pattern_id: str, fix_notes: str = "") -> bool:
+        """Operator approves a proposed fix.
+
+        Args:
+            proposal_id: The proposal this fix belongs to
+            pattern_id: The specific pattern being approved
+            fix_notes: Optional notes from operator on why they approved
+
+        Returns:
+            True if recorded, False if proposal/pattern not found
+        """
+        try:
+            proposals = self.load_proposals()
+            if proposal_id not in proposals:
+                logger.warning(f"self_improver: approve_fix — proposal {proposal_id} not found")
+                return False
+
+            proposal_data = proposals[proposal_id]
+
+            # Find the pattern in either high or medium impact
+            pattern_found = False
+            for fix_list_name in ["high_impact_fixes", "medium_impact_fixes"]:
+                for fix in proposal_data.get(fix_list_name, []):
+                    if fix["pattern_id"] == pattern_id:
+                        # Record approval
+                        if "approvals" not in fix:
+                            fix["approvals"] = []
+                        fix["approvals"].append({
+                            "approved_at": datetime.now(timezone.utc).isoformat(),
+                            "notes": fix_notes,
+                        })
+                        pattern_found = True
+                        break
+
+            if not pattern_found:
+                logger.warning(f"self_improver: approve_fix — pattern {pattern_id} not found in proposal {proposal_id}")
+                return False
+
+            # Save updated proposal
+            with open(self.history_path, "w") as f:
+                json.dump(proposals, f, indent=2, sort_keys=True)
+
+            logger.info(f"self_improver: approved fix {pattern_id} from proposal {proposal_id}")
+            return True
+        except Exception as e:
+            logger.error(f"self_improver: approve_fix failed: {e}")
+            return False
+
+    def reject_fix(self, proposal_id: str, pattern_id: str, rejection_reason: str = "") -> bool:
+        """Operator rejects a proposed fix.
+
+        Args:
+            proposal_id: The proposal this fix belongs to
+            pattern_id: The specific pattern being rejected
+            rejection_reason: Optional reason why operator rejected it
+
+        Returns:
+            True if recorded, False if proposal/pattern not found
+        """
+        try:
+            proposals = self.load_proposals()
+            if proposal_id not in proposals:
+                logger.warning(f"self_improver: reject_fix — proposal {proposal_id} not found")
+                return False
+
+            proposal_data = proposals[proposal_id]
+
+            # Find the pattern in either high or medium impact
+            pattern_found = False
+            for fix_list_name in ["high_impact_fixes", "medium_impact_fixes"]:
+                for fix in proposal_data.get(fix_list_name, []):
+                    if fix["pattern_id"] == pattern_id:
+                        # Record rejection
+                        if "rejections" not in fix:
+                            fix["rejections"] = []
+                        fix["rejections"].append({
+                            "rejected_at": datetime.now(timezone.utc).isoformat(),
+                            "reason": rejection_reason,
+                        })
+                        pattern_found = True
+                        break
+
+            if not pattern_found:
+                logger.warning(f"self_improver: reject_fix — pattern {pattern_id} not found in proposal {proposal_id}")
+                return False
+
+            # Save updated proposal
+            with open(self.history_path, "w") as f:
+                json.dump(proposals, f, indent=2, sort_keys=True)
+
+            logger.info(f"self_improver: rejected fix {pattern_id} from proposal {proposal_id}")
+            return True
+        except Exception as e:
+            logger.error(f"self_improver: reject_fix failed: {e}")
+            return False
+
+    def get_approved_fixes(self, proposal_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all approved fixes (optionally filtered by proposal).
+
+        Returns: List of approved pattern dicts with approval metadata.
+        """
+        approved = []
+        proposals = self.load_proposals()
+
+        for pid, proposal_data in proposals.items():
+            if proposal_id and pid != proposal_id:
+                continue
+
+            for fix_list_name in ["high_impact_fixes", "medium_impact_fixes"]:
+                for fix in proposal_data.get(fix_list_name, []):
+                    if fix.get("approvals"):
+                        approved.append({
+                            "proposal_id": pid,
+                            "pattern_id": fix["pattern_id"],
+                            "proposed_fix": fix["proposed_fix"],
+                            "confidence": fix["confidence"],
+                            "approvals": fix["approvals"],
+                        })
+
+        return approved
+
+    def get_rejected_fixes(self, proposal_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all rejected fixes (optionally filtered by proposal).
+
+        Returns: List of rejected pattern dicts with rejection metadata.
+        """
+        rejected = []
+        proposals = self.load_proposals()
+
+        for pid, proposal_data in proposals.items():
+            if proposal_id and pid != proposal_id:
+                continue
+
+            for fix_list_name in ["high_impact_fixes", "medium_impact_fixes"]:
+                for fix in proposal_data.get(fix_list_name, []):
+                    if fix.get("rejections"):
+                        rejected.append({
+                            "proposal_id": pid,
+                            "pattern_id": fix["pattern_id"],
+                            "proposed_fix": fix["proposed_fix"],
+                            "rejections": fix["rejections"],
+                        })
+
+        return rejected
