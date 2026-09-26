@@ -344,11 +344,11 @@ Ordered by the live-system audit of 2026-09-25 ([`docs/LIVE_SYSTEM_AUDIT_2026-09
   recorded in domain registry for tracking operator's actual work distribution. Feeds capability
   routing. Regex pattern fix applied (removed over-eager IGNORECASE flag).
 
-- **Self-improvement loop (evaluation phase)** (`src/lifecycle/self_improver.py` +
-  `scripts/improvement_job.py`) — EVAL phase implemented: reads triage-validation.db, identifies
-  misclassification patterns with confidence scoring, generates proposals with high/medium-impact
-  fixes ready for operator review. Zero LLM tokens during evaluation. 273 tests green. Closes
-  feedback cycle: observe → candidates → propose → (operator approval phase — pending).
+- **Self-improvement loop (complete)** (`src/lifecycle/self_improver.py` + `scripts/improvement_job.py`)
+  — Full feedback cycle: EVAL (reads triage-validation.db, identifies patterns), CANDIDATES
+  (confidence-scored high/medium-impact fixes), PROPOSAL (ready for review), LEARNING (operator
+  approve/reject with notes). Zero LLM tokens during evaluation. 275 tests green. Tracks approved
+  fixes with operator feedback for future routing improvements.
 
 ### Pending
 
