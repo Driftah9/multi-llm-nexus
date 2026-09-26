@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Dict, List, Optional
 from uuid import uuid4
 
-from . import staging
+from . import staging, worker_health
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +102,18 @@ async def _execute_step(
     capability_map,
     client,
 ) -> None:
-    """Route one step to the capability-best worker; re-route on failure (bounded)."""
+    """Route one step to the capability-best worker; re-route on failure (bounded).
+
+    Integrates the worker_health gate: benched workers (transport failures, auth issues,
+    decommissioned models) are skipped. A successful call clears any bench; a failure
+    records it for future filtering.
+    """
     tried: set = set()
     while step.attempts < MAX_STEP_RETRIES and step.status != "done":
-        candidates = [c for c in worker_candidates_fn(step.domain) if c not in tried]
+        # Get capability-ranked candidates, filter out already-tried ones, then apply health gate.
+        raw_candidates = worker_candidates_fn(step.domain)
+        candidates = [c for c in raw_candidates if c not in tried]
+        candidates = worker_health.filter_candidates(candidates)  # Skip benched workers
         if not candidates:
             break
         pick = capability_map.choose(step.domain, candidates)
@@ -121,9 +129,11 @@ async def _execute_step(
                 continue
             step.result = text
             step.status = "done"
+            worker_health.record_success(provider)  # Traffic-driven recovery
             logger.info(f"swarm: step done via {provider} (domain={step.domain}, "
                         f"mode={pick.get('mode')}, attempt={step.attempts})")
         except Exception as e:
+            worker_health.record_failure(provider, e)  # Record for future filtering
             logger.warning(f"swarm: step worker {provider} failed ({type(e).__name__}) — re-routing")
     if step.status != "done":
         step.status = "failed"

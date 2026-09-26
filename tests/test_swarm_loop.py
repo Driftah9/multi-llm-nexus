@@ -4,13 +4,15 @@ import asyncio
 
 import pytest
 
-from src.orchestration import swarm_loop
+from src.orchestration import swarm_loop, worker_health
 from src.orchestration.swarm_loop import run_swarm, Step, enabled
 
 
 @pytest.fixture
 def tmp_staging(tmp_path, monkeypatch):
     monkeypatch.setattr(swarm_loop.staging, "STAGING_DIR", tmp_path)
+    # Isolate worker_health registry so tests don't interfere with each other
+    monkeypatch.setattr(worker_health, "_PATH", str(tmp_path / "worker_health.json"))
     return tmp_path
 
 

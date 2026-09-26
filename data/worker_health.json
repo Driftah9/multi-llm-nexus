@@ -1,0 +1,10 @@
+{
+  "groq-8b": {
+    "benched_until": 1790395189.9794722,
+    "consecutive": 3,
+    "detail": "groq-8b boom",
+    "klass": "unknown",
+    "last_failure": 1790394289.9794664,
+    "worker": "groq-8b"
+  }
+}
