@@ -68,3 +68,4 @@ data/diag-reports/
 data/capability_map.json
 data/provider_status.json
 data/routing_telemetry.jsonl
+data/routing_weights.json
