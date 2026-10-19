@@ -48,4 +48,20 @@ sufficient) and Claude-specific probe/quota branches. Tests: 18.
   success/failure — live parity since 2026-09-14.
 Tests: 18 ported from live (fixtures adapted).
 
+## Stage 2c — Capability baseline + qualification flap guard
+
+- `src/orchestration/capability_baseline.py` — the seeded-prior MECHANISM. `is_qualified` is now
+  `earned OR seeded`; `qualified()` and `choose()` rank ungraded providers by the operator's prior
+  (`_effective_score`) without ever writing it into the earned table.
+- **Adaptation:** live ships a curated table keyed by its own provider ids (`claude-opus`,
+  `groq-70b`, …). Nexus provider ids are operator-defined, so shipping those scores would silently
+  mis-seed anyone whose names differ. Nexus ships `config/capability_baseline.json.example` only;
+  the real file is operator data (gitignored). No file → earned-only, exactly as before. Live's
+  transitional two-file split (baseline + seed) collapses to one file accepting both shapes.
+- `CapabilityMap` flap guard (`QUALIFY_CONFIRM`, default 3): the earned bar crossing flips only
+  after N consecutive grades on the other side; a collapse below `bar - PROBE_BAND` demotes at
+  once. `qualification_state()` exposes the latch; `probe_candidates()` includes over-bar models
+  whose promotion is still unconfirmed.
+Tests: 12 baseline (adapted from live) + 13 hysteresis (ported verbatim).
+
 Last verified against code: 2026-10-19

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Capability baseline + qualification flap guard (2026-10-19, live→Nexus).**
+  `src/orchestration/capability_baseline.py`: optional operator priors
+  (`config/capability_baseline.json`, example shipped) make `is_qualified` = earned OR seeded and
+  let `choose()`/`qualified()` rank ungraded providers by the prior. `CapabilityMap` gains a
+  `QUALIFY_CONFIRM` latch so near-bar noise can't flap a model in/out of qualification
+  (`qualification_state()` for dashboards). No baseline file = previous behaviour. 25 tests.
 - **Mechanical provider recovery + outage reasons (2026-10-19, live→Nexus).**
   `src/core/outage_reason.py` turns raw failure text into an operator-facing cause and whose side
   it is on. `ProviderChain.HealthMonitor` now decides recovery by failure class (quota waits for its

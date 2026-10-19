@@ -218,3 +218,14 @@ subsystems:
       - "docs/LIVE_CONVERGENCE_2026-10.md"
       - "docs/BUILDOUT_STATUS.md"
     claim: "HealthMonitor decides recovery by failure class (quota waits, transient probes, auth/bad_request/model_gone need a human); recovery clears the bench and calls the injected on_recovery; no second health store."
+
+  - area: "capability baseline / qualification latch"
+    paths:
+      - "src/orchestration/capability_baseline.py"
+      - "src/orchestration/capability_map.py"
+      - "config/capability_baseline.json.example"
+    docs:
+      - "docs/LIVE_CONVERGENCE_2026-10.md"
+      - "docs/BUILDOUT_STATUS.md"
+      - "AGENTS.md"
+    claim: "is_qualified = earned (min samples + flap-guarded bar) OR seeded by the operator's optional baseline file; no real baseline ships — only an example keyed to placeholder ids."

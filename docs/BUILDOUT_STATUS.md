@@ -218,7 +218,10 @@ copy**. Ordered plan (each step is its own PR, verify-before-next):
 > channel) + the operator's decision to flip the flag — not porting.
 
 1. ✅ **capability_map ladder foundation** — DONE 2026-07-18 (grades counter + qualification/probe
-   methods + constants). Pure additions, tests green.
+   methods + constants). Pure additions, tests green. **2026-10-19:** + operator capability
+   baseline (`is_qualified` = earned OR seeded; `choose()` ranks ungraded providers by the prior)
+   and the QUALIFY_CONFIRM flap guard on the earned bar crossing — see
+   `docs/LIVE_CONVERGENCE_2026-10.md` §2c.
 2. ✅ `orchestration/provider_status.py` — DONE 2026-07-18. Ported; `KNOWN_PROVIDERS` = all 11
    `providers.yaml` ids, `FRONTIER_COUNCIL` = {sambanova, openrouter, cerebras} (no claude in the
    OpenAI-compatible registry), both env-overridable. 15 tests.

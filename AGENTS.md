@@ -268,7 +268,9 @@ The display shows WHAT is active, not HOW it's connected. Connection details are
 
 ### Convergence: swarm + graduation ladder + fixed-role council (2026-07-18)
 Live→Nexus port of the swarm orchestration loop, the capability graduation ladder (models
-start unqualified and earn demanding roles per-domain via graded evidence), and the fixed-role
+start unqualified and earn demanding roles per-domain via graded evidence — or arrive pre-qualified
+where the operator's optional `config/capability_baseline.json` vouches for them; real grades
+override the prior, and the earned bar crossing is flap-guarded since 2026-10-19), and the fixed-role
 council (Skeptic/Advocate/Verifier, replacing the retired anonymize+Borda tournament). 15/15
 steps ported, 194 tests green, deployed to `nexus.service` **inert behind `SWARM_LOOP_ENABLED=0`**;
 ON-path validated once against real providers (not yet battle-tested). Modules under

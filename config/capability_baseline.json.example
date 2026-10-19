@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "last_reviewed": "YYYY-MM-DD",
+  "provenance": "Where these priors came from (benchmarks, vendor docs, your own trials). Copy to config/capability_baseline.json and key every entry by a provider id from YOUR providers.yaml.",
+  "notes": "A provider is SEEDED-QUALIFIED for a domain when its score is >= CAP_QUALIFY_BAR (default 0.6). Below-bar entries start low and must earn. Providers with no entry are unknown and earn everything through graded evidence. Real grades override these priors (EWMA) — this is a starting point, never a permanent grant.",
+  "domains": {
+    "coding":    {"example-frontier": 0.85, "example-fast-70b": 0.62, "example-local-7b": 0.40},
+    "reasoning": {"example-frontier": 0.88, "example-fast-70b": 0.60},
+    "writing":   {"example-frontier": 0.86}
+  },
+  "seeds": {
+    "analysis": {
+      "example-frontier": {"score": 0.84, "confidence": 0.7, "source": "two benchmark sources + user reports agree"}
+    }
+  }
+}

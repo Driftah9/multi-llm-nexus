@@ -40,6 +40,14 @@ QUALIFY_MIN_SAMPLES = int(_os.environ.get("CAP_QUALIFY_MIN_SAMPLES", "5"))
 DEMANDING_DOMAINS = ("coding", "reasoning", "analysis")
 PROBE_BAND = float(_os.environ.get("CAP_PROBE_BAND", "0.15"))
 PROBE_RATE = float(_os.environ.get("CAP_PROBE_RATE", "0.15"))
+# Flap guard (hysteresis) on the EARNED bar crossing. ALPHA=0.2 lets a short noisy run drag
+# a near-bar model in/out of qualification — two good grades can lift a 0.56 over 0.6 and one
+# bad grade drops it back. So the earned side of is_qualified reads a LATCH, not the live
+# score: the latch flips only after QUALIFY_CONFIRM consecutive updates land on the other side
+# of the bar. Exception: a score that falls below (bar - PROBE_BAND) demotes at once — that is
+# a collapse, not noise. score() is NOT affected. Separate from QUALIFY_MIN_SAMPLES (a volume
+# floor, not a flap guard). <=1 disables. (Ported from live claude-brain, 2026-10-19.)
+QUALIFY_CONFIRM = int(_os.environ.get("CAP_QUALIFY_CONFIRM", "3"))
 # Fraction of routing decisions that explore instead of exploit.
 EXPLORE_RATE = 0.12
 # Neutral starting score for an unseen (domain, provider).
@@ -57,6 +65,8 @@ class CapabilityMap:
             "profiles": {},         # provider -> capability profile
             "grades": {},           # domain -> {provider: count} per-(domain,provider) observation count;
                                     # confidence/solidity signal for the graduation-ladder qualification gate
+            "qual_latch": {},       # domain -> {provider: {"above", "streak", "bar"}} flap-guarded bar
+                                    # crossing (see QUALIFY_CONFIRM); absent row => live score vs bar
         }
         if self.path.exists():
             self.load()
@@ -64,7 +74,7 @@ class CapabilityMap:
     def load(self) -> None:
         with open(self.path) as f:
             loaded = json.load(f)
-        for k in ("research", "orchestration", "pair_affinity", "profiles", "grades"):
+        for k in ("research", "orchestration", "pair_affinity", "profiles", "grades", "qual_latch"):
             if k in loaded:
                 self.data[k] = loaded[k]
         # Load research findings from model_intel.json if available
@@ -124,7 +134,47 @@ class CapabilityMap:
         # point every real grade/ranking flows through; read by the graduation gate.
         grow = self.data.setdefault("grades", {}).setdefault(domain, {})
         grow[provider] = int(grow.get(provider, 0)) + 1
+        self._advance_latch(domain, provider, prev, row[provider])
         return row[provider]
+
+    def _advance_latch(self, domain: str, provider: str, prev: float, new: float) -> None:
+        """Step the flap-guarded bar crossing for one observation (see QUALIFY_CONFIRM).
+        A missing or stale latch (bar changed via env) starts from where the PREVIOUS score
+        sat, so legacy rows keep their standing and the new grade counts toward the streak."""
+        bar = QUALIFY_BAR
+        lrow = self.data.setdefault("qual_latch", {}).setdefault(domain, {})
+        latch = lrow.get(provider)
+        if not isinstance(latch, dict) or latch.get("bar") != bar:
+            latch = {"above": prev >= bar, "streak": 0, "bar": bar}
+        raw = new >= bar
+        if raw == latch["above"]:
+            latch["streak"] = 0
+        elif not raw and new < bar - PROBE_BAND:
+            latch["above"], latch["streak"] = False, 0      # collapse, not noise
+        else:
+            latch["streak"] = int(latch.get("streak", 0)) + 1
+            if latch["streak"] >= max(1, QUALIFY_CONFIRM):
+                latch["above"], latch["streak"] = raw, 0
+        lrow[provider] = latch
+
+    def _latched_above(self, domain: str, provider: str) -> bool:
+        """Earned-side bar test through the flap guard. No latch yet (or one recorded against
+        a different bar) => live score vs bar, i.e. the pre-latch behaviour."""
+        latch = self.data.get("qual_latch", {}).get(domain, {}).get(provider)
+        if isinstance(latch, dict) and latch.get("bar") == QUALIFY_BAR:
+            return bool(latch.get("above"))
+        return self.score(domain, provider) >= QUALIFY_BAR
+
+    def qualification_state(self, domain: str, provider: str) -> Dict[str, object]:
+        """Flap-guard view for dashboards: latched side, and how many consecutive
+        observations are pushing the other way (streak / confirm)."""
+        latch = self.data.get("qual_latch", {}).get(domain, {}).get(provider)
+        live = isinstance(latch, dict) and latch.get("bar") == QUALIFY_BAR
+        return {
+            "above": self._latched_above(domain, provider),
+            "streak": int(latch.get("streak", 0)) if live else 0,
+            "confirm": max(1, QUALIFY_CONFIRM),
+        }
 
     def rank(self, domain: str) -> List[Dict[str, float]]:
         """Providers for a domain, best→worst."""
@@ -140,28 +190,66 @@ class CapabilityMap:
 
     def is_qualified(self, domain: str, provider: str,
                      bar: float = QUALIFY_BAR, min_samples: int = QUALIFY_MIN_SAMPLES) -> bool:
-        """True only if PROVEN: >= min_samples graded observations AND score >= bar.
-        Unproven (no samples) => False (cold-start-low: earned, not granted)."""
-        return self.grade_count(domain, provider) >= min_samples and self.score(domain, provider) >= bar
+        """EARNED (>= min_samples graded observations AND over the bar, through the flap
+        guard) OR SEEDED (the operator's capability baseline vouches for it at/above the bar).
+        Unknown/unseeded with no grades => False (cold-start-low: earned, not granted). The
+        seed is a t=0 prior that real grades override — not a permanent grant. No baseline
+        file => earned-only (backward-compatible)."""
+        if self.earned_qualified(domain, provider, bar, min_samples):
+            return True
+        try:
+            from . import capability_baseline
+            return capability_baseline.is_seeded_qualified(domain, provider, bar)
+        except Exception:
+            return False
+
+    def earned_qualified(self, domain: str, provider: str,
+                         bar: float = QUALIFY_BAR, min_samples: int = QUALIFY_MIN_SAMPLES) -> bool:
+        """EARNED half of is_qualified: volume floor AND (flap-guarded) bar. A caller-supplied
+        custom bar is compared to the live score."""
+        if self.grade_count(domain, provider) < min_samples:
+            return False
+        if bar == QUALIFY_BAR:
+            return self._latched_above(domain, provider)
+        return self.score(domain, provider) >= bar
+
+    def _effective_score(self, domain: str, provider: str) -> float:
+        """Ranking score: the earned EWMA once graded, else the operator's baseline prior, else
+        score() (a research prior, or NEUTRAL). Lets seeded providers rank by their prior until
+        real evidence arrives — without ever writing the prior into the earned table."""
+        if self.grade_count(domain, provider) > 0:
+            return self.score(domain, provider)
+        try:
+            from . import capability_baseline
+            b = capability_baseline.baseline_score(domain, provider)
+            if b is not None:
+                return b
+        except Exception:
+            pass
+        return self.score(domain, provider)
 
     def qualified(self, domain: str, candidates: List[str],
                   bar: float = QUALIFY_BAR, min_samples: int = QUALIFY_MIN_SAMPLES) -> List[str]:
-        """Candidates that have EARNED demanding-role standing in this domain, best-first."""
+        """Candidates trusted for a demanding role in this domain (earned OR seeded),
+        best-first. Ranked by effective score (earned once graded, else the seeded prior)."""
         ok = [c for c in candidates if self.is_qualified(domain, c, bar, min_samples)]
-        ok.sort(key=lambda p: self.score(domain, p), reverse=True)
+        ok.sort(key=lambda p: self._effective_score(domain, p), reverse=True)
         return ok
 
     def probe_candidates(self, domain: str, candidates: List[str],
                          bar: float = QUALIFY_BAR, band: float = PROBE_BAND,
                          min_samples: int = QUALIFY_MIN_SAMPLES) -> List[str]:
-        """Near-qualified models (score in [bar-band, bar) with >= min_samples) — the
-        CANDIDATE zone, handed occasional graded probes on demanding steps to earn up."""
+        """Near-qualified models (score >= bar-band, >= min_samples, not earned-qualified) —
+        the CANDIDATE zone, handed occasional graded probes on demanding steps to earn up.
+        Includes a model already over the bar whose promotion the flap guard hasn't confirmed
+        yet, since probing is how it collects the streak."""
         out = []
         for c in candidates:
             if self.grade_count(domain, c) < min_samples:
                 continue
-            s = self.score(domain, c)
-            if (bar - band) <= s < bar:
+            if self.earned_qualified(domain, c, bar, min_samples):
+                continue
+            if self.score(domain, c) >= bar - band:
                 out.append(c)
         out.sort(key=lambda p: self.score(domain, p), reverse=True)
         return out
@@ -170,19 +258,21 @@ class CapabilityMap:
         """Bandit pick for a single-provider route.
 
         Exploit the best-scoring candidate; EXPLORE_RATE of the time, pick a
-        random other candidate to keep learning. Unseen providers default to
-        NEUTRAL so they get a fair early shot.
+        random other candidate to keep learning. Candidates rank by effective score:
+        earned EWMA once graded, else the baseline prior (so a fresh install routes
+        sensibly on day one), else NEUTRAL so unknowns still get a fair early shot.
 
         Returns {"provider", "mode": "exploit"|"explore", "score"}.
         """
         if not candidates:
             raise ValueError("no candidates to choose from")
-        scored = sorted(candidates, key=lambda p: self.score(domain, p), reverse=True)
+        eff = {p: self._effective_score(domain, p) for p in candidates}
+        scored = sorted(candidates, key=lambda p: eff[p], reverse=True)
         best = scored[0]
         if len(scored) > 1 and self.rng.random() < EXPLORE_RATE:
             pick = self.rng.choice(scored[1:])
-            return {"provider": pick, "mode": "explore", "score": self.score(domain, pick)}
-        return {"provider": best, "mode": "exploit", "score": self.score(domain, best)}
+            return {"provider": pick, "mode": "explore", "score": eff[pick]}
+        return {"provider": best, "mode": "exploit", "score": eff[best]}
 
     # ── Orchestration map ─────────────────────────────────────────────────────
 
