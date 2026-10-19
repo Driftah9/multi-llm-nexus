@@ -44,6 +44,7 @@ from ..core.formatter import PlatformFormatter
 from ..core.heartbeat import HeartbeatManager, HeartbeatState
 from ..core.session import SessionStore
 from ..core.triage import Triage
+from ..core import turn_failure
 from ..core.user_gate import UserGate
 
 logger = logging.getLogger(__name__)
@@ -192,71 +193,91 @@ class AdapterBase:
         # heartbeat below refines it with the resolved provider during invoke.
         placeholder_id = await self._send_placeholder(channel_id, "…", reply_to)
 
-        # Single classification on the hot path: run the 5-dimension triage ONCE, then
-        # derive the tier/effort routing from it (precomputed_tier) instead of firing a
-        # SECOND nano LLM call — the double-triage collapse.
-        triage_result = await self._triage.classify(text)
-        triage = await self.behavior.route_message(
-            text, channel_name, self.PLATFORM_PROPS["platform_name"],
-            precomputed_tier=triage_result.estimated_complexity,
-        )
-        tier_display = tier_label(triage.tier)
-
-        invoke_start = __import__("time").time()
-
-        # Record triage decision for feedback loop
-        decision_id = -1
-        if self.triage_validator and triage.source == "triage":
-            decision_id = self.triage_validator.record_decision(
-                channel=channel_name,
-                message_hash=self.triage_validator.hash_message(text),
-                classified_tier=triage.tier,
-                classified_effort=triage.effort,
+        heartbeat = None
+        try:
+            # Single classification on the hot path: run the 5-dimension triage ONCE, then
+            # derive the tier/effort routing from it (precomputed_tier) instead of firing a
+            # SECOND nano LLM call — the double-triage collapse.
+            triage_result = await self._triage.classify(text)
+            triage = await self.behavior.route_message(
+                text, channel_name, self.PLATFORM_PROPS["platform_name"],
+                precomputed_tier=triage_result.estimated_complexity,
             )
+            tier_display = tier_label(triage.tier)
 
-        # Heartbeat for live status updates (has access to channel_id from enclosing scope)
-        async def _push_heartbeat(pid: str, content: str) -> None:
-            try:
-                await self._update_placeholder(pid, content, channel_id)
-            except Exception:
-                pass
+            invoke_start = __import__("time").time()
 
-        hb_state = HeartbeatState(
-            post_id=placeholder_id,
-            display_prefix=self.config.get("agent_name", "Nexus"),
-            model_display=tier_display,
-            effort=None,
-        )
-        heartbeat = HeartbeatManager(hb_state, _push_heartbeat).start()
+            # Record triage decision for feedback loop
+            decision_id = -1
+            if self.triage_validator and triage.source == "triage":
+                decision_id = self.triage_validator.record_decision(
+                    channel=channel_name,
+                    message_hash=self.triage_validator.hash_message(text),
+                    classified_tier=triage.tier,
+                    classified_effort=triage.effort,
+                )
 
-        # Session context injection
-        session_context = ""
-        if self.summary_store:
-            session_context = self.summary_store.inject_context(session_key)
+            # Heartbeat for live status updates (has access to channel_id from enclosing scope)
+            async def _push_heartbeat(pid: str, content: str) -> None:
+                try:
+                    await self._update_placeholder(pid, content, channel_id)
+                except Exception:
+                    pass
 
-        prompt = f"[Platform: {self.PLATFORM_PROPS['platform_name']} | Channel: #{channel_name}]\n{text}"
-        if session_context:
-            prompt = session_context + prompt
+            hb_state = HeartbeatState(
+                post_id=placeholder_id,
+                display_prefix=self.config.get("agent_name", "Nexus"),
+                model_display=tier_display,
+                effort=None,
+            )
+            heartbeat = HeartbeatManager(hb_state, _push_heartbeat).start()
 
-        # Check for orchestrator dispatch
-        orchestrator = getattr(getattr(self, "engine", None), "orchestrator", None)
-        use_orchestrator = (
-            orchestrator is not None
-            and orchestrator.should_orchestrate(channel_name)
-        )
+            # Session context injection
+            session_context = ""
+            if self.summary_store:
+                session_context = self.summary_store.inject_context(session_key)
+
+            prompt = f"[Platform: {self.PLATFORM_PROPS['platform_name']} | Channel: #{channel_name}]\n{text}"
+            if session_context:
+                prompt = session_context + prompt
+
+            # Check for orchestrator dispatch
+            orchestrator = getattr(getattr(self, "engine", None), "orchestrator", None)
+            use_orchestrator = (
+                orchestrator is not None
+                and orchestrator.should_orchestrate(channel_name)
+            )
+        except Exception as e:
+            # Pre-dispatch crash (triage, routing, context). Without this the placeholder
+            # hung on "…" forever — live incident 2026-10-04.
+            await self._surface_turn_failure(e, "pre-dispatch", heartbeat, placeholder_id,
+                                             channel_id, reply_to, session_key)
+            return
 
         try:
-            if use_orchestrator:
-                orch_result = await orchestrator.dispatch(
-                    message=text,
-                    context=channel_name,
-                    session_key=session_key,
-                    operator_context=f"Platform: {self.PLATFORM_PROPS['platform_name']} | Channel: #{channel_name}",
-                    heartbeat=heartbeat,
-                )
-                if not orch_result.bypassed:
-                    response_text = orch_result.response
-                    cost_usd = orch_result.total_cost
+            try:
+                if use_orchestrator:
+                    orch_result = await orchestrator.dispatch(
+                        message=text,
+                        context=channel_name,
+                        session_key=session_key,
+                        operator_context=f"Platform: {self.PLATFORM_PROPS['platform_name']} | Channel: #{channel_name}",
+                        heartbeat=heartbeat,
+                    )
+                    if not orch_result.bypassed:
+                        response_text = orch_result.response
+                        cost_usd = orch_result.total_cost
+                    else:
+                        bridge_result = await self.bridge.invoke(
+                            prompt=prompt,
+                            session_key=session_key,
+                            tier=triage.tier,
+                            task_type=triage.provider_key,
+                            on_provider_change=heartbeat.set_provider,
+                            triage=triage_result,
+                        )
+                        response_text = bridge_result.text
+                        cost_usd = bridge_result.cost_usd
                 else:
                     bridge_result = await self.bridge.invoke(
                         prompt=prompt,
@@ -268,20 +289,15 @@ class AdapterBase:
                     )
                     response_text = bridge_result.text
                     cost_usd = bridge_result.cost_usd
-            else:
-                bridge_result = await self.bridge.invoke(
-                    prompt=prompt,
-                    session_key=session_key,
-                    tier=triage.tier,
-                    task_type=triage.provider_key,
-                    on_provider_change=heartbeat.set_provider,
-                    triage=triage_result,
-                )
-                response_text = bridge_result.text
-                cost_usd = bridge_result.cost_usd
-        finally:
-            heartbeat.stop()
-            await self._stop_typing(channel_id)
+            finally:
+                heartbeat.stop()
+                await self._stop_typing(channel_id)
+        except Exception as e:
+            # Dispatch crash: the finally above stopped the heartbeat, but the placeholder
+            # would stay frozen on its last "thinking…" text — replace it with the error.
+            await self._surface_turn_failure(e, "dispatch", None, placeholder_id,
+                                             channel_id, reply_to, session_key)
+            return
 
         if cost_usd > 0:
             c = self._costs.setdefault(session_key, {"cost_usd": 0.0, "responses": 0})
@@ -298,23 +314,53 @@ class AdapterBase:
                 channel=channel_name,
             )
 
-        # ReviewGate check (if available)
-        review_hint = self._check_review_gate(text, response_text or "")
+        try:
+            # ReviewGate check (if available)
+            review_hint = self._check_review_gate(text, response_text or "")
 
-        response = response_text or "_(no response)_"
-        if review_hint:
-            response = response + f"\n\n---\n{review_hint}"
+            response = response_text or "_(no response)_"
+            if review_hint:
+                response = response + f"\n\n---\n{review_hint}"
 
-        # Format and send response
-        chunks = self.fmt.format_response(response)
-        if placeholder_id:
-            await self._update_placeholder(placeholder_id, chunks[0], channel_id)
-        else:
-            await self.send(channel_id, chunks[0], reply_to)
+            # Format and send response
+            chunks = self.fmt.format_response(response)
+            if placeholder_id:
+                await self._update_placeholder(placeholder_id, chunks[0], channel_id)
+            else:
+                await self.send(channel_id, chunks[0], reply_to)
 
-        for chunk in chunks[1:]:
-            await asyncio.sleep(0.1)
-            await self.send(channel_id, chunk, reply_to)
+            for chunk in chunks[1:]:
+                await asyncio.sleep(0.1)
+                await self.send(channel_id, chunk, reply_to)
+        except Exception as e:
+            # Output-stage crash (review gate, formatting, send): the answer exists but
+            # never reached the user — say so instead of leaving the placeholder up.
+            await self._surface_turn_failure(e, "output", None, placeholder_id,
+                                             channel_id, reply_to, session_key)
+
+    async def _surface_turn_failure(self, exc, stage, heartbeat, placeholder_id,
+                                    channel_id, reply_to, session_key) -> None:
+        """Turn the placeholder into a visible error and record the failure.
+        Every step is best-effort so surfacing can never raise over the original crash."""
+        logger.exception(f"[{self.PLATFORM_PROPS.get('platform_name', '?')}] turn failed ({stage}): {exc}")
+        if heartbeat is not None:
+            try:
+                heartbeat.stop()
+            except Exception:
+                pass
+        try:
+            await self._stop_typing(channel_id)
+        except Exception:
+            pass
+        turn_failure.record(self.PLATFORM_PROPS.get("platform_name", ""), session_key, stage, exc)
+        notice = turn_failure.user_message(exc, stage)
+        try:
+            if placeholder_id:
+                await self._update_placeholder(placeholder_id, notice, channel_id)
+            else:
+                await self.send(channel_id, notice, reply_to)
+        except Exception as fe:
+            logger.warning(f"could not post turn-failure notice: {fe}")
 
     # ── Command handling ──────────────────────────────────────────────────
 
@@ -467,7 +513,7 @@ class AdapterBase:
             lines_deleted=0,
             is_commit_point=is_commit_point,
         )
-        if trigger != ReviewTrigger.NONE and suggestion:
+        if trigger != ReviewTrigger.SKIP and suggestion:
             return f"_{suggestion}_"
         return None
 

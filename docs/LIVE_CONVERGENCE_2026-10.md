@@ -86,4 +86,31 @@ Tests: 12 baseline (adapted from live) + 13 hysteresis (ported verbatim).
   would otherwise write to `data/`.
 Tests: 13 (8 ported, 5 Nexus seams incl. chain-evidence → demotion end-to-end).
 
+## Stage 2f — Turn-failure surfacing (+ a reply-path bug found on the way)
+
+- `src/core/turn_failure.py` — port of live's turn-crash surfacing. `AdapterBase.handle_incoming`
+  now covers three stages after the placeholder is posted: **pre-dispatch** (triage, routing,
+  context), **dispatch** (bridge/orchestrator), **output** (review gate, formatting, send). A crash
+  in any of them edits the placeholder into a visible error (pre-dispatch says no usage was spent)
+  and records it in `$NEXUS_DATA_DIR/turn_failures/turn-crash__<platform>.json` (de-duplicated per
+  platform, `occurrences` counter, traceback tail). Previously a pre-dispatch crash left "…" up
+  forever and a dispatch crash froze the last "thinking…" heartbeat text.
+- **Adaptation:** live files into its error inbox (read by a nightly sweeper DM) and tells the
+  owner to use the CLI on the brain VM; Nexus has no error inbox, so it keeps its own record dir
+  and the user message is install-neutral.
+- **Bug fixed:** `AdapterBase._check_review_gate` compared against `ReviewTrigger.NONE`, which
+  has never existed (members: SKIP/SUGGEST/AUTO; reference since v0.6.0). Every successful turn
+  through the Mattermost/Discord/Telegram adapters raised `AttributeError` after the answer was
+  generated and before it was posted. Now `ReviewTrigger.SKIP`. The regression test was verified
+  to fail with the old line restored.
+Tests: 7 (real `NexusBehavior` + heuristic triage; only platform I/O and the bridge are faked).
+
+## Not ported (deliberately), with reasons
+
+| Live module | Why not now |
+|---|---|
+| `core/connection_roster.py` (+ `scripts/connection_roster_check.py`) | Built on live's multi-key credential model (per-provider credential sidecars, N keys per vendor, rotation). Nexus has no equivalent; porting it means porting that subsystem first. Its time-based down/recovery half is covered by the Stage 2a HealthMonitor. |
+| `core/prompt_assembly.py` + `core/conversation_ledger.py` | Live runs it on by default, but its brain-queue item is **failed-review** — not validated. Live-first rule: prove it, then port. |
+| `core/claude_roster_watch.py`, `scripts/claude-window-cycler.py`, `scripts/claude-auth-watch.py`, `scripts/cloud_credit_ledger.py`, `scripts/nvidia_nim_roster_check.py` | Vendor-specific to the reference install's subscriptions/keys. |
+
 Last verified against code: 2026-10-19

@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Turn-failure surfacing (2026-10-19, live→Nexus).** `src/core/turn_failure.py`; a crash in
+  pre-dispatch, dispatch or output now replaces the placeholder with a visible error and records
+  it under `$NEXUS_DATA_DIR/turn_failures/` instead of leaving "…"/"thinking…" up forever. 7 tests.
 - **Routing weights — telemetry now drives routing (2026-10-19, live→Nexus).**
   `ProviderChain.try_with_fallback` records every attempt to `routing_telemetry` (Phase 1 had no
   caller); `src/core/routing_weights.py` derives demote-only weights from telemetry + council
@@ -132,6 +135,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
   no-op until that's configured.
 
 ### Fixed
+- **Every adapter reply crashed before posting (since v0.6.0).** `AdapterBase._check_review_gate`
+  compared against `ReviewTrigger.NONE`, which does not exist (`SKIP`/`SUGGEST`/`AUTO`); the
+  resulting `AttributeError` fired after the answer was generated, so Mattermost/Discord/Telegram
+  turns never delivered. Now `ReviewTrigger.SKIP`; regression test in `tests/test_turn_failure.py`.
 - **Wizard hardware recommendation now VRAM/vendor-tiered (2026-08-11).**
   `wizard.py::hardware_detection()` was recomputing its own RAM-only, GPU-presence-only
   model pick (a system with any GPU and 32GB+ RAM always got `llama3.1:70b`, regardless of
