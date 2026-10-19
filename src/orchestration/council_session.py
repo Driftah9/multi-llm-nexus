@@ -43,7 +43,9 @@ SESSIONS_DIR = _DATA_DIR / "council_sessions"
 MAX_SESSIONS = 200          # retention cap, oldest pruned first
 _TEXT_CAP = 8000            # per-field cap so one verbose role can't bloat the file
 
-SCHEMA_VERSION = 1
+# v2 (2026-10-19, from live 2026-10-05): + `contradictions` (council_contradictions.scan).
+# A v1 record has no such key = never scanned; v2 with [] = scanned, none found.
+SCHEMA_VERSION = 2
 
 
 def _clip(text: Optional[str]) -> Optional[str]:
@@ -86,6 +88,7 @@ class CouncilSession:
             "scope_violations": {},      # role -> stripped-line snippets
             "failed_providers": [],
             "finding_attribution": {},   # review mode: blinded label -> provider
+            "contradictions": [],        # cross-role conflict markers
             "synthesis_prompt": None,    # what the chairman received
             "chairman_output": None,     # seam: filled by a future adapter_base hook
             "judge": {},                 # role -> verdict + EWMA delta
@@ -101,6 +104,7 @@ class CouncilSession:
         failed_providers: List[str],
         synthesis_prompt: str,
         finding_attribution: Optional[Dict[str, str]] = None,
+        contradictions: Optional[List[Dict]] = None,
     ) -> None:
         try:
             self._record["roles"] = dict(roles)
@@ -114,6 +118,7 @@ class CouncilSession:
             self._record["synthesis_prompt"] = _clip(synthesis_prompt)
             if finding_attribution:
                 self._record["finding_attribution"] = dict(finding_attribution)
+            self._record["contradictions"] = list(contradictions or [])
             self._write()
         except Exception as e:  # never let the recorder break the council
             logger.warning(f"council_session: record_council failed: {e}")

@@ -31,6 +31,10 @@ def _isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(ce, "ProviderClient", _FakeClient)
     # redirect council-session writes to tmp so tests don't touch real data
     monkeypatch.setattr(cs, "SESSIONS_DIR", tmp_path / "council_sessions")
+    # council_executor now gates members through worker_health — keep its
+    # registry off the real data dir
+    from src.orchestration import worker_health as wh
+    monkeypatch.setattr(wh, "_PATH", str(tmp_path / "worker_health.json"))
 
 
 @pytest.mark.asyncio

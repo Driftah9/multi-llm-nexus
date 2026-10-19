@@ -6,6 +6,9 @@ Given a RoutePlan from council_router, this module:
   3. Resolves grounding tags on every role: `[CHECK: term]` → read-only local grep
      of the deployment's own code/memory; `[WEB: query]` → cited external lookup
      (no LLM call for grep, no write/edit capability anywhere)
+  3b. Scans the role responses for direct contradictions (council_contradictions,
+     deterministic, no LLM) and injects them into the synthesis prompt as items
+     the chairman must resolve explicitly; also persisted in the session record
   4. Returns a CouncilResult with the synthesis_prompt for the chairman
      (chairman synthesis happens in the caller/bridge — not here)
 
@@ -36,7 +39,9 @@ from .council_roles import assign_roles, role_prompt, resolve_grounding_tags
 from .council_router import RoutePlan
 from .council_judge import grade_council_roles
 from .council_session import CouncilSession
+from .council_contradictions import scan as scan_contradictions, format_for_chairman
 from .providers import ProviderClient
+from . import worker_health
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +69,7 @@ Original question:
 
 The council's perspectives:
 
-{role_block}
+{role_block}{contradiction_block}
 
 Produce one authoritative answer, but do NOT blend disagreement away:
 - Where the roles AGREE, state it directly as the consensus.
@@ -74,6 +79,8 @@ Produce one authoritative answer, but do NOT blend disagreement away:
 - The Verifier's [VERIFIED]/[NOT FOUND] results are live-codebase ground truth —
   treat them as authoritative over any unverified claim from the Skeptic or
   Advocate, and flag anything neither role nor the live check could establish.
+- If a FLAGGED CONTRADICTIONS list appears above, resolve every item on it
+  explicitly — which side the evidence supports, or that it stays unresolved.
 
 Lead with the recommendation/answer, then the supporting analysis. Do not mention
 the council process — speak as a single authoritative voice."""
@@ -93,7 +100,7 @@ so the council could not be biased by which model produced which):
 
 The council's verdicts on those findings:
 
-{role_block}
+{role_block}{contradiction_block}
 
 Produce one authoritative answer built FROM THE VALIDATED FINDINGS, but do NOT
 blend disagreement away:
@@ -102,7 +109,8 @@ blend disagreement away:
 - Where the council FLAGS a finding (uncertain), say so explicitly rather than
   asserting it either way.
 - Where roles CONFLICT on the same finding, SURFACE both verdicts and the
-  reasoning — don't silently pick one.
+  reasoning — don't silently pick one. Every item in a FLAGGED CONTRADICTIONS
+  list above must be addressed explicitly.
 
 Lead with the recommendation/answer, then the supporting analysis. Do not mention
 the council process or the anonymized labels — speak as a single authoritative voice."""
@@ -126,6 +134,7 @@ class CouncilResult:
     question: str = ""                       # original user prompt (for the deferred judge)
     complexity: float = 0.5                  # triage complexity (for judge model selection)
     session: Optional[object] = None         # CouncilSession recorder handle
+    contradictions: List[Dict] = field(default_factory=list)  # Step 3b markers (council_contradictions.scan)
 
 
 async def run(
@@ -164,6 +173,11 @@ async def run(
     """
     client = ProviderClient(timeout=timeout)
     members = [m for m in plan.members if _member_available(m, client)]
+    # Skip benched providers (402/403/quota — same health registry the swarm uses).
+    # Without this the council only checked "has a key", so dead seats kept being
+    # assigned roles and every role failed (live, 2026-09-14). Fail-open:
+    # filter_candidates never empties a non-empty list.
+    members = worker_health.filter_candidates(members)
 
     if not members:
         logger.warning("council_executor: no available members, falling back to empty council")
@@ -209,7 +223,9 @@ async def run(
         if isinstance(result, Exception):
             logger.warning(f"council_executor: {role} ({provider}) failed: {result}")
             failures.append(provider)
+            worker_health.record_failure(provider, result)   # benches dead seats for next time
         else:
+            worker_health.record_success(provider)
             clamped, violations = _clamp_member_output(str(result), provider)
             if violations:
                 logger.warning(f"council_executor: {role} ({provider}) scope violations stripped: {violations}")
@@ -237,16 +253,38 @@ async def run(
     role_block = "\n\n".join(
         f"**{role.title()}**:\n{text}" for role, text in successes.items()
     )
+
+    # ── Step 3b: deterministic contradiction scan (no LLM call). Opposite
+    #    verdicts on the same finding / same claim asserted vs denied / same
+    #    claim with different figures → explicit markers the chairman must
+    #    resolve, and the same list goes into the session record. Fail-open:
+    #    a scan error never blocks synthesis. ─────────────────────────────────
+    try:
+        contradictions = scan_contradictions(
+            successes, finding_labels=label_to_provider.keys() if review_mode else None)
+    except Exception as e:
+        logger.warning(f"council_executor: contradiction scan failed (non-blocking): {e}")
+        contradictions = []
+    if contradictions:
+        logger.info(
+            f"council_executor: {len(contradictions)} contradiction(s) flagged: "
+            f"{[(c['kind'], c['subject']) for c in contradictions]}")
+    contradiction_block = format_for_chairman(contradictions)
+    if contradiction_block:
+        contradiction_block = "\n\n" + contradiction_block
+
     if review_mode:
         synthesis_prompt = _REVIEW_SYNTHESIS_PROMPT.format(
             user_prompt=user_prompt,
             findings_block=findings_block,
             role_block=role_block,
+            contradiction_block=contradiction_block,
         )
     else:
         synthesis_prompt = _SYNTHESIS_PROMPT.format(
             user_prompt=user_prompt,
             role_block=role_block,
+            contradiction_block=contradiction_block,
         )
 
     raw_responses = {roles[role]: text for role, text in successes.items()}
@@ -266,6 +304,7 @@ async def run(
         failed_providers=failures,
         synthesis_prompt=synthesis_prompt,
         finding_attribution=dict(label_to_provider) if review_mode else None,
+        contradictions=contradictions,
     )
 
     result = CouncilResult(
@@ -280,6 +319,7 @@ async def run(
         question=user_prompt,
         complexity=complexity,
         session=session,
+        contradictions=contradictions,
     )
 
     # De-anonymize for attribution logging only (D5) — never surfaced to roles/chairman.
