@@ -136,6 +136,24 @@ scans every git-TRACKED file (what a push publishes) for key-shaped literals, pr
 `tests/test_secrets_lint.py::test_repo_is_clean` keeps the repo clean going forward.
 Tests: 14 error inbox (incl. real-subprocess run_tracked) + 10 notify failover + 5 secrets lint.
 
+## Validation against the real system (2026-10-19)
+
+- Full suite: 432 green (baseline 275).
+- **Boot:** `python3 -m src.main` with the deployment's real `providers.yaml` + `.env`, no
+  platform adapters, scratch data dir — engine up, chain health monitoring started, clean SIGTERM
+  shutdown, no tracebacks.
+- **Live provider round-trip:** one prompt through the real chain recorded real attempts to
+  telemetry (latencies, success flags) and `routing_weights` derived weights from them (thin
+  evidence → no demotion, as designed).
+- **Bug found by that run (fixed in live first, then here):** an invalid key that a provider
+  returns as HTTP 400 (Gemini: "Please pass a valid API key") classified as BAD_REQUEST, which
+  stops the chain — one misconfigured key ended the turn before healthy providers were tried.
+  `error_classifier` AUTH now matches the invalid-key phrasings ahead of BAD_REQUEST's "400".
+- **Sweeper:** byte-identical to live on real host state (see Stage 3a).
+- **Deployment config findings (operator action, not code):** on the reference deployment the
+  `cerebras` key is rejected (401) and the `google_gemini` key is invalid; two configured models
+  (`meta/llama-3.1-70b-instruct`, `llama-3.1-8b-instant`) are no longer listed by their providers.
+
 ## Not ported (deliberately), with reasons
 
 | Live module | Why not now |
@@ -145,7 +163,7 @@ Tests: 14 error inbox (incl. real-subprocess run_tracked) + 10 notify failover +
 | `core/council_resumer.py` outage parking (`OUTAGE_STEP`) | Parks a mid-turn drop of live's LOCKED primary and resumes it on the same CLI session. Nexus has no primary lock — the chain fails over on health and the fallback answers, so there is no parked turn to resume. |
 | `core/session_window.py` hold/seed, `memory_injector.recall_for_turn` | Support code for `prompt_assembly` (above); ports with it. |
 | `memory_injector` default RAG namespaces (`memory` dropped) | Follows live's engram/RAG scope split; Nexus has no engram, so `memory` stays a RAG namespace. |
-| `scripts/bulletins.py` | Its only reader is live's ops board (brain-observatory). Nexus has no renderer. |
+| `scripts/bulletins.py` | Its only reader is the reference install's ops-board UI. Nexus has no renderer. |
 | `scripts/consolidate-secrets.py` | Migrates secrets into live's `.local/etc/<service>/` layout; Nexus keeps secrets in `.env`. |
 | `core/claude_roster_watch.py`, `scripts/claude-window-cycler.py`, `scripts/claude-auth-watch.py`, `scripts/cloud_credit_ledger.py`, `scripts/nvidia_nim_roster_check.py` | Vendor-specific to the reference install's subscriptions/keys. |
 

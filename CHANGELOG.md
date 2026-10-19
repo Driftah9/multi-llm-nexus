@@ -145,6 +145,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
   no-op until that's configured.
 
 ### Fixed
+- **Invalid key returned as HTTP 400 stopped the whole chain (2026-10-19).** `error_classifier`
+  matched BAD_REQUEST's "400" before AUTH for "Please pass a valid API key" (Gemini), so one bad
+  key ended the turn instead of advancing. AUTH now matches the invalid-key phrasings first.
+  Found by a real-provider validation run; fixed in live claude-brain first.
 - **Every adapter reply crashed before posting (since v0.6.0).** `AdapterBase._check_review_gate`
   compared against `ReviewTrigger.NONE`, which does not exist (`SKIP`/`SUGGEST`/`AUTO`); the
   resulting `AttributeError` fired after the answer was generated, so Mattermost/Discord/Telegram

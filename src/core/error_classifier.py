@@ -61,6 +61,10 @@ _RULES: list[tuple[str, tuple[str, ...]]] = [
         "401", "403", "unauthorized", "forbidden", "invalid api key",
         "invalid_api_key", "authentication", "auth error", "permission denied",
         "expired key", "no such key",
+        # Invalid keys that some providers return as HTTP 400 (Gemini: "Please pass a valid
+        # API key" / "API key not valid"). Must win over BAD_REQUEST's "400", which would
+        # stop the whole chain on one misconfigured key instead of advancing past it.
+        "valid api key", "api key not valid", "api_key_invalid", "wrong api key",
     )),
     # Our request is malformed / filtered — same failure on every provider.
     (BAD_REQUEST, (

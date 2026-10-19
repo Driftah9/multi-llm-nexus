@@ -11,6 +11,7 @@ _spec.loader.exec_module(sl)
 
 FAKE_GH = "gh" + "p_" + "A1b2C3d4" * 5                  # assembled so this file never matches itself
 FAKE_SK = "s" + "k-" + "Zq9" * 9
+FAKE_LIT = "Q7wE9rT1" * 3                                # a 24-char non-placeholder value
 
 
 def _write(root, rel, text):
@@ -23,7 +24,7 @@ def _write(root, rel, text):
 def test_known_patterns_and_literals(tmp_path):
     rels = [
         _write(tmp_path, "a.py", f'TOKEN = "{FAKE_GH}"\n'),
-        _write(tmp_path, "b.yaml", 'api_key: "Q7wE9rT1yU3iO5pA7sD9fG1h"\n'),
+        _write(tmp_path, "b.yaml", "api" + '_key: "' + FAKE_LIT + '"\n'),
         _write(tmp_path, "c.md", f"Use the bearer token `{FAKE_SK}` for calls\n"),
     ]
     found = {(f[0], f[2].split(":")[0]) for f in sl.scan(rels, root=tmp_path)}
