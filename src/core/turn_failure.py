@@ -5,11 +5,12 @@ the heartbeat counting "thinking… 20m" forever). When a turn dies anywhere in 
 (triage, context assembly, dispatch), the adapter edits the placeholder into a visible error and
 files the failure here so the operator can find it after the fact.
 
-Record shape (one file per platform, de-duplicated): `$NEXUS_DATA_DIR/turn_failures/
-turn-crash__<platform>.json` — status, detail, first/last seen, occurrences, and evidence
-(session key, stage, traceback tail). A later crash on the same platform refreshes the entry
-and bumps `occurrences`; an operator marks it handled by setting `"status": "RECOVERED"` (the
-next crash then starts a fresh entry and keeps the old one under `previous`).
+Record shape — the error-inbox entry format scripts/nightly_sweeper.py reads and DMs, so turn
+crashes reach the operator with everything else that broke overnight: `$NEXUS_DATA_DIR/
+error-inbox/open/turn-crash__<platform>.json` — status, detail, first/last seen, occurrences,
+and evidence (session key, stage, traceback tail). A later crash on the same platform refreshes
+the entry and bumps `occurrences`; `nightly_sweeper.py --clear turn-crash__<platform>` removes
+it (a RECOVERED entry is replaced by the next crash, kept under `previous`).
 
 # NEXUS:PORTABLE — no platform or provider names; zero LLM calls.
 """
@@ -25,7 +26,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _DATA_DIR = Path(os.environ.get("NEXUS_DATA_DIR", Path(__file__).parent.parent.parent / "data"))
-OPEN_DIR = _DATA_DIR / "turn_failures"
+OPEN_DIR = _DATA_DIR / "error-inbox" / "open"
 
 
 def user_message(exc: BaseException, stage: str) -> str:

@@ -1,0 +1,15 @@
+{
+  "_doc": "Per-job expectations for scripts/nightly_sweeper.py. Copy to config/error-inbox-expectations.json. Keys are run_tracked job ids (the <job-id> in `run_tracked.py <job-id> -- cmd`). A job that exits 0 can still be SILENT (expected output missing / forbidden output present) or STALE (no run within max_age_hours). Keys starting with _ are metadata.",
+  "_ignore_units": ["example-parked.service"],
+  "_ignore_reasons": {"example-parked.service": "hardware not installed yet — expected to be inactive"},
+  "nightly-backup": {
+    "require_output": true,
+    "must_match": "backup complete",
+    "must_not_match": ["0 files copied", "WARNING: disk"],
+    "description": "Nightly backup must say it completed and must not report an empty copy"
+  },
+  "monthly-report": {
+    "max_age_hours": 768,
+    "description": "Runs on the 1st; flag if no run for 32 days"
+  }
+}

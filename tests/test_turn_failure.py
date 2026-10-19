@@ -19,8 +19,8 @@ _CFG = {}
 @pytest.fixture(autouse=True)
 def _records(tmp_path, monkeypatch):
     _CFG["dir"] = str(tmp_path / "config")
-    monkeypatch.setattr(turn_failure, "OPEN_DIR", tmp_path / "turn_failures")
-    return tmp_path / "turn_failures"
+    monkeypatch.setattr(turn_failure, "OPEN_DIR", tmp_path / "error-inbox" / "open")
+    return tmp_path / "error-inbox" / "open"
 
 
 class _Sessions:
