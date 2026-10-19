@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Workspace guard — the office model (2026-10-19, live→Nexus).** `src/core/workspace_guard.py`
+  gates destructive tool calls against the operator's `workspace/`: a context linked to a project
+  may clear anything in that project's top-level folder (nested projects are sub-rooms) except the
+  root and scaffolding/operational entries; from a linked context, other projects are off-limits;
+  unlinked contexts roam with scaffolding still protected. Quote-aware, `cd`-tracking, glob-expanding
+  command parsing (only destructive operands count — fixes the live bug where `cd <proj> && rm x`
+  read as "rm project root"). `run_agent()` gains `guard_fn` (every call, before `confirm_fn`,
+  fail-closed). `scripts/workspace_guard_hook.py` is the same checker as a PreToolUse hook for the
+  `claude_code` provider (~0.1 s, loads by file path). 42 tests. See `docs/WORKSPACE_GUARD.md`.
 - **Triage accuracy report script and fit_check downgrade to advisory (2026-09-25).**
   `scripts/triage_accuracy_report.py` reads triage-validation.db and surfaces accuracy
   metrics: by tier (nano/standard/deep/apex), per-channel, by domain, misclassification

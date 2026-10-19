@@ -183,7 +183,11 @@ by orchestration code (swarm P3 tool-steps are the intended first consumer); sol
 deliberate later step. Non-openai providers accept-and-ignore `tools` until implemented
 (`supports_tools()` remains advertised-vs-actual for them — see each file's send() comment).
 
-Last verified against code: 2026-07-20
+**2026-10-19:** `run_agent(guard_fn=…)` added — a per-call guard ahead of `confirm_fn`, fail-closed
+on guard error. Reference guard: `src/core/workspace_guard.py` (office model, 42 tests;
+`docs/WORKSPACE_GUARD.md`).
+
+Last verified against code: 2026-10-19
 
 ---
 

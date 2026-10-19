@@ -18,9 +18,12 @@ never enforced. Now:
 Safety: a ToolDef with requires_confirmation=True is executed ONLY if the
 caller supplies a confirm_fn that approves it — no confirm_fn means such calls
 are refused (fail-closed). The refusal text is fed back to the model as an
-error tool result, and the system preamble tells it not to retry. Operators
-wanting claude-brain-style guard scripts wire them in via confirm_fn (see the
-live core/agent_guards.py for the reference shape).
+error tool result, and the system preamble tells it not to retry.
+
+Guard: `guard_fn(name, args) -> (allowed, reason)` runs on EVERY tool call before
+the confirmation gate — e.g. `core.workspace_guard.guard_tool_call` (the office
+model: project roots, scaffolding and other projects are off-limits to
+destructive calls). A crashing guard blocks that call.
 
 Provider dialects are the provider's own job here (each parses tool_calls into
 neutral ToolCall objects in its send()) — cleaner than the live system's single
@@ -79,6 +82,7 @@ async def run_agent(
     token_budget: int = 60_000,
     categories: Optional[list[str]] = None,      # limit the tool set (registry categories)
     confirm_fn: Optional[Callable[[str, dict], Awaitable[bool]]] = None,
+    guard_fn: Optional[Callable[[str, dict], Awaitable[tuple[bool, str]]]] = None,
     on_status: Optional[Callable[[str], Awaitable[None]]] = None,
 ) -> AgentRunResult:
     """Drive one agentic run on `provider`. Never raises — failures come back
@@ -148,6 +152,22 @@ async def run_agent(
             t0 = time.monotonic()
             event = {"tool": call.name, "refused": False, "error": False}
             tool = registry.get(call.name)
+
+            # Guard runs on EVERY call (live parity: agent_guards before each tool).
+            # Returns (allowed, reason); a crashing guard fails CLOSED for that call.
+            if guard_fn is not None:
+                try:
+                    allowed, reason = await guard_fn(call.name, call.arguments or {})
+                except Exception as e:
+                    allowed, reason = False, f"guard error: {e}"
+                if not allowed:
+                    event["blocked"] = True
+                    events.append(event)
+                    messages.append(Message(role="tool", content="", tool_results=[
+                        ToolResult(call_id=call.call_id, is_error=True,
+                                   content=f"BLOCKED: {reason}")]))
+                    await _notify(f"⛔ {call.name}: guard-blocked")
+                    continue
 
             if tool is not None and tool.requires_confirmation:
                 approved = False

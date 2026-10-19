@@ -198,3 +198,14 @@ subsystems:
       - "docs/phone-llm-cluster.md"
       - "KNOWN_LIMITATIONS.md"
     claim: "Documented hardware DESIGNS, not validated deployments. Test matrix does not include multi-GPU NVLink or phone clusters."
+
+  - area: "workspace guard / agent loop guard (office model)"
+    paths:
+      - "src/core/workspace_guard.py"
+      - "scripts/workspace_guard_hook.py"
+      - "src/core/agent_loop.py"
+    docs:
+      - "docs/WORKSPACE_GUARD.md"
+      - "docs/BUILDOUT_STATUS.md"
+      - "AGENTS.md"
+    claim: "Destructive ops only. Linked context = top-level project folder (nested = sub-rooms); root + scaffolding entries need confirm; other projects blocked from a linked context; reads never blocked. guard_fn runs on every call, fail-closed."

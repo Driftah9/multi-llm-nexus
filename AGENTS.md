@@ -65,7 +65,10 @@ MCP is Claude Code specific. Other providers use function_call (OpenAI format) o
 `tool_calls` out into `ProviderResponse`, and the loop confirms → executes → feeds results back until a
 plain-text answer (max-iters / wall-clock / token-budget cuts each end in one tool-less summarize call).
 `requires_confirmation` is enforced FAIL-CLOSED: such tools run only if the caller's `confirm_fn`
-approves (wire operator guard scripts there — see live `adapters/core/agent_guards.py` for the shape).
+approves. `guard_fn` runs on EVERY call before that gate — `core/workspace_guard.py` is the
+reference guard (the office model: project roots, scaffolding and, from a linked context, other
+projects are off-limits to destructive calls; see `docs/WORKSPACE_GUARD.md`). The same checker
+ships as a PreToolUse hook for the `claude_code` provider: `scripts/workspace_guard_hook.py`.
 Full wire passthrough: the `openai` provider type (covers Groq/Mistral/Cerebras/Gemini-openai/etc. —
 the combos live-validated). Other providers accept-and-ignore `tools` until implemented.
 
