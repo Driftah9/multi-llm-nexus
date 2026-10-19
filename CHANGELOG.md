@@ -145,6 +145,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
   no-op until that's configured.
 
 ### Fixed
+- **Chain gave up at the first benched provider (2026-10-19).** `select_provider` returned
+  None whenever the top-sorted entry was FAILED, even with untried entries behind it; a fresh
+  boot (everything UNKNOWN until the first sweep) with a retired model at priority 2 failed every
+  turn for the first minute. Selection now skips FAILED entries and anything already tried this
+  turn (`exclude=`), and `HealthMonitor.run` sweeps once at startup instead of after one interval.
 - **Invalid key returned as HTTP 400 stopped the whole chain (2026-10-19).** `error_classifier`
   matched BAD_REQUEST's "400" before AUTH for "Please pass a valid API key" (Gemini), so one bad
   key ended the turn instead of advancing. AUTH now matches the invalid-key phrasings first.

@@ -153,6 +153,9 @@ Tests: 14 error inbox (incl. real-subprocess run_tracked) + 10 notify failover +
 - **Deployment config findings (operator action, not code):** on the reference deployment the
   `cerebras` key is rejected (401) and the `google_gemini` key is invalid; two configured models
   (`meta/llama-3.1-70b-instruct`, `llama-3.1-8b-instant`) are no longer listed by their providers.
+- **Deploy (`nexus.service` restart):** the first prompt after boot failed — cerebras 402,
+  groq model gone, then "No available providers" with seven entries untried. Pre-existing
+  selection bug, fixed (see CHANGELOG → Fixed); 436 green, redeployed, re-verified.
 
 ## Not ported (deliberately), with reasons
 

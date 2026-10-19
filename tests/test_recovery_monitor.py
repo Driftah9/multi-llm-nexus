@@ -169,3 +169,62 @@ def test_no_on_recovery_means_silent_recovery():
         await HealthMonitor(ch).sweep()
     asyncio.run(go())
     assert e.health == ProviderHealth.HEALTHY
+
+
+# ── selection past a benched head entry (2026-10-19 restart regression) ──────
+
+def _turn_chain(*entries, attempts=3):
+    return ProviderChain(list(entries), ChainConfig(enable_health_monitoring=False,
+                                                    retry_attempts=attempts, retry_delay=0))
+
+
+def test_failed_head_entry_does_not_end_selection():
+    a, b = _entry("a", _P()), _entry("b", _P())
+    a.priority, b.priority = 1, 2
+    a.health = ProviderHealth.FAILED            # b is still UNKNOWN (no sweep yet)
+    ch = _turn_chain(a, b)
+    assert asyncio.run(ch.select_provider()) is b.provider
+
+
+def test_select_provider_skips_excluded_names():
+    a, b = _entry("a", _P()), _entry("b", _P())
+    a.priority, b.priority = 1, 2
+    ch = _turn_chain(a, b)
+    assert asyncio.run(ch.select_provider(exclude={"a"})) is b.provider
+    assert asyncio.run(ch.select_provider(exclude={"a", "b"})) is None
+
+
+def test_turn_walks_past_dead_providers_to_a_live_one():
+    # Fresh boot: everyone UNKNOWN. Head is unpaid (402), next has a retired model.
+    dead_pay, dead_model, live = _P(), _P(), _P()
+    entries = [_entry("pay", dead_pay), _entry("gone", dead_model), _entry("live", live)]
+    for i, e in enumerate(entries):
+        e.priority = i + 1
+    ch = _turn_chain(*entries)
+    errors = {id(dead_pay): "Error code: 402 - payment required, quota",
+              id(dead_model): "Error code: 404 - {'error': {'message': 'The model "
+                              "`llama-3.1-8b-instant` does not exist or you do not have "
+                              "access to it.', 'type': 'invalid_request_error', "
+                              "'code': 'model_not_found'}}"}
+
+    async def invoke(provider):
+        if id(provider) in errors:
+            raise RuntimeError(errors[id(provider)])
+        return "pong"
+    ok, result, used, fallback, err = asyncio.run(ch.try_with_fallback(invoke))
+    assert ok and result == "pong" and used is live and fallback
+
+
+def test_monitor_sweeps_once_at_startup():
+    p = _P(healthy=True)
+    e = _entry("groq", p)
+    ch = _chain(e)
+
+    async def go():
+        mon = HealthMonitor(ch, interval=3600)
+        task = asyncio.create_task(mon.run())
+        await asyncio.sleep(0.05)
+        await mon.stop()
+        task.cancel()
+    asyncio.run(go())
+    assert p.checks == 1 and e.health == ProviderHealth.HEALTHY

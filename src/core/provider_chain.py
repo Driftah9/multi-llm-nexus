@@ -184,14 +184,19 @@ class ProviderChain:
         except Exception as ex:
             logger.debug(f"provider health save skipped ({path}): {ex}")
 
-    async def select_provider(self, tier: Optional[str] = None) -> Optional[BaseProvider]:
+    async def select_provider(self, tier: Optional[str] = None,
+                              exclude: Optional[set] = None) -> Optional[BaseProvider]:
         """
         Select the best available provider, optionally filtered by tier.
 
         Strategy:
         1. Find providers matching the tier (if specified)
         2. Sort by priority and health
-        3. Return first healthy provider
+        3. Return the first entry that is not FAILED
+
+        `exclude` holds entry names already tried this turn. FAILED entries are
+        skipped rather than ending the search: one benched provider at the head of
+        the order must not hide untried ones behind it.
 
         Returns None if no provider is available.
         """
@@ -204,6 +209,8 @@ class ProviderChain:
 
             if tier:
                 candidates = [e for e in candidates if e.tier == tier]
+            if exclude:
+                candidates = [e for e in candidates if e.name not in exclude]
 
             if not candidates:
                 logger.warning(f"No providers available for tier: {tier}")
@@ -241,8 +248,9 @@ class ProviderChain:
                     return non_busy[0].provider
                 # All pools busy or no pool config — fall through to normal selection
 
-            if sorted_entries and sorted_entries[0].health != ProviderHealth.FAILED:
-                return sorted_entries[0].provider
+            for e in sorted_entries:
+                if e.health != ProviderHealth.FAILED:
+                    return e.provider
 
             logger.warning(f"All providers for tier '{tier}' are failed or degraded")
             return None
@@ -305,9 +313,10 @@ class ProviderChain:
         attempts = 0
         last_error = None
         first_selected: Optional[ProviderChainEntry] = None
+        tried: set = set()
 
         while attempts < min(len(self.entries), self.config.retry_attempts):
-            provider = await self.select_provider(tier=tier)
+            provider = await self.select_provider(tier=tier, exclude=tried)
             if not provider:
                 fr.turn_end(_turn_id, ok=False, provider=None)
                 return False, None, None, False, "No available providers"
@@ -317,6 +326,7 @@ class ProviderChain:
                 first_selected = entry
             name = entry.name if entry else "?"
             model = getattr(entry.provider, "model", None) if entry else None
+            tried.add(name)
 
             if on_attempt and entry:
                 try:
@@ -519,13 +529,11 @@ class HealthMonitor:
         """Run health checks at configured interval."""
         self.running = True
 
+        # Sweep once at startup: until the first sweep every entry is UNKNOWN, so the
+        # first turns after a restart would walk dead providers in priority order.
         while self.running:
-            await asyncio.sleep(self.interval)
-
-            if not self.running:
-                break
-
             await self.sweep()
+            await asyncio.sleep(self.interval)
 
     async def sweep(self) -> None:
         tasks = [self._check_provider(entry) for entry in self.chain.entries]
