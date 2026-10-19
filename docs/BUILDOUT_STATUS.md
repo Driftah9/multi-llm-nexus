@@ -170,6 +170,17 @@ Phase 2+ should converge on one so a provider's health + headroom is read from a
 
 ---
 
+## Live → Nexus convergence, October 2026 (in progress 2026-10-19)
+
+**Status: BUILT + TESTED, stage by stage** — record in `docs/LIVE_CONVERGENCE_2026-10.md`.
+Workspace guard (office model); mechanical provider recovery with operator announcements inside
+`ProviderChain.HealthMonitor` (+ `outage_reason`); council contradiction scan and worker-health
+gating of council members.
+
+Last verified against code: 2026-10-19
+
+---
+
 ## Agent loop — tools layer made real (live→Nexus, 2026-07-20)
 
 **Status: BUILT + TESTED (9 tests), engine wiring pending.** Before this, the tools layer was an

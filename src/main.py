@@ -399,8 +399,14 @@ async def run(providers_yaml: Path, adapters_yaml: Path, config_dir: Path) -> No
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
 
-    # Start chain health monitoring if configured
+    # Start chain health monitoring if configured. Recovery of a downed provider is
+    # announced through the operator's notify seam (entrypoint-injected; core never
+    # imports an adapter). Notifier.send is blocking HTTP → run it off the loop.
     if chain:
+        async def _announce_recovery(text: str) -> None:
+            from .core.notify import Notifier
+            await asyncio.to_thread(Notifier.from_config().send, text)
+        chain.on_recovery = _announce_recovery
         await bridge.start_health_monitoring()
 
     # Run engine + adapters + pool monitor concurrently

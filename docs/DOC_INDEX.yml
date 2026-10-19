@@ -209,3 +209,12 @@ subsystems:
       - "docs/BUILDOUT_STATUS.md"
       - "AGENTS.md"
     claim: "Destructive ops only. Linked context = top-level project folder (nested = sub-rooms); root + scaffolding entries need confirm; other projects blocked from a linked context; reads never blocked. guard_fn runs on every call, fail-closed."
+
+  - area: "provider recovery / outage reasons"
+    paths:
+      - "src/core/outage_reason.py"
+      - "src/core/provider_chain.py"
+    docs:
+      - "docs/LIVE_CONVERGENCE_2026-10.md"
+      - "docs/BUILDOUT_STATUS.md"
+    claim: "HealthMonitor decides recovery by failure class (quota waits, transient probes, auth/bad_request/model_gone need a human); recovery clears the bench and calls the injected on_recovery; no second health store."

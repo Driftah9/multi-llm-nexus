@@ -362,4 +362,5 @@ Ordered by the live-system audit of 2026-09-25 ([`docs/LIVE_SYSTEM_AUDIT_2026-09
 - Live thread context fetching in MM adapter (last 20 posts → orchestrator dispatch)
 - Skills subsystem (`skill_manifest` / `skill_roster` / `skill_router` / `skill_usage` /
   `skill_gap_detector`) and the seat/lease cluster (`primary_lock`, `seat_lease`,
-  `failover_executor`, `recovery_watcher`) — larger, less urgent.
+  `failover_executor`) — larger, less urgent. (`recovery_watcher`'s behaviour landed
+  2026-10-19 inside `ProviderChain.HealthMonitor` — see `docs/LIVE_CONVERGENCE_2026-10.md`.)

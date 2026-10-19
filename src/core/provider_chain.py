@@ -17,7 +17,8 @@ from enum import Enum
 from typing import Optional
 
 from ..providers.base import BaseProvider
-from .error_classifier import classify_error, is_retryable_same, should_advance_chain, AUTH, QUOTA, MODEL_GONE
+from .error_classifier import (classify_error, is_retryable_same, should_advance_chain,
+                               is_probe_recoverable, AUTH, QUOTA, MODEL_GONE)
 from . import flight_recorder as fr
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class ProviderChainEntry:
     last_error: str = ""
     response_time_ms: float = 0.0
     cooldown_until: float = 0.0  # epoch time until which this entry is skipped on hot path
+    down_since: float = 0.0      # epoch of the first failure in the current outage (0 = not down)
 
 
 @dataclass
@@ -110,6 +112,9 @@ class ProviderChain:
         self.config = config or ChainConfig()
         self.monitor: Optional[HealthMonitor] = None
         self._lock = asyncio.Lock()
+        # Injected by the caller (core modules never import an adapter): async fn(text) that
+        # tells the operator a downed provider is back. None = recover silently.
+        self.on_recovery = None
         self._load_health()
 
     def _load_health(self) -> None:
@@ -135,6 +140,7 @@ class ProviderChain:
                 e.consecutive_failures = int(st.get("consecutive_failures", 0))
                 e.cooldown_until = float(st.get("cooldown_until", 0.0))
                 e.last_error = st.get("last_error", "")
+                e.down_since = float(st.get("down_since", 0.0))
         except FileNotFoundError:
             pass
         except Exception as ex:
@@ -154,6 +160,7 @@ class ProviderChain:
                     "consecutive_failures": e.consecutive_failures,
                     "cooldown_until": e.cooldown_until,
                     "last_error": (e.last_error or "")[:200],
+                    "down_since": e.down_since,
                 }
                 for e in self.entries if e.name
             }
@@ -374,6 +381,7 @@ class ProviderChain:
                     entry.consecutive_failures = 0
                     entry.health = ProviderHealth.HEALTHY
                     entry.cooldown_until = 0.0
+                    entry.down_since = 0.0
                     break
             self._save_health()
 
@@ -382,6 +390,8 @@ class ProviderChain:
         async with self._lock:
             for entry in self.entries:
                 if entry.provider is provider:
+                    if entry.consecutive_failures == 0 or not entry.down_since:
+                        entry.down_since = time.time()
                     entry.consecutive_failures += 1
                     entry.last_error = error
 
@@ -458,8 +468,19 @@ class HealthMonitor:
     """
     Background health monitor for provider chain.
 
-    Periodically calls provider.health_check() to detect failures
-    before they cause user-facing errors.
+    Healthy entries: periodic provider.health_check() to detect failures before they
+    cause user-facing errors.
+
+    Down entries (failures recorded): recovery is decided MECHANICALLY by failure class
+    (ported from live claude-brain's recovery watcher, 2026-10-19):
+      quota                  → wait for the cooldown/reset window, then probe
+      transient / unknown    → probe now
+      auth / bad_request /
+      model_gone             → needs a human; never probed or auto-cleared here
+    On recovery the entry is cleared exactly like a live success (failures, cooldown,
+    down_since) and, unless it is a local-floor provider, the chain's injected
+    `on_recovery(text)` is told — with the cause (outage_reason) and how long it was down.
+    The model never decides whether a provider is up; the probe does.
     """
 
     def __init__(self, chain: ProviderChain, interval: int = 60):
@@ -477,32 +498,72 @@ class HealthMonitor:
             if not self.running:
                 break
 
-            tasks = [self._check_provider(entry) for entry in self.chain.entries]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await self.sweep()
+
+    async def sweep(self) -> None:
+        tasks = [self._check_provider(entry) for entry in self.chain.entries]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    @staticmethod
+    def _is_down(entry: ProviderChainEntry) -> bool:
+        return entry.consecutive_failures > 0 or entry.health == ProviderHealth.FAILED
+
+    def _should_probe(self, entry: ProviderChainEntry) -> bool:
+        if not self._is_down(entry):
+            return True
+        klass = classify_error(entry.last_error)
+        if klass == QUOTA:
+            return time.time() >= entry.cooldown_until
+        return is_probe_recoverable(klass)
 
     async def _check_provider(self, entry: ProviderChainEntry) -> None:
         """Check health of a single provider."""
+        if not self._should_probe(entry):
+            return
+        was_down = self._is_down(entry)
+        snapshot = (entry.last_error, entry.down_since)
         try:
             start = time.time()
             is_healthy = await entry.provider.health_check()
             elapsed_ms = (time.time() - start) * 1000
-
-            async with self.chain._lock:
-                entry.last_check = time.time()
-                entry.response_time_ms = elapsed_ms
-
-                if is_healthy:
-                    if entry.health == ProviderHealth.FAILED:
-                        logger.info(f"Provider {entry.name} recovered during health check")
-                    entry.health = ProviderHealth.HEALTHY
-                    entry.consecutive_failures = 0
-                else:
-                    entry.health = ProviderHealth.DEGRADED
-
         except Exception as e:
             logger.warning(f"Health check failed for {entry.name}: {e}")
             entry.last_check = time.time()
             await self.chain.record_failure(entry.provider, error=str(e))
+            return
+
+        async with self.chain._lock:
+            entry.last_check = time.time()
+            entry.response_time_ms = elapsed_ms
+            if not is_healthy:
+                entry.health = ProviderHealth.DEGRADED
+                return
+
+        if was_down:
+            await self.chain.record_success(entry.provider)   # clears failures/cooldown/down_since
+            logger.info(f"Provider {entry.name} recovered during health check")
+            await self._announce(entry, *snapshot)
+        else:
+            async with self.chain._lock:
+                entry.health = ProviderHealth.HEALTHY
+                entry.consecutive_failures = 0
+
+    async def _announce(self, entry: ProviderChainEntry, last_error: str, down_since: float) -> None:
+        notify = getattr(self.chain, "on_recovery", None)
+        if notify is None or entry.cost_class == "local":
+            return   # the local floor is a backstop, not a frontier we report on
+        from .outage_reason import describe, summary
+        reason = describe(last_error, classify_error(last_error))
+        down = ""
+        if down_since:
+            secs = int(time.time() - down_since)
+            down = f" · down ~{secs // 60}m {secs % 60}s" if secs >= 60 else f" · down ~{secs}s"
+        text = (f"✅ Provider `{entry.name}` is back online. Normal routing resumed.\n"
+                f"Cause: {summary(reason)}{down}")
+        try:
+            await notify(text)
+        except Exception as e:
+            logger.warning(f"recovery announce failed for {entry.name}: {e}")
 
     async def stop(self) -> None:
         """Stop the health monitor."""

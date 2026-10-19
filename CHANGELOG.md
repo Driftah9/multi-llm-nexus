@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Mechanical provider recovery + outage reasons (2026-10-19, live→Nexus).**
+  `src/core/outage_reason.py` turns raw failure text into an operator-facing cause and whose side
+  it is on. `ProviderChain.HealthMonitor` now decides recovery by failure class (quota waits for its
+  window, transient/unknown probe, auth/bad_request/model_gone left for a human), clears the bench
+  on recovery (previously a recovered provider stayed skipped until its cooldown expired) and
+  announces it through an injected `on_recovery` callback, wired to the `Notifier` seam in
+  `main.py`. `ProviderChainEntry.down_since` persisted. 18 tests.
+- **Council contradiction scan (2026-10-19, live→Nexus).** `src/orchestration/council_contradictions.py`
+  flags verdict/polarity/numeric conflicts between council roles (zero-LLM), injects them into the
+  chairman prompt as must-resolve items and records them (`council_session` schema v2). The council
+  executor now also gates members through `worker_health` (benched providers no longer get roles).
+  18 tests. See `docs/LIVE_CONVERGENCE_2026-10.md`.
 - **Workspace guard — the office model (2026-10-19, live→Nexus).** `src/core/workspace_guard.py`
   gates destructive tool calls against the operator's `workspace/`: a context linked to a project
   may clear anything in that project's top-level folder (nested projects are sub-rooms) except the
