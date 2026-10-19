@@ -6,9 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Error inbox (2026-10-19, live→Nexus).** `scripts/run_tracked.py` wraps cron jobs and records
+  each run; `scripts/nightly_sweeper.py` checks the real crontab + systemd timers/services and
+  classifies FAILED / DID_NOT_FIRE / HUNG / SILENT / STALE into a de-duplicated inbox
+  (`$NEXUS_DATA_DIR/error-inbox/`), DMs the operator via `Notifier`. Validated byte-identical to
+  the live sweeper on real host state. 14 tests.
+- **Notifier failover + circuit breaker (2026-10-19, live→Nexus).** `src/core/comms_breaker.py`;
+  `Notifier.send` falls through `notify.fallback_order` when the primary fails or its breaker is
+  open, banners rerouted messages, reports recovery. 10 tests.
+- **`scripts/secrets_lint.py` (2026-10-19, live→Nexus).** Scans tracked files for key-shaped
+  literals (design rule #4); `test_repo_is_clean` enforces it. 5 tests.
 - **Turn-failure surfacing (2026-10-19, live→Nexus).** `src/core/turn_failure.py`; a crash in
   pre-dispatch, dispatch or output now replaces the placeholder with a visible error and records
-  it under `$NEXUS_DATA_DIR/turn_failures/` instead of leaving "…"/"thinking…" up forever. 7 tests.
+  it in the error inbox (`$NEXUS_DATA_DIR/error-inbox/open/`) instead of leaving "…"/"thinking…" up forever. 7 tests.
 - **Routing weights — telemetry now drives routing (2026-10-19, live→Nexus).**
   `ProviderChain.try_with_fallback` records every attempt to `routing_telemetry` (Phase 1 had no
   caller); `src/core/routing_weights.py` derives demote-only weights from telemetry + council

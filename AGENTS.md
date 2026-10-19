@@ -107,7 +107,9 @@ notify:
 ```
 
 `notifier.send(message, destination=…, channel=…, protocol=…)` — omit the kwargs to
-follow the operator's configured default. The wizard asks for these at setup
+follow the operator's configured default. If that protocol fails or its circuit breaker
+(`core/comms_breaker.py`) is open, delivery falls through `notify.fallback_order` (default:
+the other configured protocols) with a reroute banner. The wizard asks for these at setup
 (`notification_setup()`); it is not expected to be hand-edited.
 
 ### Two caller patterns

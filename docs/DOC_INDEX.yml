@@ -245,4 +245,30 @@ subsystems:
       - "src/adapters/adapter_base.py"
     docs:
       - "docs/LIVE_CONVERGENCE_2026-10.md"
-    claim: "A crash in pre-dispatch, dispatch or output replaces the placeholder with a visible error and records it under $NEXUS_DATA_DIR/turn_failures/; no stage leaves the placeholder hanging."
+    claim: "A crash in pre-dispatch, dispatch or output replaces the placeholder with a visible error and records it in $NEXUS_DATA_DIR/error-inbox/open/ (read by nightly_sweeper); no stage leaves the placeholder hanging."
+
+  - area: "error inbox / scheduled-job verification"
+    paths:
+      - "scripts/run_tracked.py"
+      - "scripts/nightly_sweeper.py"
+      - "src/core/turn_failure.py"
+    docs:
+      - "docs/LIVE_CONVERGENCE_2026-10.md"
+    claim: "The schedule itself (crontab + systemd) is the source of truth for what should run; one de-duplicated inbox entry per job; RECOVERED, never auto-deleted; operator DM via Notifier."
+
+  - area: "notify failover / comms breaker"
+    paths:
+      - "src/core/notify.py"
+      - "src/core/comms_breaker.py"
+    docs:
+      - "AGENTS.md"
+      - "docs/LIVE_CONVERGENCE_2026-10.md"
+    claim: "Primary, then notify.fallback_order (default: other configured protocols); breaker opens after 3 consecutive failures, 5-min cooldown, state persisted across processes."
+
+  - area: "secrets lint (design rule #4)"
+    paths:
+      - "scripts/secrets_lint.py"
+      - "config/secrets-lint-allow.txt"
+    docs:
+      - "docs/LIVE_CONVERGENCE_2026-10.md"
+    claim: "Scans git-tracked files; prints file:line:kind only, never the value; every allowlist entry carries a reason."

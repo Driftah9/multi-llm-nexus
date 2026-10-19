@@ -10,6 +10,7 @@ config/adapters.yaml
 config/user_preferences.json
 config/sessions.json
 config/capability_baseline.json
+config/error-inbox-expectations.json
 config/sessions/
 
 # Python

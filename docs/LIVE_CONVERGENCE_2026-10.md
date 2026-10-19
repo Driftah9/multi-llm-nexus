@@ -92,12 +92,13 @@ Tests: 13 (8 ported, 5 Nexus seams incl. chain-evidence → demotion end-to-end)
   now covers three stages after the placeholder is posted: **pre-dispatch** (triage, routing,
   context), **dispatch** (bridge/orchestrator), **output** (review gate, formatting, send). A crash
   in any of them edits the placeholder into a visible error (pre-dispatch says no usage was spent)
-  and records it in `$NEXUS_DATA_DIR/turn_failures/turn-crash__<platform>.json` (de-duplicated per
-  platform, `occurrences` counter, traceback tail). Previously a pre-dispatch crash left "…" up
+  and records it in `$NEXUS_DATA_DIR/error-inbox/open/turn-crash__<platform>.json` (de-duplicated
+  per platform, `occurrences` counter, traceback tail) — the inbox the Stage 3 nightly sweeper
+  reports from. Previously a pre-dispatch crash left "…" up
   forever and a dispatch crash froze the last "thinking…" heartbeat text.
-- **Adaptation:** live files into its error inbox (read by a nightly sweeper DM) and tells the
-  owner to use the CLI on the brain VM; Nexus has no error inbox, so it keeps its own record dir
-  and the user message is install-neutral.
+- **Adaptation:** live tells the owner to pick the turn up from the CLI on its VM; the Nexus
+  user message is install-neutral. The record format is live's error-inbox entry, so Stage 3's
+  sweeper DMs turn crashes alongside failed jobs.
 - **Bug fixed:** `AdapterBase._check_review_gate` compared against `ReviewTrigger.NONE`, which
   has never existed (members: SKIP/SUGGEST/AUTO; reference since v0.6.0). Every successful turn
   through the Mattermost/Discord/Telegram adapters raised `AttributeError` after the answer was
@@ -105,12 +106,47 @@ Tests: 13 (8 ported, 5 Nexus seams incl. chain-evidence → demotion end-to-end)
   to fail with the old line restored.
 Tests: 7 (real `NexusBehavior` + heuristic triage; only platform I/O and the bridge are faked).
 
+## Stage 3 — Linux ops layer
+
+**3a. Error inbox — did everything scheduled actually run?**
+- `scripts/run_tracked.py` — wraps a cron job transparently (output passes through line by
+  line, exit code preserved), records each run to `$NEXUS_DATA_DIR/error-inbox/state/`, flags
+  crash signatures even on exit 0, extends cron's PATH with the user bin dirs.
+- `scripts/nightly_sweeper.py` — reads the REAL schedule (crontab + custom systemd timers +
+  enabled services under /etc/systemd/system) and classifies each job: FAILED / DID_NOT_FIRE /
+  HUNG / SILENT / STALE / OK; hung turns from the task journal; per-job expectations
+  (`config/error-inbox-expectations.json`, example shipped). One de-duplicated inbox entry per
+  job (`error-inbox/open/`), RECOVERED not deleted, DM via the `Notifier` seam. Accepts both
+  `run_tracked.py` and the live `run-tracked` spelling in crontab lines.
+- `core/turn_failure` (Stage 2f) writes into the same inbox, so turn crashes reach the nightly DM.
+- **Validated against the real host:** run read-only (`--dry-run`) on the reference VM's live
+  crontab/systemd/error-inbox state, the port's classification output was **byte-identical** to
+  live's own sweeper (80 OK / 7 not-yet-due / 3 failed, line for line).
+
+**3b. Notifier failover + circuit breaker.** `src/core/comms_breaker.py` (persisted, flock-guarded;
+3 consecutive failures → open, 5 min cooldown → half-open trial) and failover inside
+`Notifier.send`: primary, then `notify.fallback_order` (default: the other configured protocols
+in config order), only configured protocols. Rerouted messages carry a banner; the first message
+through the recovered primary reports the outage length and how many messages went via fallback.
+
+**3c. Secrets lint.** `scripts/secrets_lint.py` — design rule #4 ("public-safe") made checkable:
+scans every git-TRACKED file (what a push publishes) for key-shaped literals, prints
+`file:line:kind` only. Live scans its home-directory layout; Nexus scans the repo.
+`config/secrets-lint-allow.txt` records two pre-existing synthetic fixtures (with reasons).
+`tests/test_secrets_lint.py::test_repo_is_clean` keeps the repo clean going forward.
+Tests: 14 error inbox (incl. real-subprocess run_tracked) + 10 notify failover + 5 secrets lint.
+
 ## Not ported (deliberately), with reasons
 
 | Live module | Why not now |
 |---|---|
 | `core/connection_roster.py` (+ `scripts/connection_roster_check.py`) | Built on live's multi-key credential model (per-provider credential sidecars, N keys per vendor, rotation). Nexus has no equivalent; porting it means porting that subsystem first. Its time-based down/recovery half is covered by the Stage 2a HealthMonitor. |
 | `core/prompt_assembly.py` + `core/conversation_ledger.py` | Live runs it on by default, but its brain-queue item is **failed-review** — not validated. Live-first rule: prove it, then port. |
+| `core/council_resumer.py` outage parking (`OUTAGE_STEP`) | Parks a mid-turn drop of live's LOCKED primary and resumes it on the same CLI session. Nexus has no primary lock — the chain fails over on health and the fallback answers, so there is no parked turn to resume. |
+| `core/session_window.py` hold/seed, `memory_injector.recall_for_turn` | Support code for `prompt_assembly` (above); ports with it. |
+| `memory_injector` default RAG namespaces (`memory` dropped) | Follows live's engram/RAG scope split; Nexus has no engram, so `memory` stays a RAG namespace. |
+| `scripts/bulletins.py` | Its only reader is live's ops board (brain-observatory). Nexus has no renderer. |
+| `scripts/consolidate-secrets.py` | Migrates secrets into live's `.local/etc/<service>/` layout; Nexus keeps secrets in `.env`. |
 | `core/claude_roster_watch.py`, `scripts/claude-window-cycler.py`, `scripts/claude-auth-watch.py`, `scripts/cloud_credit_ledger.py`, `scripts/nvidia_nim_roster_check.py` | Vendor-specific to the reference install's subscriptions/keys. |
 
 Last verified against code: 2026-10-19

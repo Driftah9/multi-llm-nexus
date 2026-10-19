@@ -176,7 +176,9 @@ Phase 2+ should converge on one so a provider's health + headroom is read from a
 Workspace guard (office model); mechanical provider recovery with operator announcements inside
 `ProviderChain.HealthMonitor` (+ `outage_reason`); council contradiction scan and worker-health
 gating of council members; capability baseline + qualification flap guard; routing weights
-(chain telemetry wired, demote-only reordering of the chain and council).
+(chain telemetry wired, demote-only reordering of the chain and council); turn-failure surfacing
+(+ fix for every adapter reply crashing before posting); error inbox (run_tracked +
+nightly_sweeper); Notifier failover + circuit breaker; secrets lint.
 
 Last verified against code: 2026-10-19
 
