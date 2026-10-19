@@ -19,6 +19,8 @@ def _isolate_routing_ledgers(tmp_path, monkeypatch):
     monkeypatch.setattr(routing_weights, "WEIGHTS_PATH", tmp_path / "routing_weights.json")
     monkeypatch.setattr(routing_weights, "SESSIONS_DIR", tmp_path / "council_sessions")
     routing_weights._cache.update(mtime=None, doc=None)
+    from src.core import comms_breaker
+    monkeypatch.setattr(comms_breaker, "STATE", tmp_path / "comms" / "breaker.json")
     yield
 
 

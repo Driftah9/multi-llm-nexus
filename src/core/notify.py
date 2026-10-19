@@ -8,6 +8,13 @@ Reads the active adapter config at call time — never hardcodes a protocol.
 Changing the configured adapter in adapters.yaml is the only change needed to
 reroute all internal notifications.
 
+Failover (ported from live claude-brain, 2026-10-19): if the requested protocol fails, or
+its circuit breaker is open (core/comms_breaker.py — 3 consecutive failures, 5 min cooldown,
+persisted across processes), delivery falls through `notify.fallback_order` (default: the
+other configured protocols, in config order). A rerouted message is prefixed with
+"[<primary> unreachable — fallback via <proto>]"; the first message that gets through the
+primary again says how long it was down and how many messages went via fallback.
+
 Usage:
     from src.core.notify import Notifier
     n = Notifier.from_config()
@@ -48,6 +55,13 @@ class Notifier:
         raw = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
         return cls(raw.get(_NOTIFY_SECTION, {}))
 
+    def _chain(self, primary: str) -> list[str]:
+        """primary, then the operator's fallback order — only protocols actually configured."""
+        protos = self._cfg.get("protocols", {}) or {}
+        order = self._cfg.get("fallback_order") or list(protos)
+        chain = [primary] + [p for p in order if p != primary]
+        return [p for p in chain if protos.get(p)]
+
     def send(
         self,
         message: str,
@@ -55,19 +69,59 @@ class Notifier:
         channel: str = None,
         protocol: str = None,
     ) -> bool:
+        """Deliver via the requested protocol; if it fails or its breaker is open, fall
+        through the fallback chain. True if any protocol delivered."""
+        from . import comms_breaker as breaker
+
         cfg = self._cfg
-        proto = protocol or cfg.get("default_protocol", "")
+        primary = protocol or cfg.get("default_protocol", "")
         dest = destination or cfg.get("default_destination", "dm")
 
-        if not proto:
+        if not primary:
             logger.warning("Notifier: no default_protocol configured — message dropped")
             return False
+        chain = self._chain(primary)
+        if primary not in chain:
+            logger.warning(f"Notifier: protocol '{primary}' not configured")
 
-        proto_cfg = cfg.get("protocols", {}).get(proto, {})
+        for proto in chain:
+            try:
+                if not breaker.allow(proto):
+                    logger.info(f"Notifier: {proto} circuit open — skipping")
+                    continue
+                body = message
+                if proto == primary:
+                    out = breaker.outage(proto)
+                    if out:
+                        body = (f"✅ {primary} recovered — unreachable since {out['down_since'][:16]}Z, "
+                                f"{out['rerouted']} message(s) delivered via fallback meanwhile.\n\n{message}")
+                else:
+                    body = f"⚠️ [{primary} unreachable — fallback via {proto}]\n{message}"
+            except Exception as e:   # breaker state unreadable → never block delivery on it
+                logger.debug(f"Notifier: breaker unavailable ({e})")
+                body = message
+            ok = self._send_one(proto, body, dest, channel)
+            try:
+                if ok:
+                    breaker.record_success(proto)
+                    if proto != primary:
+                        breaker.record_reroute(primary, proto)
+                        logger.info(f"Notifier: delivered via fallback {proto}")
+                else:
+                    breaker.record_failure(proto, "send returned False")
+            except Exception as e:
+                logger.debug(f"Notifier: breaker record skipped ({e})")
+            if ok:
+                return True
+        if chain:
+            logger.error("Notifier: ALL protocols failed — message not delivered")
+        return False
+
+    def _send_one(self, proto: str, message: str, dest: str, channel: Optional[str]) -> bool:
+        """One delivery attempt on one protocol. Never raises."""
+        proto_cfg = self._cfg.get("protocols", {}).get(proto, {})
         if not proto_cfg:
-            logger.warning(f"Notifier: protocol '{proto}' not configured — message dropped")
             return False
-
         try:
             if proto == "mattermost":
                 return self._send_mattermost(message, dest, channel, proto_cfg)

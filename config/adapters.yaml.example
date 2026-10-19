@@ -108,6 +108,10 @@ openai_api:
 notify:
   default_protocol: mattermost   # mattermost | discord | telegram | slack
   default_destination: dm        # dm | channel
+  # If the default protocol fails (or its circuit breaker is open — 3 consecutive failures,
+  # 5 min cooldown), delivery falls through this order. Default: every configured protocol
+  # below, in the order listed. Only configured protocols are ever tried.
+  # fallback_order: [mattermost, telegram, discord]
   protocols:
     mattermost:
       url: http://localhost:8065
