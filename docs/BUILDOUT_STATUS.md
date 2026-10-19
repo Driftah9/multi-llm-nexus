@@ -175,7 +175,8 @@ Phase 2+ should converge on one so a provider's health + headroom is read from a
 **Status: BUILT + TESTED, stage by stage** — record in `docs/LIVE_CONVERGENCE_2026-10.md`.
 Workspace guard (office model); mechanical provider recovery with operator announcements inside
 `ProviderChain.HealthMonitor` (+ `outage_reason`); council contradiction scan and worker-health
-gating of council members.
+gating of council members; capability baseline + qualification flap guard; routing weights
+(chain telemetry wired, demote-only reordering of the chain and council).
 
 Last verified against code: 2026-10-19
 

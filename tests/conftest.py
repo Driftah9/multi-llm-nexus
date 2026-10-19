@@ -7,6 +7,21 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+# ── Ledger isolation ─────────────────────────────────────────────────────────
+# The provider chain records every attempt to routing telemetry, and routing_weights
+# derives demotions from it. A test must never write those ledgers in the real data dir:
+# fake providers would enter routing evidence (live hit exactly this, 2026-10-07).
+
+@pytest.fixture(autouse=True)
+def _isolate_routing_ledgers(tmp_path, monkeypatch):
+    from src.core import routing_telemetry, routing_weights
+    monkeypatch.setattr(routing_telemetry, "_LOG_PATH", str(tmp_path / "routing_telemetry.jsonl"))
+    monkeypatch.setattr(routing_weights, "WEIGHTS_PATH", tmp_path / "routing_weights.json")
+    monkeypatch.setattr(routing_weights, "SESSIONS_DIR", tmp_path / "council_sessions")
+    routing_weights._cache.update(mtime=None, doc=None)
+    yield
+
+
 # ── Mock provider ────────────────────────────────────────────────────────────
 
 class MockProviderResponse:

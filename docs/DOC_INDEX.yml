@@ -229,3 +229,12 @@ subsystems:
       - "docs/BUILDOUT_STATUS.md"
       - "AGENTS.md"
     claim: "is_qualified = earned (min samples + flap-guarded bar) OR seeded by the operator's optional baseline file; no real baseline ships — only an example keyed to placeholder ids."
+
+  - area: "routing weights / routing telemetry"
+    paths:
+      - "src/core/routing_weights.py"
+      - "src/core/routing_telemetry.py"
+    docs:
+      - "docs/LIVE_CONVERGENCE_2026-10.md"
+      - "docs/BUILDOUT_STATUS.md"
+    claim: "The chain records every attempt; routing_weights is DEMOTE-ONLY (>=8 recent samples AND weight<0.35 or p50>12s), never drops a provider, identity with no evidence or ROUTING_WEIGHTS_ENABLED=0."

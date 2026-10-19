@@ -178,6 +178,14 @@ async def run(
     # assigned roles and every role failed (live, 2026-09-14). Fail-open:
     # filter_candidates never empties a non-empty list.
     members = worker_health.filter_candidates(members)
+    # Learned reliability (routing_weights): providers with enough recent evidence of
+    # failing slide to the back of the pool. Demote-only, never drops — it changes which
+    # provider wins assign_roles' ties/fallback, not who's eligible.
+    try:
+        from ..core import routing_weights
+        members = routing_weights.order(members)
+    except Exception:
+        pass
 
     if not members:
         logger.warning("council_executor: no available members, falling back to empty council")

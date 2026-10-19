@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); this project use
 ## [Unreleased]
 
 ### Added
+- **Routing weights — telemetry now drives routing (2026-10-19, live→Nexus).**
+  `ProviderChain.try_with_fallback` records every attempt to `routing_telemetry` (Phase 1 had no
+  caller); `src/core/routing_weights.py` derives demote-only weights from telemetry + council
+  sessions and reorders `ProviderChain.select_provider` and council members. Thin evidence never
+  moves anything; `ROUTING_WEIGHTS_ENABLED=0` disables. Test ledgers isolated in conftest. 13 tests.
 - **Capability baseline + qualification flap guard (2026-10-19, live→Nexus).**
   `src/orchestration/capability_baseline.py`: optional operator priors
   (`config/capability_baseline.json`, example shipped) make `is_qualified` = earned OR seeded and

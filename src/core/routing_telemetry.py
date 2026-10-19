@@ -12,6 +12,9 @@ frequently narrate their reasoning instead of answering ("Okay, the user
 wants…", "<think>…"). Flagging it here gives Phase 2 a usable quality proxy
 without spending tokens on an LLM judge.
 
+Fed by ProviderChain.try_with_fallback (one row per attempt, 2026-10-19); read by
+core/routing_weights (Phase 2), which turns it into demote-only routing order.
+
 Log path: $ROUTING_TELEMETRY_PATH  or  $NEXUS_DATA_DIR/routing_telemetry.jsonl
 """
 

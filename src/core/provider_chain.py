@@ -20,6 +20,18 @@ from ..providers.base import BaseProvider
 from .error_classifier import (classify_error, is_retryable_same, should_advance_chain,
                                is_probe_recoverable, AUTH, QUOTA, MODEL_GONE)
 from . import flight_recorder as fr
+from . import routing_telemetry, routing_weights
+
+
+def _result_text(result) -> str:
+    """Best-effort answer text from whatever invoke_fn returned (telemetry quality proxy)."""
+    if isinstance(result, str):
+        return result
+    for attr in ("content", "text"):
+        v = getattr(result, attr, None)
+        if isinstance(v, str):
+            return v
+    return ""
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +195,10 @@ class ProviderChain:
 
         Returns None if no provider is available.
         """
+        # Learned reliability (routing_weights): demote-only — a provider with enough recent
+        # evidence of failing/slowness sorts after its peers in the same health class, never
+        # dropped. Computed before the lock: a periodic rebuild must not block selection.
+        demoted = routing_weights.demoted_set()
         async with self._lock:
             candidates = self.entries
 
@@ -204,11 +220,12 @@ class ProviderChain:
             if not eligible:
                 eligible = candidates
 
-            # Sort by: health status (healthy first), then priority
+            # Sort by: health status (healthy first), then learned demotion, then priority
             sorted_entries = sorted(
                 eligible,
                 key=lambda e: (
                     e.health != ProviderHealth.HEALTHY,  # healthy=0, others=1
+                    e.name in demoted,                   # demoted after peers (routing_weights)
                     e.priority  # lower priority number = higher precedence
                 )
             )
@@ -309,9 +326,12 @@ class ProviderChain:
 
             fr.attempt_start(_turn_id, name, model)
 
+            t0 = time.monotonic()
             try:
                 result = await invoke_fn(provider)
                 # Mark success
+                routing_telemetry.record(name, int((time.monotonic() - t0) * 1000), True,
+                                         _result_text(result), task_class=tier)
                 await self.record_success(provider)
                 fr.attempt_end(_turn_id, name, ok=True)
 
@@ -323,6 +343,8 @@ class ProviderChain:
             except Exception as e:
                 last_error = str(e)
                 klass = classify_error(last_error)
+                routing_telemetry.record(name, int((time.monotonic() - t0) * 1000), False,
+                                         task_class=tier)
                 fr.attempt_end(_turn_id, name, ok=False, error=last_error)
 
                 # BAD_REQUEST (malformed / filtered / over-length) fails identically on
@@ -340,7 +362,10 @@ class ProviderChain:
                     try:
                         await asyncio.sleep(self.config.retry_delay)
                         fr.attempt_start(_turn_id, name, model)
+                        t0 = time.monotonic()
                         result = await invoke_fn(provider)
+                        routing_telemetry.record(name, int((time.monotonic() - t0) * 1000), True,
+                                                 _result_text(result), task_class=tier)
                         await self.record_success(provider)
                         fr.attempt_end(_turn_id, name, ok=True)
                         fallback = first_selected and entry and entry.priority > first_selected.priority
@@ -348,6 +373,8 @@ class ProviderChain:
                         return True, result, provider, fallback, None
                     except Exception as e2:
                         last_error = str(e2)
+                        routing_telemetry.record(name, int((time.monotonic() - t0) * 1000), False,
+                                                 task_class=tier)
                         fr.attempt_end(_turn_id, name, ok=False, error=last_error)
 
                 # QUOTA / AUTH, or a transient that failed its retry — advance the chain.

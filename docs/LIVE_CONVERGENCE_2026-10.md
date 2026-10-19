@@ -64,4 +64,26 @@ Tests: 18 ported from live (fixtures adapted).
   whose promotion is still unconfirmed.
 Tests: 12 baseline (adapted from live) + 13 hysteresis (ported verbatim).
 
+## Stage 2d — Routing weights (telemetry → routing)
+
+- **Gap found:** Nexus had `routing_telemetry.record()` (Phase 1) but nothing called it. The
+  chain now records one row per attempt in `try_with_fallback` (success, latency, reasoning-leak
+  proxy, tier as task class), including the same-provider retry.
+- `src/core/routing_weights.py` — port of live Phase 2: per-provider weight = reliability
+  (Beta-prior over telemetry + council seats/failures) × quality × latency factor over a 21-day
+  window. **Demote-only and stable:** a provider is demoted only with ≥ 8 recent samples AND
+  weight < 0.35 or median success latency > 12 s; it then sorts after its peers in the same
+  health class — never dropped. No evidence → no change. Kill switch `ROUTING_WEIGHTS_ENABLED=0`.
+- Wired into `ProviderChain.select_provider` (sort key: health, demoted, priority; computed
+  before the chain lock) and `council_executor.run` (`order(members)` after the worker-health gate).
+- **Adaptations:** live pins Claude entries as fixed anchors — Nexus core has no special
+  provider, so `is_anchor` is caller-supplied and unused by default. Live filters evidence by its
+  provider catalog; Nexus does not (chain names and orchestration ids are separate namespaces).
+  Ledger paths follow the writer modules (`TELEMETRY_PATH`/`SESSIONS_DIR` = None → read the
+  telemetry/session modules' own paths), so one env var moves writer and reader together.
+- `tests/conftest.py` gains an autouse fixture isolating the routing ledgers — live leaked test
+  `fake` rows into its real ledger (2026-10-07); with the chain now recording, every chain test
+  would otherwise write to `data/`.
+Tests: 13 (8 ported, 5 Nexus seams incl. chain-evidence → demotion end-to-end).
+
 Last verified against code: 2026-10-19
