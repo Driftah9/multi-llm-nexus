@@ -69,3 +69,8 @@ data/capability_map.json
 data/provider_status.json
 data/routing_telemetry.jsonl
 data/routing_weights.json
+
+# Runtime data is never source: every file under data/ is written by a script or the
+# running service and recreated on demand. Lessons from it belong in docs/CHANGELOG.
+data/*
+!data/.gitkeep
