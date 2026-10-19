@@ -1,30 +1,36 @@
-# Push: Documentation sync for PW-3→PW-8
+# Push: Live → Nexus convergence, October 2026
 
-## Commit Message
-```
-docs: sync documentation with PW-3→PW-8 changes
+## Commit range
+`origin/main..main` — 7 previously-unpushed commits from 2026-09-25/26 (domain classifier
+integration, self-improvement loop) + 10 convergence commits from 2026-10-19.
 
-- INSTALLER_RESILIENCE.md: recast as two-layer (preflight + checkpoint);
-  removed the deleted CI-matrix/GitHub-Actions layer; testing is local-only
-- README.md: add optional preflight step + note boot-time config schema validation
-- CHANGELOG.md: add Unreleased entries for PW-5 (config_schema), PW-6 (installer
-  resilience), PW-8 (triage_validator ext), PW-3 (model swap), PW-4 (sessions.json)
-- BUILDOUT_STATUS.md: mark Cerebras-404 blocker resolved; swap retired models
-- convergence-2026-06.md: add PW-3→PW-8 hardening-pass section
-- AGENTS.md: update status header to 0.9.0 + convergence hardening
-- CONTRIBUTING.md: note config/*.yaml is schema-validated at boot
-- Retired-model swaps in SYSTEM_DESIGN, POOL_ROUTING_REFACTOR,
-  provider-integration-roadmap, api-key-setup-guide (405b→DeepSeek-V3.2,
-  qwen-3-235b→gpt-oss-120b)
+## Summary
+Ports the live claude-brain changes since the last sync (2026-09-26). Full record, including
+what was deliberately NOT ported and why: `docs/LIVE_CONVERGENCE_2026-10.md`.
 
-All documentation now reflects the hardening and feature-port work completed
-on convergence-port-2026-06 branch. No retired models referenced in docs.
-No CI-workflow references for installer testing (interactive installers can't
-run headless).
-```
+- feat(guard): workspace guard — the office model (`core/workspace_guard.py`, agent-loop
+  `guard_fn`, `scripts/workspace_guard_hook.py`)
+- feat(recovery): mechanical provider recovery + operator announcements in the chain
+  HealthMonitor; `core/outage_reason.py`
+- feat(council): contradiction scan; worker-health gate on council members
+- feat(capability): operator baseline priors + qualification flap guard
+- feat(routing): chain telemetry wired; demote-only routing weights
+- fix(adapters): every adapter reply crashed before posting (`ReviewTrigger.NONE`, since
+  v0.6.0); turn-failure surfacing
+- feat(ops): error inbox — `run_tracked.py` + `nightly_sweeper.py`
+- feat(notify): protocol failover + persisted circuit breaker
+- feat(security): `secrets_lint.py` over tracked files; repo-clean test
+- fix(error_classifier): invalid key returned as HTTP 400 is AUTH, not BAD_REQUEST
+
+## Validation
+- Suite: 432 passed (baseline 275).
+- `scripts/secrets_lint.py`: 0 findings in tracked files.
+- Real-system: boot smoke on the deployment's real provider config; one live provider
+  round-trip through the chain (telemetry → weights); sweeper output byte-identical to live on
+  real host state.
 
 ## Branch
-convergence-port-2026-06 (or main if merging)
+main (fast-forward from `port/live-convergence-2026-10`)
 
 ## Version
 0.9.0-unreleased
